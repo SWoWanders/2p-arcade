@@ -119,7 +119,7 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
 .gstat .side{display:flex; align-items:center; gap:8px; font-size:clamp(17px,2.6vw,24px); white-space:nowrap; overflow:hidden; min-width:0}
 .gstat .side.r{justify-content:flex-end}
 .gstat .side .nm{overflow:hidden; text-overflow:ellipsis}
-.gstat .side .sc{font-family:var(--head); font-weight:900; font-size:clamp(24px,4vw,36px)}
+.gstat .side .sc{font-family:var(--font); font-weight:700; font-variant-numeric:tabular-nums; font-size:clamp(24px,4vw,36px)}
 .gstat .p0{color:var(--cyan); text-shadow:0 0 8px rgba(0,240,255,.8)}
 .gstat .p1{color:var(--pink); text-shadow:0 0 8px rgba(255,43,214,.8)}
 .gstat .mid{flex:none; max-width:40%; text-align:center; font-size:clamp(16px,2.4vw,22px); color:var(--yellow); text-shadow:0 0 8px rgba(255,230,0,.6); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
@@ -555,7 +555,7 @@ game({
         tx=clamp(tx,minX,maxX); ty=clamp(ty,R,H-R);
         let dx=tx-m.x, dy=ty-m.y; const L=Math.hypot(dx,dy), mx=(c.slow?1150:1900)*h;
         if(L>mx){ dx*=mx/L; dy*=mx/L; }
-        m.x+=dx; m.y+=dy; m.vx=dx/h; m.vy=dy/h;
+        const ox=m.x, oy=m.y; m.x+=dx; m.y+=dy; this._corner(m, R, false); m.vx=(m.x-ox)/h; m.vy=(m.y-oy)/h;
       }
       const k=s.k;
       if(s.pause>0){ k.vx=k.vy=0; continue; }
@@ -570,6 +570,7 @@ game({
         if(k.x< -r*.2){ this._score(s,1); return; }
         if(k.x> W+r*.2){ this._score(s,0); return; }
       }
+      this._corner(k, r, true);
       for(let p=0;p<2;p++){
         const m=s.m[p]; let dx=k.x-m.x, dy=k.y-m.y; const d=Math.hypot(dx,dy);
         if(d<R+r && d>0){
@@ -578,11 +579,31 @@ game({
           if(vn<0){ k.vx-=1.85*vn*nx; k.vy-=1.85*vn*ny; if(s.last!==p || Math.random()<.5) emit('hit'); s.last=p; }
         }
       }
+      // never let a mallet squeeze the puck through a wall: keep the puck on the table, push the mallet back instead
+      { const inM = k.y>H/2-G+r*.4 && k.y<H/2+G-r*.4;
+        if(!inM){ if(k.x<r){ k.x=r; k.vx=Math.abs(k.vx); } if(k.x>W-r){ k.x=W-r; k.vx=-Math.abs(k.vx); } }
+        if(k.y<r){ k.y=r; k.vy=Math.abs(k.vy); } if(k.y>H-r){ k.y=H-r; k.vy=-Math.abs(k.vy); }
+        this._corner(k, r, true);
+        for(let p=0;p<2;p++){ const m=s.m[p]; const dx=m.x-k.x, dy=m.y-k.y, d=Math.hypot(dx,dy)||1; if(d<R+r){ m.x=k.x+dx/d*(R+r); m.y=k.y+dy/d*(R+r); } } }
       const sp=Math.hypot(k.vx,k.vy), MX=2300; if(sp>MX){ k.vx*=MX/sp; k.vy*=MX/sp; }
       const f=Math.exp(-.28*h); k.vx*=f; k.vy*=f;
     }
+    // a puck sitting still near a wall gets a gentle push back into play
+    const k=s.k, slow=Math.hypot(k.vx,k.vy)<30, nearWall = k.x<150||k.x>W-150||k.y<150||k.y>H-150;
+    s.slowT = (slow && nearWall && s.pause<=0) ? (s.slowT||0)+dt : 0;
+    if(s.slowT>2.2){ const dx=W/2-k.x, dy=H/2-k.y, L=Math.hypot(dx,dy)||1; k.vx=dx/L*320; k.vy=dy/L*320; s.slowT=0; }
   },
   _wall(){ if(Math.random()<.7) emit('wall'); },
+  // the rink corners are rounded (same radius as the drawn border), so nothing can wedge into a square corner
+  CR:70,
+  _corner(o, rad, bounce){
+    const W=this.W, H=this.H, CR=this.CR;
+    const cx = o.x<CR ? CR : (o.x>W-CR ? W-CR : null), cy = o.y<CR ? CR : (o.y>H-CR ? H-CR : null);
+    if(cx==null || cy==null) return;
+    const dx=o.x-cx, dy=o.y-cy, d=Math.hypot(dx,dy), lim=Math.max(2, CR-rad);
+    if(d<=lim) return; const nx=dx/d, ny=dy/d; o.x=cx+nx*lim; o.y=cy+ny*lim;
+    if(bounce){ const vn=o.vx*nx+o.vy*ny; if(vn>0){ o.vx-=1.9*vn*nx; o.vy-=1.9*vn*ny; this._wall(); } }
+  },
   _score(s, p){
     s.sc[p]++; emit('goal');
     if(s.sc[p]>=s.to){ s.over=true; s.winner=p; s.banner=''; return; }
@@ -621,7 +642,7 @@ game({
     const sz=clamp(V.sc*230, 44, 150);
     for(let p=0;p<2;p++){ const q=V.toS(p?this.W*.75:this.W*.25, this.H*.5);
       const flash = s.pause>0 && s.banner==='GOAL!' && s.last===-1 ? 1 : 0;
-      c.save(); c.globalAlpha=.42+flash*.3; glowText(c, String(s.sc[p]), q.x, q.y, sz, PC[p], {font:HEAD, weight:900, glow:1.1}); c.restore(); }
+      c.save(); c.globalAlpha=.42+flash*.3; glowText(c, String(s.sc[p]), q.x, q.y, sz, PC[p], {font:BODY, weight:700, glow:1.1}); c.restore(); }
   },
   draw(g, s){
     const c=g.ctx, W=this.W, H=this.H, G=this.GOAL;
