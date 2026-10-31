@@ -140,13 +140,13 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
   #gMid:empty{display:none} }
 
 /* ---------- side buttons (avatar, dance, view, voice) ---------- */
-.side{position:fixed; z-index:5; left:max(10px, env(safe-area-inset-left)); top:calc(max(10px, env(safe-area-inset-top)) + 64px); display:grid; gap:8px; grid-template-columns:52px}
-.side .btn{padding:0; font-size:24px}
-.side [hidden], .dmenu[hidden]{display:none}
-.side .btn.live{border-color:var(--green); box-shadow:0 0 14px rgba(57,255,20,.7); animation:pulse 1.4s infinite}
+#side{position:fixed; z-index:5; left:max(10px, env(safe-area-inset-left)); top:calc(max(10px, env(safe-area-inset-top)) + 64px); display:grid; gap:8px; grid-template-columns:52px}
+#side .btn{padding:0; font-size:24px}
+#side [hidden], .dmenu[hidden]{display:none}
+#side .btn.live{border-color:var(--green); box-shadow:0 0 14px rgba(57,255,20,.7); animation:pulse 1.4s infinite}
 @keyframes pulse{ 50%{ box-shadow:0 0 4px rgba(57,255,20,.3) } }
-@media (max-height:520px){ .side{grid-template-columns:52px 52px} }
-.ingame .side, .building .side, .building .hud, .building .reticle, .building .hint, .building .map, .building .stick-hint{display:none}
+@media (max-height:520px){ #side{grid-template-columns:52px 52px} }
+.ingame #side, .building #side, .building .hud, .building .reticle, .building .hint, .building .map, .building .stick-hint{display:none}
 .dmenu{position:fixed; z-index:8; left:calc(max(10px, env(safe-area-inset-left)) + 64px); top:calc(max(10px, env(safe-area-inset-top)) + 64px); background:var(--panel); border:3px solid var(--pink); border-radius:14px; padding:12px;
   box-shadow:0 0 18px rgba(255,43,214,.5); display:flex; flex-wrap:wrap; gap:8px; max-width:min(440px, calc(100vw - 90px))}
 .dmenu h3{width:100%; margin:0 0 2px; font-family:var(--head); font-size:15px; letter-spacing:.14em; color:var(--yellow); text-transform:uppercase}
@@ -519,14 +519,7 @@ function setSound(on){
   const b=$('#sndBtn'); b.textContent=on?'🔊':'🔇'; b.setAttribute('aria-pressed',String(on)); b.setAttribute('aria-label', on?'Sound on':'Sound off');
 }
 let ambOn=false;
-function ambience(){
-  if(ambOn || !SND.on) return; const c=audio(); if(!c) return; ambOn=true;
-  // low electrical hum of a room full of machines
-  const o=c.createOscillator(), o2=c.createOscillator(), g=c.createGain(), f=c.createBiquadFilter();
-  o.type='sawtooth'; o.frequency.value=60; o2.type='sine'; o2.frequency.value=120; f.type='lowpass'; f.frequency.value=180; g.gain.value=.025;
-  o.connect(f); o2.connect(f); f.connect(g); g.connect(SND.master); o.start(); o2.start();
-  SND.amb=g;
-}
+function ambience(){ /* no background hum */ }
 
 /* ---------- game registry (filled in below) ---------- */
 const GAMES = [];
@@ -623,6 +616,13 @@ game({
   lerp(a,b,t){ const o=JSON.parse(JSON.stringify(b)); for(let p=0;p<2;p++){ o.m[p].x=lerp(a.m[p].x,b.m[p].x,t); o.m[p].y=lerp(a.m[p].y,b.m[p].y,t); }
     if(Math.hypot(a.k.x-b.k.x, a.k.y-b.k.y)<300){ o.k.x=lerp(a.k.x,b.k.x,t); o.k.y=lerp(a.k.y,b.k.y,t); } return o; },
   status(s){ return { l:s.sc[0], r:s.sc[1], c:`First to ${s.to}` }; },
+  // big scores on the table, drawn upright in screen space so they read in portrait and landscape
+  overlay(c, s, V){
+    const sz=clamp(V.sc*230, 44, 150);
+    for(let p=0;p<2;p++){ const q=V.toS(p?this.W*.75:this.W*.25, this.H*.5);
+      const flash = s.pause>0 && s.banner==='GOAL!' && s.last===-1 ? 1 : 0;
+      c.save(); c.globalAlpha=.42+flash*.3; glowText(c, String(s.sc[p]), q.x, q.y, sz, PC[p], {font:HEAD, weight:900, glow:1.1}); c.restore(); }
+  },
   draw(g, s){
     const c=g.ctx, W=this.W, H=this.H, G=this.GOAL;
     c.fillStyle='#04061a'; c.beginPath(); rrect(c,0,0,W,H,70); c.fill();
@@ -3604,6 +3604,7 @@ function gameFrame(dt, t){
     c.setTransform(new DOMMatrix().scale(S.dpr).multiply(V.m)); def.draw(g, st, viewer, S.ui, t, V);
     c.setTransform(S.dpr,0,0,S.dpr,0,0);
     if(IS_TOUCH && def.touch==='pad') drawPads(c,V);
+    if(def.overlay) def.overlay(c, st, V, viewer);
     if(st.banner) glowText(c, st.banner, w/2, h*(V.portrait?.5:.46), clamp(Math.min(w,h)*.11,30,84), NEON.yellow, {font:HEAD, weight:900});
   } else { ui_reset(S.ui); const top=boardTop(); if(top){ c.translate(0,top); g.h=h-top; } def.draw(g, st, viewer, S.ui, t); c.setTransform(S.dpr,0,0,S.dpr,0,0); }
   mouseG.click=false;
