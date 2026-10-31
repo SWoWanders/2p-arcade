@@ -220,6 +220,18 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
 .btn.prize .pc{font-family:var(--head); font-weight:800; font-size:15px; color:var(--yellow)}
 .btn.prize.poor{opacity:.55} .btn.prize.on{border-color:var(--yellow); background:#1c1838}
 .tixmsg{font-size:19px; color:var(--yellow); margin:-6px 0 16px}
+
+/* ---------- doodle board ---------- */
+#board{position:fixed; inset:0; z-index:42; background:rgba(3,2,8,.94); display:flex; flex-direction:column; padding:max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); gap:8px}
+#board[hidden]{display:none}
+.bdTop{display:flex; align-items:center; gap:12px; flex:none}
+.bdTop h2{margin:0; font-family:'Monoton', var(--head); font-weight:400; font-size:clamp(24px,4vw,38px); color:var(--violet); text-shadow:0 0 8px var(--violet), 0 0 20px rgba(157,77,255,.6); flex:1}
+#bdWho{font-weight:700; font-size:17px; color:var(--yellow)}
+#bdCanvasWrap{flex:1; min-height:0; display:grid; place-items:center}
+#bdCanvasWrap canvas{display:block; border:3px solid var(--violet); border-radius:8px; box-shadow:0 0 18px rgba(157,77,255,.5); cursor:crosshair; touch-action:none}
+.bdTools{flex:none; display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:center}
+.bdTools .swatch{width:44px; height:44px}
+.bdTools .chip{min-height:46px}
 </style>
 </head>
 <body>
@@ -364,6 +376,13 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
     <div id="shopList"></div>
     <div class="row" style="justify-content:space-between; margin-top:8px"><p class="note" style="margin:0">Win games to print tickets from the machines.</p><button class="btn" id="shopClose">Close</button></div>
   </div>
+</div>
+
+<!-- doodle board -->
+<div id="board" hidden role="dialog" aria-modal="true" aria-label="Doodle board">
+  <div class="bdTop"><h2>Doodle board</h2><span id="bdWho"></span><button class="btn" id="bdClose">Done ✓</button></div>
+  <div id="bdCanvasWrap"></div>
+  <div class="bdTools" id="bdTools"></div>
 </div>
 
 <!-- jukebox -->
@@ -1699,7 +1718,7 @@ function buildLobby(){
   signPlane(signTex([{t:'NOW PLAYING', c:NEON.yellow, size:74, font:HEAD, weight:900}], 1024, 128), 2.6, .33, 5.6, 2.95, .14, 0, 1.6);
   // posters on the lobby walls
   poster(0,-5.4,1.75,.13,0); poster(1,-3.6,1.75,.13,0); poster(2,3.6,1.75,.13,0); poster(3,5.4,1.75,.13,0);
-  poster(4,-2.2,1.75,LOBBY.z1-.13,Math.PI); poster(5,2.2,1.75,LOBBY.z1-.13,Math.PI);
+  poster(4,-5.6,1.85,LOBBY.z1-.13,Math.PI); poster(5,5.6,1.85,LOBBY.z1-.13,Math.PI);
   // ticket booth (left)
   const tb=new THREE.Group(); tb.position.set(-7.0,0,6); scene.add(tb);
   box(1.6,1.1,2.6,0,.55,0,darkMat,tb); box(1.62,.05,2.62,0,1.12,0,chromeMat,tb);
@@ -3112,6 +3131,102 @@ function wearPrize(key,id,cost){
 }
 
 /* =====================================================================
+   DOODLE BOARD — a big blackboard on the lobby's back wall.
+   Tap it to draw full screen with glow markers. Strokes are drawn
+   straight onto the board's canvas (which is also its 3D texture),
+   streamed to the other player as you draw, and saved as a picture.
+   ===================================================================== */
+const BOARD={ W:1536, H:664, cv:null, ctx:null, tex:null, dirty:false, open:false, color:'#00f0ff', size:6, eraser:false, drawing:null, pend:[], flushT:0, inkT:0, wipeArm:0, snap:[] };
+const MARKERS=['#00f0ff','#ff2bd6','#ffe600','#39ff14','#ff8a00','#9d4dff','#ff3355','#ffffff'];
+const BOARD_BG='#070a0e';
+function boardBlank(){ const c=BOARD.ctx; c.globalCompositeOperation='source-over'; c.fillStyle=BOARD_BG; c.fillRect(0,0,BOARD.W,BOARD.H);
+  c.save(); c.globalAlpha=.05; c.fillStyle='#9fb3c8'; for(let i=0;i<600;i++) c.fillRect(Math.random()*BOARD.W, Math.random()*BOARD.H, 2, 2); c.restore(); }
+function buildBoard(){
+  const cv=document.createElement('canvas'); cv.width=BOARD.W; cv.height=BOARD.H; cv.id='boardCv'; BOARD.cv=cv; BOARD.ctx=cv.getContext('2d');
+  boardBlank();
+  const saved=store('board'); if(saved){ const im=new Image(); im.onload=()=>{ BOARD.ctx.drawImage(im,0,0,BOARD.W,BOARD.H); BOARD.dirty=true; }; im.src=saved; }
+  else welcomeDoodle();
+  BOARD.tex=canvasTex(cv);
+  const g=new THREE.Group(); g.position.set(0,0,LOBBY.z1-.06); g.rotation.y=Math.PI; scene.add(g);
+  const bw=4.4, bh=bw*BOARD.H/BOARD.W, cy=1.68;
+  const mat=new THREE.MeshBasicMaterial({ map:BOARD.tex }); mat.color.setScalar(1.25);
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(bw,bh), mat); m.position.set(0,cy,.03); g.add(m);
+  box(bw+.16,bh+.16,.05,0,cy,0,new THREE.MeshStandardMaterial({color:'#2a1a40',roughness:.6}),g);
+  tubeX(-bw/2-.08,bw/2+.08,cy+bh/2+.08,.06,NEON.violet,.03,g); tubeX(-bw/2-.08,bw/2+.08,cy-bh/2-.08,.06,NEON.violet,.03,g);
+  tubeY(cy-bh/2-.08,cy+bh/2+.08,-bw/2-.08,.06,NEON.violet,.03,g); tubeY(cy-bh/2-.08,cy+bh/2+.08,bw/2+.08,.06,NEON.violet,.03,g);
+  // marker tray
+  box(bw*.6,.04,.14,0,cy-bh/2-.14,.08,chromeMat,g);
+  MARKERS.forEach((c,i)=>{ const mk=new THREE.Mesh(new THREE.CylinderGeometry(.015,.015,.15,10), neonMat(c,1.8)); mk.rotation.z=Math.PI/2; mk.position.set(-bw*.25+i*bw*.07,cy-bh/2-.11,.1); g.add(mk); });
+  signPlane(signTex([{t:'DOODLE BOARD', c:NEON.violet, size:120, font:MONO}],1024,200), 2.2,.43, 0,cy+bh/2+.42,.05, 0,1.6,g);
+  const hit=box(bw+.4,bh+.6,.8,0,cy-.1,.4,new THREE.MeshBasicMaterial({visible:false}),g); hit.userData.board=true; hitList.push(hit);
+  collide(-bw/2-.2,bw/2+.2,LOBBY.z1-.25,LOBBY.z1);
+  BOARD.mesh=m;
+}
+function welcomeDoodle(){
+  const c=BOARD.ctx;
+  inkPoly([[180,200],[260,140],[340,200],[260,260],[180,200]], '#ff2bd6', 8);
+  c.save(); c.font=`700 64px ${BODY}`; c.fillStyle='#00f0ff'; c.shadowColor='#00f0ff'; c.shadowBlur=18; c.fillText('Draw on me!', 420, 220); c.restore();
+  inkPoly([[420,260],[560,250],[700,262],[840,250]], '#ffe600', 6);
+}
+function inkPoly(pts, color, w, eraser){
+  if(!pts.length) return; const c=BOARD.ctx; c.save(); c.lineCap='round'; c.lineJoin='round';
+  const path=()=>{ c.beginPath(); c.moveTo(pts[0][0],pts[0][1]); if(pts.length===1) c.lineTo(pts[0][0]+.1,pts[0][1]); for(let i=1;i<pts.length;i++) c.lineTo(pts[i][0],pts[i][1]); };
+  if(eraser){ c.strokeStyle=BOARD_BG; c.lineWidth=w*4; path(); c.stroke(); }
+  else { c.strokeStyle=color;
+    c.globalAlpha=.16; c.lineWidth=w*3.4; path(); c.stroke();
+    c.globalAlpha=.4; c.lineWidth=w*1.9; path(); c.stroke();
+    c.globalAlpha=1; c.lineWidth=w; path(); c.stroke();
+    c.strokeStyle='#ffffff'; c.globalAlpha=.55; c.lineWidth=Math.max(1,w*.35); path(); c.stroke(); }
+  c.restore(); BOARD.dirty=true; saveBoard();
+}
+let boardSaveT=0;
+function saveBoard(){ if(Net.role==='guest' && Net.connected) return; clearTimeout(boardSaveT); boardSaveT=setTimeout(()=>{ try{ store('board', BOARD.cv.toDataURL('image/webp',.82)); }catch(e){ try{ store('board', BOARD.cv.toDataURL('image/jpeg',.8)); }catch(_){} } },1500); }
+function boardFrame(){ if(BOARD.dirty && BOARD.tex){ BOARD.tex.needsUpdate=true; BOARD.dirty=false; }
+  if(BOARD.open){ const busy=performance.now()-BOARD.inkT<1500; $('#bdWho').textContent = busy ? `${Net.partner||'The other player'} is drawing…` : ''; } }
+
+/* ---------- drawing screen ---------- */
+function openBoard(){
+  const wrap=$('#bdCanvasWrap'); if(BOARD.cv.parentElement!==wrap) wrap.appendChild(BOARD.cv);
+  $('#board').hidden=false; BOARD.open=true; keys.clear(); boardTools(); fitBoard(); netSend('doodle',{on:1}); sfx('sel');
+}
+function closeBoard(){ flushInk(); $('#board').hidden=true; BOARD.open=false; netSend('doodle',{on:0}); canvas.focus({preventScroll:true}); }
+function fitBoard(){ const w=$('#bdCanvasWrap').getBoundingClientRect(); const s=Math.min(w.width/BOARD.W, w.height/BOARD.H); BOARD.cv.style.width=(BOARD.W*s)+'px'; BOARD.cv.style.height=(BOARD.H*s)+'px'; }
+addEventListener('resize', ()=>{ if(BOARD.open) fitBoard(); });
+function boardTools(){
+  const T=$('#bdTools'); T.innerHTML='';
+  MARKERS.forEach(c=>{ const b=document.createElement('button'); b.className='swatch'+(!BOARD.eraser&&BOARD.color===c?' on':''); b.style.background=c; b.style.boxShadow=!BOARD.eraser&&BOARD.color===c?'':`0 0 10px ${c}`; b.setAttribute('aria-label','Marker colour'); b.onclick=()=>{ BOARD.color=c; BOARD.eraser=false; sfx('tick'); boardTools(); }; T.appendChild(b); });
+  for(const [w,label] of [[3,'Fine'],[6,'Medium'],[13,'Thick']]){ const b=document.createElement('button'); b.className='chip'+(BOARD.size===w?' on':''); b.textContent=label; b.onclick=()=>{ BOARD.size=w; sfx('tick'); boardTools(); }; T.appendChild(b); }
+  const er=document.createElement('button'); er.className='chip'+(BOARD.eraser?' on':''); er.textContent='🧽 Eraser'; er.onclick=()=>{ BOARD.eraser=!BOARD.eraser; sfx('tick'); boardTools(); }; T.appendChild(er);
+  const wp=document.createElement('button'); wp.className='chip'; wp.id='bdWipe'; wp.textContent='Wipe board'; wp.onclick=()=>{ const now=performance.now(); if(now-BOARD.wipeArm<3000){ boardBlank(); BOARD.dirty=true; saveBoard(); netSend('wipe'); toast('Board wiped clean.'); BOARD.wipeArm=0; wp.textContent='Wipe board'; } else { BOARD.wipeArm=now; wp.textContent='Tap again to wipe'; setTimeout(()=>{ if(wp.isConnected) wp.textContent='Wipe board'; },3000); } }; T.appendChild(wp);
+}
+function boardPt(e){ const r=BOARD.cv.getBoundingClientRect(); return [Math.round((e.clientX-r.left)/r.width*BOARD.W), Math.round((e.clientY-r.top)/r.height*BOARD.H)]; }
+function flushInk(){ const d=BOARD.drawing; if(!d || d.pts.length<1) return; if(d.sent===d.pts.length) return;
+  const from=Math.max(0,d.sent-1), pts=d.pts.slice(from); netSend('ink',{ c:d.c, w:d.w, e:d.e?1:0, p:pts.flat() }); d.sent=d.pts.length; }
+function setupBoardInput(){
+  const cv=BOARD.cv;
+  cv.style.touchAction='none';
+  cv.addEventListener('pointerdown', e=>{ e.preventDefault(); try{ cv.setPointerCapture(e.pointerId); }catch(_){} const p=boardPt(e);
+    BOARD.drawing={ id:e.pointerId, c:BOARD.color, w:BOARD.size*(e.pointerType==='touch'?1.15:1), e:BOARD.eraser, pts:[p], sent:0 }; inkPoly([p],BOARD.color,BOARD.drawing.w,BOARD.eraser); });
+  cv.addEventListener('pointermove', e=>{ const d=BOARD.drawing; if(!d||d.id!==e.pointerId) return; const p=boardPt(e), q=d.pts[d.pts.length-1];
+    if(Math.hypot(p[0]-q[0],p[1]-q[1])<2) return; d.pts.push(p); inkPoly([q,p],d.c,d.w,d.e);
+    if(performance.now()-BOARD.flushT>60){ BOARD.flushT=performance.now(); flushInk(); } });
+  const end=e=>{ const d=BOARD.drawing; if(!d||d.id!==e.pointerId) return; flushInk(); BOARD.drawing=null; };
+  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+}
+/* ---------- sync ---------- */
+function boardOnNet(m){
+  if(m.type==='ink'){ const p=m.p||[], pts=[]; for(let i=0;i+1<p.length;i+=2) pts.push([p[i],p[i+1]]); if(pts.length) inkPoly(pts, MARKERS.includes(m.c)?m.c:'#ffffff', clamp(+m.w||6,1,20), !!m.e); BOARD.inkT=performance.now(); return true; }
+  if(m.type==='wipe'){ boardBlank(); BOARD.dirty=true; saveBoard(); toast(`${Net.partner||'The other player'} wiped the board.`,1800); return true; }
+  if(m.type==='doodle'){ setPartnerLabel(null, m.on ? '✏️ doodling' : ''); return true; }
+  if(m.type==='boardsnap'){ BOARD.snap[m.i]=m.d; if(BOARD.snap.filter(Boolean).length===m.n){ const url=BOARD.snap.join(''); BOARD.snap=[]; const im=new Image(); im.onload=()=>{ BOARD.ctx.globalCompositeOperation='source-over'; BOARD.ctx.drawImage(im,0,0,BOARD.W,BOARD.H); BOARD.dirty=true; }; im.src=url; } return true; }
+  return false;
+}
+function sendBoardSnapshot(){
+  let url; try{ url=BOARD.cv.toDataURL('image/webp',.8); if(!url.startsWith('data:image/webp')) url=BOARD.cv.toDataURL('image/jpeg',.8); }catch(e){ return; }
+  const size=48000, n=Math.ceil(url.length/size); for(let i=0;i<n;i++) netSend('boardsnap',{ i, n, d:url.slice(i*size,(i+1)*size) });
+}
+
+/* =====================================================================
    ONLINE — PeerJS (WebRTC data channel, free public broker, no key)
    ?net=tab swaps in a BroadcastChannel so two tabs can test it offline.
    ===================================================================== */
@@ -3218,6 +3333,7 @@ function onNetUp(){
   if(Voice.stream){ callPartner(); netSend('voice',{on:Voice.state==='on'}); }
   if(Net.role==='host'){ netSend('items',{ list:[...WORLD.values()].map(pack), tix:CABS.flatMap(c=>(c.tix||[]).map(t=>({cab:c.def.id, id:t.id, n:t.n, owner:t.owner==='me'?'host':t.owner, name:t.name}))) }); }
   if(HELD.kind) netSend('hold',{ k:HELD.kind, st:HELD.stage });
+  if(Net.role==='host') sendBoardSnapshot();
   if(Net.role==='guest'){ try{ const u=new URL(location.href); u.searchParams.delete('room'); history.replaceState(null,'',u); }catch(e){} }
 }
 function onNetDown(){
@@ -3253,7 +3369,7 @@ function onNet(m){
     case 'pos': if(partner){ partner.tx=m.x; partner.tz=m.z; partner.tyaw=m.yaw; partner.dance = DANCES.some(d=>d[0]===m.d) ? m.d : null; if(!partner.g.visible){ partner.x=m.x; partner.z=m.z; partner.g.visible=true; } } break;
     case 'where': setPartnerLabel(Net.partner, m.g?`playing ${m.g}`:''); break;
     case 'bye': onNetDown(); break;
-    default: Session.onNet(m);
+    default: if(!boardOnNet(m)) Session.onNet(m);
   }
 }
 
@@ -3673,15 +3789,16 @@ let pointerStart=null, dragging=false, introOpen=true, exitArm=0;
 const mouse={ x:0, y:0, has:false };
 const ray=new THREE.Raycaster(), ndc=new THREE.Vector2();
 function setKb(on){ document.body.classList.toggle('kb', on); }
-function overlayOpen(){ return introOpen || S.open || BLD.open || !$('#shop').hidden || !$('#launch').hidden || !$('#netPanel').hidden || !$('#invite').hidden || !$('#jukebox').hidden; }
+function overlayOpen(){ return BOARD.open || introOpen || S.open || BLD.open || !$('#shop').hidden || !$('#launch').hidden || !$('#netPanel').hidden || !$('#invite').hidden || !$('#jukebox').hidden; }
 function pick(cx,cy){ ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1); ray.setFromCamera(ndc,camera); ray.far=40;
   const h=ray.intersectObjects([...hitList, ...itemHits, lobbyFloor, roomFloor, ...wallHits], false); return h[0]||null; }
 const wallHits=[];
-function infoOf(o){ const u=o.userData; if(u.juke) return {type:'juke'}; if(u.item) return {type:'item', id:u.item}; if(u.trash) return {type:'trash'}; if(u.shop) return {type:'shop', shop:u.shop};
+function infoOf(o){ const u=o.userData; if(u.board) return {type:'board'}; if(u.juke) return {type:'juke'}; if(u.item) return {type:'item', id:u.item}; if(u.trash) return {type:'trash'}; if(u.shop) return {type:'shop', shop:u.shop};
   if(u.tixcab) return (u.tixcab.tix||[]).length ? {type:'tix', cab:u.tixcab} : {type:'cab', cab:u.tixcab}; if(u.cab) return {type:'cab', cab:u.cab}; return null; }
 function interactWith(info, far){
   if(!info) return false;
   switch(info.type){
+    case 'board': if(far){ travel(0, LOBBY.z1-1.8, Math.PI, -.05); } else openBoard(); return true;
     case 'juke': if(far){ travel(JUKE.x, JUKE.z+1.6, 0, -.1); } else openJuke(); return true;
     case 'item': pickUp(info.id); return true;
     case 'trash': if(far){ toast('Walk over to the trash can.'); return true; } if(HELD.kind) trashHeld(); else toast(IS_TOUCH?'Trash can — bring empty wrappers and cups here, or throw things in.':'Trash can — hold something and press Enter here, or throw it in with R.'); return true;
@@ -3734,6 +3851,7 @@ addEventListener('keydown', e=>{
   if(BLD.open){ if(k==='Escape'){ e.preventDefault(); if(!$('#bSex').hidden && !BLD.first) $('#bSex').hidden=true; else closeBuilder(true); } return; }
   if(!$('#jukebox').hidden){ if(k==='Escape'){ e.preventDefault(); closeJuke(); } return; }
   if(!$('#shop').hidden){ if(k==='Escape'){ e.preventDefault(); closeShop(); } return; }
+  if(BOARD.open){ if(k==='Escape'){ e.preventDefault(); closeBoard(); } return; }
   if(typing){ if(k==='Enter'){ if(document.activeElement.id==='joinCode') $('#joinRoom').click(); else if(['myName','p2Name'].includes(document.activeElement.id)) $('#enter').click(); } if(k==='Escape') document.activeElement.blur(); return; }
   if(!$('#invite').hidden){ if(k==='Escape') answerInvite(false); return; }
   if(!$('#launch').hidden){ if(k==='Escape'){ e.preventDefault(); closeLaunch(); } return; }
@@ -3822,7 +3940,7 @@ $('#iYes').onclick=()=>answerInvite(true); $('#iNo').onclick=()=>answerInvite(fa
 $('#sndBtn').onclick=()=>setSound(!SND.on);
 $('#helpBtn').onclick=openIntro;
 $('#hUse').onclick=()=>useHeld(); $('#hThrow').onclick=()=>throwHeld(); $('#hDrop').onclick=()=>dropHeld(); $('#catchBtn').onclick=()=>catchIncoming();
-$('#shopClose').onclick=closeShop; $('#tixChip').onclick=()=>toast(`🎟️ You have ${WALLET.n} tickets. Win games to earn more, then visit the prize counter or snack bar in the lobby.`,3200);
+$('#shopClose').onclick=closeShop; $('#bdClose').onclick=closeBoard; $('#tixChip').onclick=()=>toast(`🎟️ You have ${WALLET.n} tickets. Win games to earn more, then visit the prize counter or snack bar in the lobby.`,3200);
 $('#meBtn').onclick=()=>{ sfx('blip'); openBuilder(); };
 $('#introMe').onclick=()=>{ closeIntro(); setTimeout(()=>openBuilder(!myLook()),180); };
 $('#danceBtn').onclick=()=>{ sfx('blip'); $('#dmenu').hidden ? openDanceMenu() : closeDanceMenu(); };
@@ -3920,7 +4038,7 @@ function frame(){
   placeCamera(dt,t,bob);
   voiceFrame();
   if(me.av) animateAvatar(me.av, dt, { speed:spd, dance:myDance, beat:musicBeat(t), level:Voice.level, hold:!!HELD.kind, use:HELD.use>0?1-HELD.use/HELD.useDur:0, useKind:HELD.useKind });
-  itemsFrame(dt,t);
+  itemsFrame(dt,t); boardFrame();
   animateJukebox(t);
   // attract screens: refresh the nearest ones every frame, the rest in turn
   const near=CABS.map(c=>[c,Math.hypot(c.x-player.x,c.z-player.z)]).sort((a,b)=>a[1]-b[1]);
@@ -3941,7 +4059,8 @@ function frame(){
     let txt='';
     const how = IS_TOUCH?'tap it':'click or <b>Enter</b>';
     if(centreCab){ const ci=centreCab;
-      if(ci.type==='juke') txt=`Jukebox — ${how} to pick a song`;
+      if(ci.type==='board') txt=`Doodle board — ${how} to draw with glow markers`;
+      else if(ci.type==='juke') txt=`Jukebox — ${how} to pick a song`;
       else if(ci.type==='item'){ const o=WORLD.get(ci.id); txt = o ? `${ITEMS[o.kind].name} — ${how} to pick it up` : ''; }
       else if(ci.type==='trash') txt = HELD.kind ? `Trash can — ${how} to throw away the ${ITEMS[HELD.kind].name.toLowerCase()}` : 'Trash can';
       else if(ci.type==='shop') txt = `${ci.shop==='snacks'?'Snack bar':'Prize counter'} — ${how} to shop (🎟 ${WALLET.n})`;
@@ -3967,7 +4086,7 @@ function frame(){
   $('#bar').style.width='25%';
   try{ await Promise.race([ Promise.all([document.fonts.load(`400 80px Monoton`), document.fonts.load(`900 40px Orbitron`), document.fonts.load(`700 30px "Chakra Petch"`)]), new Promise(r=>setTimeout(r,2500)) ]); }catch(e){}
   $('#bar').style.width='50%';
-  buildRooms(); buildLobby(); buildArcade(); setMyLook(myLook()||randomLook()); initHeld(); skinForView(); loadRoom(JSON.parse(store('room')||'[]'));
+  buildRooms(); buildLobby(); buildArcade(); buildBoard(); setupBoardInput(); setMyLook(myLook()||randomLook()); initHeld(); skinForView(); loadRoom(JSON.parse(store('room')||'[]'));
   $('#bar').style.width='80%';
   for(const cab of CABS) paintScreen(cab,0);
   camera.position.set(player.x,EYE,player.z); camera.rotation.set(player.pitch,player.yaw,0); resize();
@@ -3979,7 +4098,7 @@ function frame(){
   window.__arcadeReady=true;
   requestAnimationFrame(frame);
 })();
-window.__arcade = { WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
+window.__arcade = { BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
 addEventListener('pagehide', ()=>{ if(Net.connected) leaveRoom(); });
 </script>
 </body>
