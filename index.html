@@ -201,6 +201,25 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
 .btn.song.on .sn{color:var(--yellow)}
 .vol{display:flex; align-items:center; gap:12px; font-weight:700; font-size:17px; flex-wrap:wrap}
 .vol input{width:min(260px,60vw); accent-color:var(--pink); height:32px}
+
+/* ---------- tickets, held items, shops ---------- */
+#tixChip{white-space:nowrap} #mapBtn .mi{display:none} @media (max-width:520px){ #mapBtn .mt{display:none} #mapBtn .mi{display:inline} .top .grp{gap:5px} #exit .ht{display:none} .top .btn{min-width:46px; padding:0 8px} } #tixChip b{font-family:var(--head); font-weight:900; color:var(--yellow)}
+.handp{position:fixed; z-index:6; right:max(10px, env(safe-area-inset-right)); top:50%; transform:translateY(-50%); display:grid; gap:8px; width:min(168px,40vw);
+  background:rgba(5,4,10,.82); border:2px solid var(--pink); border-radius:14px; padding:10px; box-shadow:0 0 14px rgba(255,43,214,.4)}
+.handp[hidden], #catchBtn[hidden]{display:none}
+.handp .hname{font-weight:700; font-size:16px; color:var(--yellow); line-height:1.25; text-align:center}
+.handp .btn{min-height:50px; font-size:18px; width:100%}
+#catchBtn{position:fixed; z-index:7; left:50%; top:58%; transform:translateX(-50%); animation:pulse 0.6s infinite; font-size:26px; min-height:72px; padding:0 28px}
+.ingame .handp, .ingame #catchBtn, .building .handp, .building #catchBtn, .building #tixChip{display:none}
+@media (max-height:520px){ .handp{top:auto; bottom:calc(max(12px, env(safe-area-inset-bottom)) + 70px); transform:none; grid-template-columns:1fr 1fr; width:min(260px,44vw)} .handp .hname{grid-column:1/-1} .handp #hUse{grid-column:1/-1} }
+.wallet{font-weight:700; font-size:20px} .wallet b{font-family:var(--head); color:var(--yellow)}
+#shopList{display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,150px),1fr)); gap:10px; margin:8px 0 12px}
+.btn.prize{white-space:normal; flex-direction:column; min-height:132px; padding:10px; gap:4px; text-align:center}
+.btn.prize .pi{font-size:40px; line-height:1}
+.btn.prize .pn{font-weight:700; font-size:17px; line-height:1.2}
+.btn.prize .pc{font-family:var(--head); font-weight:800; font-size:15px; color:var(--yellow)}
+.btn.prize.poor{opacity:.55} .btn.prize.on{border-color:var(--yellow); background:#1c1838}
+.tixmsg{font-size:19px; color:var(--yellow); margin:-6px 0 16px}
 </style>
 </head>
 <body>
@@ -208,13 +227,14 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
 
 <div class="hud top">
   <div class="grp">
-    <a class="btn ghost" id="exit" href="#">← Home</a>
+    <a class="btn ghost" id="exit" href="#" aria-label="Home">←<span class="ht"> Home</span></a>
     <span class="title-chip">Two-Player Arcade</span>
   </div>
   <div class="grp">
+    <button class="btn yellow" id="tixChip" title="Your tickets" aria-label="Your tickets">🎟 <b>50</b></button>
     <button class="btn" id="netBtn" title="Play online (O)"><span class="dot"></span><span class="lbl">Offline</span></button>
     <button class="btn" id="sndBtn" aria-pressed="true" aria-label="Sound on" title="Sound (N)">🔊</button>
-    <button class="btn" id="mapBtn" aria-pressed="false" title="Floor plan (M)">Map</button>
+    <button class="btn" id="mapBtn" aria-pressed="false" title="Floor plan (M)" aria-label="Map"><span class="mt">Map</span><span class="mi">🗺️</span></button>
     <button class="btn" id="helpBtn" title="Controls (H)" aria-label="Controls">?</button>
   </div>
 </div>
@@ -225,6 +245,13 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
   <button class="btn green" id="micBtn" title="Turn on voice chat (T)" aria-label="Turn on voice chat" hidden>🎙️</button>
 </div>
 <div class="dmenu" id="dmenu" hidden><h3>Dance</h3></div>
+<div class="handp" id="handPanel" hidden>
+  <div class="hname" id="hName">—</div>
+  <button class="btn pink" id="hUse">Use</button>
+  <button class="btn" id="hThrow" title="Throw (R)">Throw</button>
+  <button class="btn ghost" id="hDrop" title="Drop (X)">Drop</button>
+</div>
+<button class="btn big yellow" id="catchBtn" hidden>🙌 Catch!</button>
 <div class="hud bottom">
   <button class="btn" id="prev" aria-label="Previous game" title="Previous game (Q)">◀</button>
   <span class="counter" id="counter" aria-live="polite">—</span>
@@ -326,6 +353,17 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
     <div class="sexRow"><button class="btn big" id="bMale"><b>♂</b>Male</button><button class="btn big pink" id="bFemale"><b>♀</b>Female</button></div>
     <button class="btn ghost" id="bSexRand">🎲 Surprise me</button>
   </div></div>
+</div>
+
+<!-- prize counter / snack bar -->
+<div class="overlay" id="shop" hidden role="dialog" aria-modal="true" aria-labelledby="shopTitle">
+  <div class="panel cyan">
+    <div class="row" style="justify-content:space-between"><span class="kicker" id="shopKick">Trade your tickets</span><span class="wallet">🎟 <b id="shopWallet">0</b> tickets</span></div>
+    <h2 id="shopTitle" style="color:var(--cyan); text-shadow:0 0 12px var(--cyan)">Prize Counter</h2>
+    <div class="bTabs" id="shopTabs" style="padding-left:0"></div>
+    <div id="shopList"></div>
+    <div class="row" style="justify-content:space-between; margin-top:8px"><p class="note" style="margin:0">Win games to print tickets from the machines.</p><button class="btn" id="shopClose">Close</button></div>
+  </div>
 </div>
 
 <!-- jukebox -->
@@ -1646,7 +1684,12 @@ function buildLobby(){
   box(1.6,1.1,2.6,0,.55,0,darkMat,tb); box(1.62,.05,2.62,0,1.12,0,chromeMat,tb);
   box(.06,1.5,2.6,.75,1.9,0,new THREE.MeshStandardMaterial({color:'#4fd8ff',transparent:true,opacity:.12,roughness:.1}),tb);
   tubeZ(-1.3,1.3,1.13,.81,NEON.cyan,.035,tb); tubeZ(-1.3,1.3,2.65,.81,NEON.cyan,.035,tb); tubeY(1.13,2.65,.81,-1.3,NEON.cyan,.035,tb); tubeY(1.13,2.65,.81,1.3,NEON.cyan,.035,tb);
-  signPlane(signTex([{t:'TICKETS', c:NEON.cyan, size:150}],1024,256), 2.4,.6,.84,3.0,0,Math.PI/2,1.8,tb);
+  signPlane(signTex([{t:'PRIZES', c:NEON.cyan, size:150}],1024,256), 2.4,.6,.84,3.0,0,Math.PI/2,1.8,tb);
+  // prize shelves behind the glass
+  for(const y of [1.5,2.05]){ box(.5,.03,2.4,.35,y,0,chromeMat,tb); tubeZ(-1.2,1.2,y-.02,.62,NEON.pink,.015,tb); }
+  [['paddle',1.53,-.9],['puppet',1.53,-.35],['chicken',1.53,.25],['glow',1.6,.8],['plane',2.12,-.75],['ball',2.3,.15],['popcorn',2.12,.85]].forEach(([k,y,z])=>{
+    const m=itemMesh(k); m.position.set(.35,y+(k==='ball'?0:.02),z); m.scale.setScalar(k==='ball'?.7:1.8); m.rotation.y=Math.PI/2; tb.add(m); });
+  { const hit=box(.6,1.6,2.7,1.0,.8,0,new THREE.MeshBasicMaterial({visible:false}),tb); hit.userData.shop='prizes'; hitList.push(hit); }
   collide(-8,-6.15,4.65,7.35);
   // concession stand (right)
   const cs=new THREE.Group(); cs.position.set(7.0,0,6.2); scene.add(cs);
@@ -1659,6 +1702,9 @@ function buildLobby(){
   const dm=box(.7,1.9,.8,.35,.95,1.55,darkMat,cs);
   box(.02,1.2,.55,-.01,1.25,1.55,new THREE.MeshBasicMaterial({color:new THREE.Color(NEON.cyan).multiplyScalar(.9)}),cs);
   signPlane(signTex([{t:'SNACKS', c:NEON.orange, size:150}],1024,256), 2.4,.6,-.84,3.0,0,-Math.PI/2,1.8,cs);
+  signPlane(signTex([{t:'HOT DOGS · COLA · SLUSHIES', c:NEON.yellow, size:56, font:HEAD, weight:900},{t:'POPCORN · CANDY', c:NEON.pink, size:56, font:HEAD, weight:900}],1024,200), 1.9,.37,-.84,2.45,.3,-Math.PI/2,1.5,cs);
+  [['hotdog',-.2,.6],['cola',.0,.15],['slushie',.0,-.15],['gummies',-.2,1.0],['bar',-.1,1.3]].forEach(([k,x,z])=>{ const m=itemMesh(k); m.position.set(x,1.17,z); m.scale.setScalar(1.6); m.rotation.y=-Math.PI/2; cs.add(m); });
+  { const hit=box(.6,1.6,4.3,-1.0,.8,0,new THREE.MeshBasicMaterial({visible:false}),cs); hit.userData.shop='snacks'; hitList.push(hit); }
   collide(6.15,8,3.95,8.45);
   // velvet ropes leading to the arcade
   const curvePts=[], posts=[];
@@ -1796,7 +1842,7 @@ function buildArcade(){
   const sb=new THREE.Mesh(new THREE.PlaneGeometry(1.9,1.43), sm); sb.position.set(-4.6,1.85,ROOM.z0+.12); scene.add(sb);
   box(2.0,1.53,.06,-4.6,1.85,ROOM.z0+.07,blackMat);
   paintScoreboard();
-  buildJukebox();
+  buildJukebox(); buildTrash(); addTicketSlots();
 }
 let scoreCanvas, scoreTex;
 const RESULTS = (()=>{ try{ return JSON.parse(store('results')||'[]'); }catch(e){ return []; } })();
@@ -1819,12 +1865,13 @@ function makePartner(name){
   const g=new THREE.Group(); g.visible=false; scene.add(g);
   const lc=document.createElement('canvas'); lc.width=512; lc.height=128; const lt=canvasTex(lc);
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({ map:lt, transparent:true, depthWrite:false })); sp.scale.set(1.3,.325,1); sp.position.y=2.1; g.add(sp);
-  partner={ g, av:null, sp, x:0, z:6, yaw:0, tx:0, tz:6, tyaw:0, px:0, pz:6, speed:0, dance:null, label:lc, ltex:lt, name:'', status:'', look:null };
+  partner={ hold:null, slot:{}, useT:0, useKind:'', g, av:null, sp, x:0, z:6, yaw:0, tx:0, tz:6, tyaw:0, px:0, pz:6, speed:0, dance:null, label:lc, ltex:lt, name:'', status:'', look:null };
   setPartnerLook(randomLook()); setPartnerLabel(name, '');
 }
 function setPartnerLook(look){
   if(!partner) return; if(partner.av) disposeAvatar(partner.av);
-  partner.look=cleanLook(look); partner.av=buildAvatar(partner.look); partner.g.add(partner.av.root); partner.sp.position.y=partner.av.height+.3;
+  partner.look=cleanLook(look); partner.av=buildAvatar(partner.look); partner.g.add(partner.av.root); partner.sp.position.y=partner.av.height+.3+(partner.look.funhat!=='none'?.25:0);
+  if(partner.hold){ partner.slot={}; attachToHand(partner.av, partner.hold.k, partner.hold.st, partner.slot); }
 }
 function setPartnerLabel(name, status){
   if(!partner) return; if(name!=null) partner.name=name; if(status!=null) partner.status=status;
@@ -1838,7 +1885,7 @@ function setPartnerLabel(name, status){
 /* ---------- you ---------- */
 const me={ g:new THREE.Group(), av:null };
 scene.add(me.g); me.g.visible=false;
-function setMyLook(look){ if(me.av) disposeAvatar(me.av); me.av=buildAvatar(look); me.g.add(me.av.root); }
+function setMyLook(look){ if(me.av) disposeAvatar(me.av); me.av=buildAvatar(look); me.g.add(me.av.root); if(HELD.kind){ HELD.mesh3=null; attachToHand(me.av, HELD.kind, HELD.stage, HELD); } }
 
 /* ---------- movement ---------- */
 function tryMove(dx,dz){ if(!blocked(player.x+dx,player.z)) player.x+=dx; else player.vx=0; if(!blocked(player.x,player.z+dz)) player.z+=dz; else player.vz=0; }
@@ -1928,7 +1975,7 @@ function randomLook(sex){
     top:pickR(tops), topCol:pickR(bright.concat([0,1])), top2:pickR([0,1].concat(bright)), pattern:pickR(PATTERNS)[0], bottom:pickR(bots), botCol:pickR([0,10,10,11,13,2,3,7]),
     shoes:pickR(f?['hightop','sneaker','boots','skates','pumps','jelly']:['hightop','sneaker','boots','skates','checker']), shoeCol:pickR([0,1,2,3,4,8]),
     glasses: Math.random()<.4?pickR(GLASSES)[0]:'none', hat: Math.random()<.35?pickR(HATS)[0]:'none', ears: f&&Math.random()<.6?pickR(['hoops','studs','bolts']):'none',
-    neck: Math.random()<.3?pickR(['chain','scarf','bowtie']):'none', wrists: Math.random()<.4?pickR(['bands','watch','bangles']):'none', glow:ri(GLOWCOL.length) };
+    neck: Math.random()<.3?pickR(['chain','scarf','bowtie']):'none', wrists: Math.random()<.4?pickR(['bands','watch','bangles']):'none', glow:ri(GLOWCOL.length), mask:'none', funhat:'none' };
 }
 function cleanLook(l){
   const d=randomLook((l&&l.sex)==='f'?'f':'m'), o={};
@@ -2230,10 +2277,11 @@ function buildAvatar(look){
   if(L.glasses==='shutter'){ const fr=new THREE.Group(); fr.position.set(0,gy,gz); head.add(fr); const m=accent(2);
     for(let k=0;k<5;k++) P(new THREE.BoxGeometry(.13,.005,.004), m, fr, 0, .018-k*.009, 0); P(new THREE.BoxGeometry(.006,.045,.004), m, fr, 0,0,0); P(new THREE.BoxGeometry(.006,.045,.004), m, fr, -.065,0,0); P(new THREE.BoxGeometry(.006,.045,.004), m, fr, .065,0,0); }
   if(L.glasses==='visor'){ const v=new THREE.CylinderGeometry(R*1.02,R*1.02,.04,24,1,true,-Math.PI*.32,Math.PI*.64); const vm=P(v, new THREE.MeshBasicMaterial({color:glowCol.clone().multiplyScalar(1.3), transparent:true, opacity:.55, side:THREE.DoubleSide}), head, 0,gy,0); accents.push(vm.material); vm.material.userData.k=1.3; vm.scale.z=headK(L.head,0,0,1)[2]*1.02; }
+  const wear = prizeWear({ L, head, R, crown, hw, bigHair, P, rim });
   // ---- scale, record rig ----
   const hk=HEIGHTS.find(h=>h[0]===L.height)[2]*(f?.96:1);
   body.scale.setScalar(hk);
-  const av={ root, body, look:L, rim, accents, head, neck, chest, spine, hips, arms, legs, mouth, faceCv, faceTex, glowCol, level:0, blinkT:2+Math.random()*3, blinking:0, phase:0, t:0, height:hk*(legLen+pelH+absH+chestH+neckH+R*2) };
+  const av={ wear, root, body, look:L, rim, accents, head, neck, chest, spine, hips, arms, legs, mouth, faceCv, faceTex, glowCol, level:0, blinkT:2+Math.random()*3, blinking:0, phase:0, t:0, height:hk*(legLen+pelH+absH+chestH+neckH+R*2) };
   root.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.frustumCulled=true; } });
   return av;
 }
@@ -2284,6 +2332,12 @@ function animateAvatar(av, dt, st){
   } else {
     const br=Math.sin(t*1.8); bodyY=br*.004; J.shL=[0,0,.09+br*.01]; J.shR=[0,0,-.09-br*.01]; hdY=Math.sin(t*.4)*.12; hdX=Math.sin(t*.7)*.04;
   }
+  if(st.hold && !st.dance){ J.shR=[-.55,0,-.12]; J.elR=[-1.05,0,0];
+    if(st.use>0){ const u=st.use, s=Math.sin(u*Math.PI);
+      if(st.useKind==='throw'){ J.shR=[lerp(-2.6,-.9,u),0,-.15]; J.elR=[lerp(-.6,0,u),0,0]; }
+      else if(st.useKind==='eat'){ J.shR=[-.55-s*.5,0,-.12-s*.15]; J.elR=[-1.05-s*1.15,0,0]; hdX-=s*.15; }
+      else { J.shR=[-.6+Math.sin(u*30)*.15,0,-.12]; J.elR=[-1.1+Math.sin(u*40)*.3,0,0]; } } }
+  else if(st.use>0 && st.useKind==='throw' && !st.dance){ const u=st.use; J.shR=[lerp(-2.6,-.9,u),0,-.15]; J.elR=[lerp(-.6,0,u),0,0]; }
   if(talk>.05){ hdX += Math.sin(t*9)*talk*.06; hdZ += Math.sin(t*5.3)*talk*.04; }
   av.body.position.y += (bodyY-av.body.position.y)*kf;
   setJ(av.hips,0,hipY,hipZ,kf); setJ(av.spine,spX,spY,0,kf); setJ(av.head,hdX,hdY,hdZ,kf);
@@ -2534,7 +2588,7 @@ const BTABS=[
   ['Top',[['Style','top',TOPS],['Pattern','pattern',PATTERNS],['Main colour','topCol',CLOTHCOL,'sw'],['Second colour','top2',CLOTHCOL,'sw']]],
   ['Bottoms',[['Style','bottom',BOTTOMS],['Colour','botCol',CLOTHCOL,'sw']]],
   ['Shoes',[['Style','shoes',SHOES],['Colour','shoeCol',CLOTHCOL,'sw']]],
-  ['Extras',[['Glasses','glasses',GLASSES],['Headwear','hat',HATS],['Earrings','ears',EARRINGS],['Neck','neck',NECKS],['Wrists','wrists',WRISTS]]],
+  ['Extras',[['Glasses','glasses',GLASSES],['Headwear','hat',HATS],['Earrings','ears',EARRINGS],['Neck','neck',NECKS],['Wrists','wrists',WRISTS],['Prize masks','mask','MASKS'],['Prize fun hats','funhat','FUNHATS']]],
   ['Glow',[['Neon glow colour','glow',GLOWCOL,'sw']]],
 ];
 const BLD={ open:false, look:null, tab:0, av:null, r:null, scene:null, cam:null, yaw:.5, auto:true, zoom:0, drag:null, dance:false, first:false };
@@ -2581,6 +2635,8 @@ function bOpts(){
     const h=document.createElement('h3'); h.textContent=label; sec.appendChild(h);
     const row=document.createElement('div'); row.className=kind?'bsw':'bchips';
     let items = list;
+    if(list==='MASKS'||list==='FUNHATS'){ const src=list==='MASKS'?MASKS:FUNHATS, pre=key+':'; items=src.filter(x=>x[0]==='none'||OWNED.has(pre+x[0])).map(x=>[x[0],(x[3]?x[3]+' ':'')+x[1]]);
+      if(items.length<2){ const n=document.createElement('div'); n.className='bswname'; n.textContent='Win tickets and trade them at the prize counter in the lobby to unlock these.'; sec.appendChild(n); O.appendChild(sec); continue; } }
     if(list==='HAIR'){ const mine=HAIRS.filter(x=>x[2].includes(L.sex)), more=HAIRS.filter(x=>!x[2].includes(L.sex)); items=mine.map(x=>[x[0],x[1]]).concat([['--','More styles']]).concat(more.map(x=>[x[0],x[1]])); }
     items.forEach((it,i)=>{
       if(it[0]==='--'){ const d=document.createElement('div'); d.className='bmore'; d.textContent=it[1]; row.appendChild(d); return; }
@@ -2619,6 +2675,420 @@ $('#bClose').onclick=()=>{ closeBuilder(false); };
 $('#bZoom').onclick=()=>{ BLD.zoom = BLD.zoom>.5 ? 0 : 1; sfx('tick'); };
 $('#bSpin').onclick=()=>{ BLD.auto=!BLD.auto; $('#bSpin').setAttribute('aria-pressed',String(BLD.auto)); };
 $('#bDanceP').onclick=()=>{ BLD.dance=!BLD.dance; $('#bDanceP').setAttribute('aria-pressed',String(BLD.dance)); sfx('tick'); };
+
+/* =====================================================================
+   TICKETS, PRIZES, SNACKS & THINGS YOU CAN HOLD
+   - Winning a game prints a strip of tickets from that machine's slot.
+   - Tickets buy prizes (lobby, left) and snacks (lobby, right).
+   - One thing in your hand at a time: Use it, Throw it, or Drop it.
+   - Anything dropped or thrown stays in the room (saved) until it goes
+     in a trash can. Online, the person who threw a thing runs its
+     physics and streams it to the other player.
+   ===================================================================== */
+const WALLET={ n: (()=>{ const v=parseInt(store('tickets')); return Number.isFinite(v) ? v : 50; })() };
+function setTickets(n){ WALLET.n=Math.max(0,Math.round(n)); store('tickets',String(WALLET.n)); const c=$('#tixChip'); if(c) c.querySelector('b').textContent=WALLET.n; }
+const OWNED = (()=>{ try{ return new Set(JSON.parse(store('owned')||'[]')); }catch(e){ return new Set(); } })();
+function own(id){ OWNED.add(id); store('owned', JSON.stringify([...OWNED])); }
+
+/* ---------- catalogue ---------- */
+// toys + snacks go in your hand; masks + hats are worn (and unlock in the avatar maker)
+const ITEMS={
+  paddle:  { name:'Paddle ball', cost:15, icon:'🏓', use:'Play', shop:'prizes' },
+  puppet:  { name:'Jiggly finger puppet', cost:12, icon:'👾', use:'Jiggle', shop:'prizes' },
+  plane:   { name:'Model plane', cost:25, icon:'✈️', use:'Fly it', shop:'prizes', flies:true },
+  ball:    { name:'Beach ball', cost:20, icon:'🏐', use:'Toss', shop:'prizes', ball:true },
+  chicken: { name:'Rubber chicken', cost:10, icon:'🐔', use:'Squeeze', shop:'prizes' },
+  glow:    { name:'Glow stick', cost:8, icon:'🪄', use:'Shake', shop:'prizes' },
+  hotdog:  { name:'Hot dog', cost:10, icon:'🌭', use:'Bite', bites:5, empty:'tray', shop:'snacks' },
+  cola:    { name:'Cola', cost:8, icon:'🥤', use:'Sip', bites:6, empty:'cup', shop:'snacks' },
+  slushie: { name:'Blue slushie', cost:8, icon:'🧊', use:'Sip', bites:6, empty:'cup', shop:'snacks' },
+  popcorn: { name:'Popcorn', cost:9, icon:'🍿', use:'Munch', bites:7, empty:'bucket', shop:'snacks' },
+  gummies: { name:'Gummy candy', cost:6, icon:'🍬', use:'Eat one', bites:6, empty:'bag', shop:'snacks' },
+  bar:     { name:'Candy bar', cost:6, icon:'🍫', use:'Bite', bites:4, empty:'wrapper', shop:'snacks' },
+  tray:    { name:'Hot dog tray', trash:true }, cup:{ name:'Empty cup', trash:true }, bucket:{ name:'Empty popcorn bucket', trash:true },
+  bag:     { name:'Empty candy bag', trash:true }, wrapper:{ name:'Candy wrapper', trash:true },
+};
+const MASKS=[['none','No mask'],['alien','Alien',40,'👽'],['skull','Glow skull',40,'💀'],['robot','Robot',40,'🤖'],['pumpkin','Jack-o-lantern',40,'🎃'],['cat','Cat',35,'🐱'],['fox','Fox',35,'🦊'],['tiki','Tiki',40,'🗿'],['domino','Hero mask',25,'🦸']];
+const FUNHATS=[['none','No fun hat'],['propeller','Propeller beanie',30,'🧢'],['cowboy','Cowboy hat',30,'🤠'],['tophat','Top hat',30,'🎩'],['party','Party hat',20,'🥳'],['viking','Viking horns',30,'⚔️'],['chef','Chef hat',25,'👨‍🍳'],['crown','Crown',45,'👑'],['cone','Traffic cone',20,'🚧']];
+LOOK_KEYS.mask=MASKS; LOOK_KEYS.funhat=FUNHATS;
+
+/* ---------- prize masks + hats on an avatar (called from buildAvatar) ---------- */
+function prizeWear(x){
+  const { L, head, R, crown, hw, bigHair, P, rim } = x;
+  const M=(c,o={})=>rimMat(rim,Object.assign({color:c},o));
+  const glowB=(c,k=2)=>{ const m=new THREE.MeshBasicMaterial({color:new THREE.Color(c).multiplyScalar(k)}); return m; };
+  let full=false; const g=new THREE.Group(); head.add(g);
+  const add=(geo,mat,px=0,py=0,pz=0)=>{ const m=new THREE.Mesh(geo,mat); m.position.set(px,py,pz); g.add(m); return m; };
+  switch(L.mask){
+    case 'alien': full=true; { const h=add(new THREE.SphereGeometry(R*1.35,20,16), M('#5cff7a',{roughness:.3})); h.scale.set(1,1.18,1); h.position.y=R*.15;
+      for(const s of [-1,1]){ const e=add(new THREE.SphereGeometry(R*.32,14,10), new THREE.MeshStandardMaterial({color:'#05030a',roughness:.05,metalness:.6}), s*R*.42, R*.12, R*1.08); e.scale.set(1,.62,.4); e.rotation.z=s*.5; }
+      add(new THREE.BoxGeometry(R*.3,R*.04,R*.04), glowB('#000000',1), 0,-R*.5,R*1.12); } break;
+    case 'skull': full=true; { const c=document.createElement('canvas'); c.width=256; c.height=128; const x2=c.getContext('2d'); x2.fillStyle='#f4f1e8'; x2.fillRect(0,0,256,128);
+      x2.fillStyle='#0a0a12'; for(const s of [-1,1]){ x2.beginPath(); x2.ellipse(64+s*20,52,14,16,0,0,TAU); x2.fill(); } x2.beginPath(); x2.moveTo(64,66); x2.lineTo(58,80); x2.lineTo(70,80); x2.fill();
+      x2.fillRect(44,92,40,14); x2.fillStyle='#f4f1e8'; for(let k=0;k<6;k++) x2.fillRect(46+k*6.5,92,3,14);
+      const h=add(new THREE.SphereGeometry(R*1.16,22,16), rimMat(rim,{color:'#ffffff', map:canvasTex(c), emissive:'#2a3a20'})); h.scale.y=1.1; h.rotation.y=0; } break;
+    case 'robot': full=true; { add(new THREE.BoxGeometry(R*2.2,R*2.1,R*2.1), M('#9aa6c2',{metalness:.8,roughness:.25})).position.y=R*.1;
+      add(new THREE.BoxGeometry(R*1.7,R*.42,.01), glowB(GLOWCOL[L.glow][1],2.2), 0,R*.25,R*1.06);
+      for(const s of [-1,1]) add(new THREE.CylinderGeometry(R*.18,R*.18,R*.2,10), M('#5a6480',{metalness:.8}), s*R*1.16,0,0).rotation.z=Math.PI/2;
+      add(new THREE.CylinderGeometry(.004,.004,R*.8,6), M('#cfd6ea',{metalness:.9}), 0,R*1.55,0); add(new THREE.SphereGeometry(R*.14,10,8), glowB('#ff3355',2.4), 0,R*1.95,0);
+      for(let k=0;k<4;k++) add(new THREE.BoxGeometry(R*.16,R*.1,.01), glowB(k%2?'#39ff14':'#ffe600',1.8), -R*.36+k*R*.24,-R*.45,R*1.06); } break;
+    case 'pumpkin': full=true; { for(let k=0;k<8;k++){ const s=add(new THREE.SphereGeometry(R*1.3,16,14), M('#ff7a12',{roughness:.6})); s.scale.set(.62,1,1); s.rotation.y=k*Math.PI/8; s.position.y=R*.05; }
+      add(new THREE.CylinderGeometry(R*.12,R*.16,R*.45,8), M('#3a6a1a'), 0,R*1.45,0);
+      const fm=glowB('#ffd24a',2.6); for(const s of [-1,1]){ const t=add(new THREE.ConeGeometry(R*.22,R*.3,3), fm, s*R*.45,R*.25,R*1.24); t.rotation.x=Math.PI/2; t.rotation.z=Math.PI; }
+      const mo=add(new THREE.BoxGeometry(R*1.0,R*.22,.02), fm, 0,-R*.4,R*1.22); } break;
+    case 'cat': { for(const s of [-1,1]){ const e=add(new THREE.ConeGeometry(R*.32,R*.55,4), M(HAIRCOL[L.hairCol][1]), s*R*.6, crown*(bigHair?1.35:1)+R*.05, 0); e.rotation.z=-s*.35;
+        const inner=add(new THREE.ConeGeometry(R*.18,R*.32,4), glowB('#ff7ac8',1.4), s*R*.6, crown*(bigHair?1.35:1)+R*.02, R*.06); inner.rotation.z=-s*.35; }
+      const np=headPoint(L.head,0,-.13,1,R,1.02); add(new THREE.SphereGeometry(R*.1,10,8), glowB('#ff7ac8',1.6), np.x,np.y,np.z+.005).scale.set(1,.7,.6);
+      for(const s of [-1,1]) for(const dy of [-.012,.008]){ const w=add(new THREE.BoxGeometry(R*.75,.002,.002), glowB('#ffffff',1.6), np.x+s*R*.45, np.y-.015+dy, np.z-.005); w.rotation.z=s*dy*6; } } break;
+    case 'fox': { const sn=add(new THREE.ConeGeometry(R*.38,R*.9,8), M('#ff8a30')); const np=headPoint(L.head,0,-.18,1,R,1); sn.position.set(np.x,np.y,np.z+R*.32); sn.rotation.x=Math.PI/2;
+      add(new THREE.SphereGeometry(R*.1,8,6), M('#120a0a'), np.x,np.y,np.z+R*.78);
+      for(const s of [-1,1]){ const e=add(new THREE.ConeGeometry(R*.3,R*.6,4), M('#ff8a30'), s*R*.6, crown*(bigHair?1.35:1)+R*.08, 0); e.rotation.z=-s*.3; } } break;
+    case 'tiki': full=true; { const c=document.createElement('canvas'); c.width=128; c.height=128; const x2=c.getContext('2d'); x2.fillStyle='#8a5a30'; x2.fillRect(0,0,128,128);
+      x2.strokeStyle='#5a3a1a'; x2.lineWidth=2; for(let y=0;y<128;y+=9){ x2.beginPath(); x2.moveTo(0,y); x2.lineTo(128,y+3); x2.stroke(); }
+      add(new THREE.BoxGeometry(R*2.1,R*2.6,R*2.0), rimMat(rim,{color:'#ffffff',map:canvasTex(c)})).position.y=R*.2;
+      for(const s of [-1,1]){ add(new THREE.BoxGeometry(R*.5,R*.32,.03), glowB('#39ff14',2), s*R*.45,R*.5,R*1.01); }
+      add(new THREE.BoxGeometry(R*1.2,R*.5,.03), glowB('#ff8a00',1.8), 0,-R*.55,R*1.01); add(new THREE.BoxGeometry(R*.3,R*.7,.04), M('#6a4020'), 0,R*.0,R*1.02); } break;
+    case 'domino': { const ey=headPoint(L.head,0,.15,1,R,1.01); const band=add(new THREE.CylinderGeometry(R*1.03,R*1.03,R*.32,24,1,true,-Math.PI*.42,Math.PI*.84), new THREE.MeshStandardMaterial({color:'#e0103a',side:THREE.DoubleSide,roughness:.3}), 0, ey.y, 0);
+      band.scale.z=headK(L.head,0,0,1)[2]*1.03; } break;
+  }
+  if(full){ head.children.forEach(ch=>{ if(ch!==g && !ch.isSprite) ch.visible=false; }); }
+  // fun hats sit on top of everything
+  const top = full ? R*1.45 : crown*(bigHair?1.32:1)+.005;
+  const H=new THREE.Group(); H.position.y=top; head.add(H);
+  const ah=(geo,mat,px=0,py=0,pz=0)=>{ const m=new THREE.Mesh(geo,mat); m.position.set(px,py,pz); H.add(m); return m; };
+  let spin=null;
+  switch(L.funhat){
+    case 'propeller': { ah(new THREE.SphereGeometry(R*.95,18,10,0,TAU,0,Math.PI/2), M('#ff2bd6')).position.y=-R*.35; ah(new THREE.SphereGeometry(R*.96,18,10,0,TAU,Math.PI*.38,.12), M('#ffe600')).position.y=-R*.35;
+      ah(new THREE.CylinderGeometry(.005,.005,.06,6), M('#cccccc',{metalness:.9}), 0,R*.6+.01,0); spin=new THREE.Group(); spin.position.y=R*.6+.045; H.add(spin);
+      for(const s of [0,1]){ const b=new THREE.Mesh(new THREE.BoxGeometry(R*1.7,.004,.035), glowB(s?'#00f0ff':'#39ff14',1.8)); b.rotation.y=s*Math.PI/2; b.rotation.x=.25; spin.add(b); } } break;
+    case 'cowboy': { ah(new THREE.CylinderGeometry(R*1.9,R*1.9,.012,24), M('#8a5a2a')).scale.z=.85; const c=ah(new THREE.CylinderGeometry(R*.75,R*.9,R*.95,18), M('#8a5a2a'), 0,R*.48,0); ah(new THREE.TorusGeometry(R*.88,.008,6,20), glowB('#ffe600',1.6), 0,R*.1,0).rotation.x=Math.PI/2; } break;
+    case 'tophat': { ah(new THREE.CylinderGeometry(R*1.4,R*1.4,.012,24), M('#111118')); ah(new THREE.CylinderGeometry(R*.82,R*.82,R*1.7,20), M('#111118'), 0,R*.85,0); ah(new THREE.CylinderGeometry(R*.84,R*.84,R*.25,20), glowB(GLOWCOL[L.glow][1],1.8), 0,R*.2,0); } break;
+    case 'party': { const c=document.createElement('canvas'); c.width=64; c.height=64; const x2=c.getContext('2d'); x2.fillStyle='#ff2bd6'; x2.fillRect(0,0,64,64); x2.fillStyle='#ffe600'; for(let k=0;k<64;k+=16) x2.fillRect(0,k,64,8);
+      ah(new THREE.ConeGeometry(R*.6,R*1.9,18), rimMat(rim,{color:'#ffffff',map:canvasTex(c)}), 0,R*.9,0).rotation.z=.15; ah(new THREE.SphereGeometry(R*.18,10,8), glowB('#00f0ff',2), -R*.14,R*1.85,0); } break;
+    case 'viking': { ah(new THREE.SphereGeometry(R*1.05,18,10,0,TAU,0,Math.PI/2), M('#9aa0b0',{metalness:.85,roughness:.3})).position.y=-R*.4;
+      for(const s of [-1,1]){ const h=ah(new THREE.ConeGeometry(R*.18,R*.95,10), M('#f2ead2'), s*R*1.0, R*.25, 0); h.rotation.z=-s*.9; } } break;
+    case 'chef': { ah(new THREE.CylinderGeometry(R*.85,R*.8,R*.7,18), M('#ffffff'), 0,R*.3,0); for(let k=0;k<5;k++){ const a=k*TAU/5; ah(new THREE.SphereGeometry(R*.5,12,8), M('#ffffff'), Math.cos(a)*R*.42, R*.85, Math.sin(a)*R*.42); } } break;
+    case 'crown': { ah(new THREE.CylinderGeometry(R*.85,R*.8,R*.4,16,1,true), new THREE.MeshStandardMaterial({color:'#ffcc33',metalness:.95,roughness:.2,emissive:'#5a3a00',side:THREE.DoubleSide}), 0,R*.15,0);
+      for(let k=0;k<6;k++){ const a=k*TAU/6; ah(new THREE.ConeGeometry(R*.14,R*.32,4), new THREE.MeshStandardMaterial({color:'#ffcc33',metalness:.95,roughness:.2,emissive:'#5a3a00'}), Math.cos(a)*R*.82, R*.5, Math.sin(a)*R*.82);
+        ah(new THREE.SphereGeometry(R*.06,8,6), glowB(['#ff2bd6','#00f0ff','#39ff14'][k%3],2.2), Math.cos(a)*R*.86, R*.2, Math.sin(a)*R*.86); } } break;
+    case 'cone': { const c=document.createElement('canvas'); c.width=64; c.height=64; const x2=c.getContext('2d'); x2.fillStyle='#ff6a10'; x2.fillRect(0,0,64,64); x2.fillStyle='#ffffff'; x2.fillRect(0,18,64,8); x2.fillRect(0,38,64,8);
+      ah(new THREE.ConeGeometry(R*.75,R*2.2,20), rimMat(rim,{color:'#ffffff',map:canvasTex(c)}), 0,R*1.05,0); ah(new THREE.BoxGeometry(R*1.8,.02,R*1.8), M('#ff6a10'), 0,0,0); } break;
+  }
+  return { spin };
+}
+
+/* ---------- 3D models for things you hold ---------- */
+const IM={};
+const imat=(c,o={})=>new THREE.MeshStandardMaterial(Object.assign({color:c, roughness:.5},o));
+const iglow=(c,k=2)=>new THREE.MeshBasicMaterial({color:new THREE.Color(c).multiplyScalar(k)});
+function stripeTex(cols, horiz){ const c=document.createElement('canvas'); c.width=c.height=64; const x=c.getContext('2d'); const n=cols.length; cols.forEach((col,i)=>{ x.fillStyle=col; horiz? x.fillRect(0,i*64/n,64,64/n+1) : x.fillRect(i*64/n,0,64/n+1,64); }); return canvasTex(c); }
+function itemMesh(kind, stage=0){
+  const g=new THREE.Group(); const add=(geo,mat,x=0,y=0,z=0)=>{ const m=new THREE.Mesh(geo,mat); m.position.set(x,y,z); g.add(m); return m; };
+  const it=ITEMS[kind]||{}; const left = it.bites ? 1-stage/it.bites : 1;
+  switch(kind){
+    case 'paddle': { const p=add(new THREE.CylinderGeometry(.085,.085,.012,22), imat('#d9a25a')); p.rotation.x=Math.PI/2; p.position.y=.1;
+      add(new THREE.TorusGeometry(.085,.006,6,24), iglow('#ff2bd6',1.8), 0,.1,0); add(new THREE.BoxGeometry(.028,.1,.014), imat('#b07a3a'), 0,0,0);
+      const ball=add(new THREE.SphereGeometry(.018,12,10), iglow('#ff3355',1.6), 0,.1,.06); ball.name='ball';
+      const lg=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,.1,.007), new THREE.Vector3(0,.1,.06)]); const ln=new THREE.Line(lg, new THREE.LineBasicMaterial({color:'#ffe600'})); ln.name='string'; g.add(ln); break; }
+    case 'puppet': { const b=add(new THREE.CylinderGeometry(.022,.028,.075,12), imat('#9d4dff',{roughness:.9})); b.position.y=.04; b.name='body';
+      for(const s of [-1,1]){ add(new THREE.SphereGeometry(.012,10,8), imat('#ffffff'), s*.011,.065,.019).name='eye'; add(new THREE.SphereGeometry(.006,8,6), imat('#000000'), s*.011,.065,.029); }
+      for(let k=0;k<5;k++){ const t=add(new THREE.ConeGeometry(.006,.03,5), iglow(['#39ff14','#ffe600','#00f0ff'][k%3],1.6), -.012+k*.006,.088,0); t.rotation.z=(k-2)*.25; }
+      add(new THREE.SphereGeometry(.007,8,6), iglow('#ff2bd6',1.8), 0,.045,.028); break; }
+    case 'plane': { add(new THREE.BoxGeometry(.028,.028,.22), imat('#e8ecff',{metalness:.3})); add(new THREE.BoxGeometry(.28,.006,.06), imat('#ff2bd6'), 0,0,.01);
+      add(new THREE.BoxGeometry(.1,.005,.035), imat('#ff2bd6'), 0,.005,-.095); add(new THREE.BoxGeometry(.005,.05,.035), imat('#00d8f0'), 0,.025,-.095);
+      add(new THREE.ConeGeometry(.016,.04,10), iglow('#ffe600',1.6), 0,0,.13).rotation.x=Math.PI/2; add(new THREE.BoxGeometry(.282,.007,.012), iglow('#00f0ff',2), 0,0,.035); break; }
+    case 'ball': { const t=stripeTex(['#ff2e4d','#ffe14a','#2f7bff','#ffffff','#7dff3a','#ff7a1a']); add(new THREE.SphereGeometry(.22,22,16), new THREE.MeshStandardMaterial({map:t,roughness:.35})); add(new THREE.SphereGeometry(.03,8,6), imat('#ffffff'), 0,.215,0); break; }
+    case 'chicken': { const b=add(new THREE.CapsuleGeometry(.025,.11,4,10), imat('#ffe14a')); b.rotation.z=Math.PI/2; b.name='body';
+      add(new THREE.SphereGeometry(.03,10,8), imat('#ffe14a'), .08,.02,0); add(new THREE.ConeGeometry(.012,.03,6), imat('#ff8a00'), .115,.02,0).rotation.z=-Math.PI/2;
+      for(let k=0;k<3;k++) add(new THREE.SphereGeometry(.01,8,6), iglow('#ff3355',1.4), .07+k*.012,.05,0); add(new THREE.SphereGeometry(.005,6,4), imat('#000'), .09,.03,.022); break; }
+    case 'glow': { add(new THREE.CylinderGeometry(.008,.008,.19,10), iglow('#39ff14',2.4)).name='stick'; add(new THREE.CylinderGeometry(.009,.009,.012,10), imat('#222'), 0,.1,0); break; }
+    case 'hotdog': case 'tray': { const tray=add(new THREE.BoxGeometry(.07,.02,.2), imat('#f2f2f7')); tray.position.y=-.015;
+      if(kind==='hotdog'){ const L=.17*left; add(new THREE.CapsuleGeometry(.024,L,4,10), imat('#e0a860'), 0,.012,(.17-L)/2).rotation.x=Math.PI/2;
+        add(new THREE.CapsuleGeometry(.015,L+.015,4,10), imat('#b33a2a'), 0,.03,(.17-L)/2).rotation.x=Math.PI/2;
+        for(let k=0;k<5 && k<5*left;k++) add(new THREE.BoxGeometry(.03,.004,.006), iglow('#ffe14a',1.3), (k%2?.006:-.006),.046,-.06+k*.03+(.17-L)/2).rotation.y=k%2?.5:-.5; }
+      else { add(new THREE.BoxGeometry(.05,.004,.08), imat('#e0d060'), 0,-.004,0); } break; }
+    case 'cola': case 'slushie': case 'cup': { const t=stripeTex(kind==='slushie'?['#2f7bff','#ffffff']:['#ff2e4d','#ffffff','#ff2e4d','#ffffff']);
+      add(new THREE.CylinderGeometry(.042,.032,.14,16), new THREE.MeshStandardMaterial({map:t,roughness:.5}), 0,0,0);
+      if(kind==='cola'){ add(new THREE.CylinderGeometry(.044,.044,.008,16), imat('#ffffff'), 0,.072,0); add(new THREE.CylinderGeometry(.004,.004,.12,6), iglow('#ff2bd6',1.6), .01,.11,0).rotation.z=.2; }
+      if(kind==='slushie'){ add(new THREE.SphereGeometry(.043,14,8,0,TAU,0,Math.PI/2), iglow('#2fb6ff',1.3), 0,.07,0).scale.y=Math.max(.15,left); add(new THREE.CylinderGeometry(.004,.004,.13,6), iglow('#39ff14',1.6), -.01,.11,0).rotation.z=-.2; }
+      if(kind==='cup'){ g.children[0].scale.set(1,.88,.8); g.rotation.z=.15; } break; }
+    case 'popcorn': case 'bucket': { const t=stripeTex(['#ff2e4d','#ffffff','#ff2e4d','#ffffff','#ff2e4d','#ffffff']); add(new THREE.CylinderGeometry(.06,.042,.13,16), new THREE.MeshStandardMaterial({map:t,roughness:.6}));
+      if(kind==='popcorn'){ const n=Math.round(14*left); for(let k=0;k<n;k++){ const a=k*2.4; add(new THREE.SphereGeometry(.016,7,5), imat('#fff4c8',{emissive:'#3a3000'}), Math.cos(a)*.035*(k%3)/2, .07+(k%4)*.008, Math.sin(a)*.035*(k%3)/2); } } break; }
+    case 'gummies': case 'bag': { const c=document.createElement('canvas'); c.width=c.height=64; const x=c.getContext('2d'); x.fillStyle='#9d4dff'; x.fillRect(0,0,64,64); x.fillStyle='#ffe600'; for(let k=0;k<6;k++){ x.beginPath(); x.arc((k*23)%64,(k*37)%64,6,0,TAU); x.fill(); }
+      const b=add(new THREE.BoxGeometry(.09,.12,kind==='bag'?.006:.03), new THREE.MeshStandardMaterial({map:canvasTex(c),roughness:.3,metalness:.2})); if(kind==='bag'){ b.rotation.z=.3; b.scale.y=.8; } break; }
+    case 'bar': case 'wrapper': { if(kind==='bar'){ const L=.1*left; add(new THREE.BoxGeometry(.03,.012,L), imat('#5a2a12'), 0,0,.05-L/2+.0); }
+      const w=add(new THREE.BoxGeometry(.034,.016,kind==='bar'?.05:.04), imat('#00d8f0',{metalness:.4,roughness:.3}), 0,0,kind==='bar'?-.03:0); if(kind==='wrapper'){ w.scale.set(1,.4,1); w.rotation.set(.4,.3,.2); }
+      add(new THREE.BoxGeometry(.035,.017,.008), iglow('#ff2bd6',1.6), 0,0,kind==='bar'?-.01:.0); break; }
+  }
+  g.userData.kind=kind; return g;
+}
+const RADIUS={ ball:.22, plane:.04, paddle:.05, puppet:.04, chicken:.04, glow:.02, hotdog:.03, tray:.02, cola:.07, slushie:.07, cup:.06, popcorn:.07, bucket:.065, gummies:.05, bag:.01, bar:.01, wrapper:.01 };
+
+/* ---------- held item (you) ---------- */
+const HELD={ kind:null, stage:0, use:0, useDur:0, mesh3:null, view:null, viewMesh:null, flip:0 };
+function initHeld(){
+  // first-person hand, parented to the camera
+  scene.add(camera);
+  const v=new THREE.Group(); v.position.set(.24,-.27,-.52); v.visible=false; camera.add(v); HELD.view=v;
+  const arm=new THREE.Mesh(new THREE.CapsuleGeometry(.035,.22,4,10), new THREE.MeshStandardMaterial({color:'#d99e6c',roughness:.6})); arm.rotation.x=Math.PI/2.4; arm.position.set(.03,-.08,.12); v.add(arm); HELD.arm=arm;
+  const hand=new THREE.Mesh(new THREE.SphereGeometry(.045,12,10), arm.material); hand.scale.set(.9,1,1.15); v.add(hand); HELD.hand=hand;
+  try{ const h=JSON.parse(store('held')||'null'); if(h && ITEMS[h.kind]) holdItem(h.kind, h.stage||0, true); }catch(e){}
+  setTickets(WALLET.n);
+}
+function skinForView(){ const L=me.av?me.av.look:null; if(L) HELD.arm.material.color.set(SKINS[L.skin][1]); }
+function holdItem(kind, stage=0, quiet){
+  HELD.kind=kind; HELD.stage=stage; HELD.use=0;
+  if(HELD.viewMesh){ HELD.view.remove(HELD.viewMesh); } HELD.viewMesh=null;
+  if(HELD.mesh3 && HELD.mesh3.parent) HELD.mesh3.parent.remove(HELD.mesh3); HELD.mesh3=null;
+  if(kind){ const vm=itemMesh(kind,stage); vm.scale.setScalar(kind==='ball'?.55:1); vm.position.set(0,.04,0); if(kind==='plane'){ vm.rotation.y=Math.PI; } HELD.view.add(vm); HELD.viewMesh=vm;
+    attachToHand(me.av, kind, stage, HELD); }
+  store('held', kind ? JSON.stringify({kind,stage}) : 'null');
+  handUI(); if(!quiet) netSend('hold',{ k:kind||'', st:stage });
+}
+function attachToHand(av, kind, stage, slot){
+  if(!av) return; if(slot.mesh3 && slot.mesh3.parent) slot.mesh3.parent.remove(slot.mesh3); slot.mesh3=null; if(!kind) return;
+  const m=itemMesh(kind,stage); m.position.set(0,-.07,.04); if(kind==='ball') m.position.set(0,-.05,.2); av.arms[-1].hd.add(m); slot.mesh3=m;
+}
+function handUI(){
+  const p=$('#handPanel'); if(!p) return; const it=HELD.kind?ITEMS[HELD.kind]:null;
+  p.hidden=!it;
+  if(it){ $('#hName').textContent=it.name + (it.bites?` (${it.bites-HELD.stage} left)`:''); const u=$('#hUse'); u.hidden=!it.use; u.textContent=it.use||''; }
+}
+function useHeld(){
+  if(incoming()){ catchIncoming(); return; }
+  if(!HELD.kind){ toast(IS_TOUCH?'Your hands are empty. Win tickets and visit the prize counter!':'Your hands are empty. Win tickets and visit the prize counter in the lobby.'); return; }
+  const k=HELD.kind, it=ITEMS[k]; if(!it.use) return;
+  if(it.flies || it.ball){ throwHeld(it.flies?7.5:6); return; }
+  if(HELD.use>0) return;
+  HELD.use=it.bites?.55:(k==='paddle'?1.6:.9); HELD.useDur=HELD.use; HELD.useKind = it.bites?'eat':'play';
+  netSend('use',{ k });
+  useSound(k);
+  if(it.bites){ setTimeout(()=>{ HELD.stage++; if(HELD.stage>=it.bites){ holdItem(it.empty,0); toast(`All gone! Drop the ${ITEMS[it.empty].name.toLowerCase()} or throw it in a trash can.`, 3000); } else holdItem(k,HELD.stage,false); }, 300); }
+}
+function useSound(k){
+  if(k==='paddle'){ for(let i=0;i<5;i++) tone(900,.04,'square',.08,.6,i*.3); }
+  else if(k==='puppet'){ tone(700,.25,'sine',.1,1.8); tone(1100,.2,'triangle',.06,.6,.1); }
+  else if(k==='chicken'){ tone(1200,.35,'sawtooth',.08,.5); noise(.3,.08,3000); }
+  else if(k==='glow'){ tone(400,.3,'sine',.08,3); }
+  else if(ITEMS[k] && ITEMS[k].use==='Sip'){ noise(.25,.1,900); tone(300,.2,'sine',.05,1.4); }
+  else { noise(.08,.18,2200); tone(180,.06,'square',.06,.6,.05); }
+}
+function dropHeld(){ if(!HELD.kind) return; const f=fwd(); spawnWorld(HELD.kind,HELD.stage, player.x+f.x*.6, .9, player.z+f.z*.6, f.x*.6, 0, f.z*.6); holdItem(null); sfx('drop'); }
+function throwHeld(speed=6){
+  if(!HELD.kind) return; const it=ITEMS[HELD.kind], f=fwd(); const up = (it.flies ? .9 : (it.ball ? 2.0 : 2.2)) + player.pitch*4;
+  const sx=player.x+f.x*.5, sz=player.z+f.z*.5;
+  spawnWorld(HELD.kind, HELD.stage, sx, 1.45, sz, f.x*speed, up, f.z*speed, true);
+  HELD.use=.35; HELD.useDur=.35; HELD.useKind='throw'; netSend('use',{k:'throw'}); holdItem(null); tone(300,.15,'triangle',.08,2.5);
+}
+
+/* ---------- things lying around the room ---------- */
+const WORLD=new Map();  // id -> { id, kind, st, x,y,z, vx,vy,vz, sim, rest, mesh, hit, t, from }
+const itemHits=[];
+const uid=()=>Math.random().toString(36).slice(2,10);
+function makeWorldMesh(o){
+  const m=itemMesh(o.kind,o.st); scene.add(m); o.mesh=m;
+  const h=new THREE.Mesh(new THREE.SphereGeometry(Math.max(.22,(RADIUS[o.kind]||.05)+.12),8,6), new THREE.MeshBasicMaterial({visible:false})); h.userData.item=o.id; m.add(h); itemHits.push(h); o.hit=h;
+  placeMesh(o);
+}
+function placeMesh(o){ o.mesh.position.set(o.x,o.y,o.z); if(o.kind==='plane' && (Math.abs(o.vx)+Math.abs(o.vz))>.3){ o.mesh.rotation.set(-Math.atan2(o.vy, Math.hypot(o.vx,o.vz))*.6, Math.atan2(o.vx,o.vz), 0); } else if(o.rot!=null) o.mesh.rotation.y=o.rot; }
+function spawnWorld(kind, st, x,y,z, vx,vy,vz, thrown){
+  const o={ id:uid(), kind, st, x,y,z, vx,vy,vz, sim:true, rest:false, t:0, rot:Math.random()*TAU, thrown:!!thrown, from:'me', spin:0 };
+  WORLD.set(o.id,o); makeWorldMesh(o); netSend('item',{ o:pack(o) }); return o;
+}
+const pack=o=>({ id:o.id, kind:o.kind, st:o.st, x:+o.x.toFixed(3), y:+o.y.toFixed(3), z:+o.z.toFixed(3), vx:+o.vx.toFixed(2), vy:+o.vy.toFixed(2), vz:+o.vz.toFixed(2), rest:o.rest, rot:+(o.rot||0).toFixed(2) });
+function removeWorld(id){ const o=WORLD.get(id); if(!o) return; scene.remove(o.mesh); const i=itemHits.indexOf(o.hit); if(i>=0) itemHits.splice(i,1); WORLD.delete(id); saveRoom(); }
+function inRoomXZ(x,z,r){ const m=r+.06; return inRect(x,z,LOBBY.x0+m,LOBBY.x1-m,LOBBY.z0+m,LOBBY.z1-m) || inRect(x,z,ROOM.x0+m,ROOM.x1-m,ROOM.z0+m,ROOM.z1-m) || (Math.abs(x)<DOOR-m && z>-.4 && z<.4); }
+function hitCollider(x,z,y,r){ for(const c of colliders){ if(x>c.x0-r && x<c.x1+r && z>c.z0-r && z<c.z1+r && y<1.1) return true; } return false; }
+function simItem(o, dt){
+  const r=RADIUS[o.kind]||.05, isBall=o.kind==='ball', isPlane=o.kind==='plane';
+  o.t+=dt;
+  const g = isPlane && o.y>r+.02 ? 2.2 : (isBall ? 6.5 : 9.8);
+  o.vy -= g*dt;
+  if(isBall){ const d=Math.exp(-.35*dt); o.vx*=d; o.vz*=d; }
+  if(isPlane && o.y>r+.02){ const sp=Math.hypot(o.vx,o.vz); o.vy += Math.min(2.0, sp*.22)*dt; }
+  let nx=o.x+o.vx*dt, nz=o.z+o.vz*dt, ny=o.y+o.vy*dt;
+  if(!inRoomXZ(nx,o.z,r) || hitCollider(nx,o.z,ny,r)){ o.vx=-o.vx*(isBall?.8:.3); nx=o.x; if(isBall) sfxAt('wall',o); }
+  if(!inRoomXZ(o.x,nz,r) || hitCollider(o.x,nz,ny,r)){ o.vz=-o.vz*(isBall?.8:.3); nz=o.z; if(isBall) sfxAt('wall',o); }
+  const ceil=(o.z>0?LOBBY.h:ROOM.h)-r; if(ny>ceil){ ny=ceil; o.vy=-Math.abs(o.vy)*.5; }
+  if(ny<r){ ny=r; if(o.vy<-1.2){ o.vy=-o.vy*(isBall?.72:.18); if(isBall) sfxAt('bounce',o); else if(!isPlane) sfxAt('thud',o); } else o.vy=0;
+    const fr=Math.exp(-(isBall?.9:isPlane?2.5:6)*dt); o.vx*=fr; o.vz*=fr; }
+  o.x=nx; o.y=ny; o.z=nz; if(isBall) o.rot=(o.rot||0)+Math.hypot(o.vx,o.vz)*dt*3;
+  // bounce off the other player (and off you, once it has left your hand)
+  for(const body of bodies()){ if(o.from===body.who && o.t<.5) continue;
+    const dx=o.x-body.x, dz=o.z-body.z, d=Math.hypot(dx,dz), rr=r+.28;
+    if(d<rr && o.y<body.h+r && o.y>.1){ const nx2=dx/(d||1), nz2=dz/(d||1); const vn=o.vx*nx2+o.vz*nz2;
+      if(vn<0){ o.vx-=1.7*vn*nx2; o.vz-=1.7*vn*nz2; o.vy=Math.max(o.vy,1.2); o.x=body.x+nx2*rr; o.z=body.z+nz2*rr; sfxAt('boing',o); if(body.who==='partner'&&isBall) netSend('bonk',{}); } } }
+  // trash cans swallow anything that lands in them
+  for(const tc of TRASH){ if(Math.hypot(o.x-tc.x,o.z-tc.z)<.3 && o.y<1.05 && o.y>.5 && o.vy<0){ trashed(o); return; } }
+  if(o.y<=r+.001 && Math.hypot(o.vx,o.vy,o.vz)<.08){ o.vx=o.vy=o.vz=0; o.rest=true; o.sim=false; netSend('item',{ o:pack(o) }); saveRoom(); }
+}
+function bodies(){ const b=[{ who:'me', x:player.x, z:player.z, h:me.av?me.av.height:1.7 }]; if(partner && partner.g.visible) b.push({ who:'partner', x:partner.x, z:partner.z, h:partner.av?partner.av.height:1.7 }); return b; }
+function sfxAt(kind,o){ const d=Math.hypot(o.x-player.x,o.z-player.z), v=Math.max(0,1-d/14); if(v<=0) return;
+  if(kind==='bounce') tone(160,.12,'sine',.25*v,.6); else if(kind==='wall') tone(220,.06,'triangle',.12*v,.7); else if(kind==='boing') { tone(300,.25,'sine',.2*v,2.4); } else if(kind==='thud') noise(.05,.1*v,500); }
+function trashed(o){ sfxAt('thud',o); tone(500,.1,'square',.06,.5); netSend('itemdel',{ id:o.id, trash:1 }); removeWorld(o.id); toast('🗑️ In the trash!',1400); }
+let streamT=0;
+function itemsFrame(dt,t){
+  streamT-=dt; const stream = streamT<=0; if(stream) streamT=1/15;
+  for(const o of WORLD.values()){
+    if(o.sim){ const n=Math.ceil(dt/.012); for(let i=0;i<n && o.sim && WORLD.has(o.id);i++) simItem(o, dt/n); if(!WORLD.has(o.id)) continue; if(stream && o.sim) netSend('imove',{ id:o.id, x:+o.x.toFixed(3), y:+o.y.toFixed(3), z:+o.z.toFixed(3), vx:+o.vx.toFixed(2), vy:+o.vy.toFixed(2), vz:+o.vz.toFixed(2) }); }
+    else if(o.tx!=null && !o.rest){ const k=1-Math.exp(-dt*14); o.x+=(o.tx-o.x)*k; o.y+=(o.ty-o.y)*k; o.z+=(o.tz-o.z)*k; if(o.kind==='ball') o.rot=(o.rot||0)+Math.hypot(o.vx,o.vz)*dt*3; }
+    placeMesh(o);
+  }
+  // first-person hand + use animation
+  const mode=viewMode();
+  if(HELD.view){ HELD.view.visible = mode==='first' && !!HELD.kind; }
+  if(HELD.use>0){ HELD.use-=dt; }
+  const u = HELD.use>0 ? 1-HELD.use/HELD.useDur : 0, k=HELD.kind?ITEMS[HELD.kind]:null;
+  if(HELD.view && HELD.view.visible){
+    const v=HELD.view; let px=.24, py=-.27, pz=-.52, rx=0;
+    if(HELD.use>0 && k){ const s=Math.sin(u*Math.PI);
+      if(k.bites){ px=lerp(.24,.03,s); py=lerp(-.27,-.12,s); pz=lerp(-.52,-.3,s); rx=s*.6; }
+      else if(HELD.kind==='puppet'||HELD.kind==='chicken'||HELD.kind==='glow'){ v.rotation.z=Math.sin(u*40)*.3*(1-u); }
+      else if(HELD.kind==='paddle'){ const b=HELD.viewMesh&&HELD.viewMesh.getObjectByName('ball'); if(b){ const zz=.03+Math.abs(Math.sin(u*Math.PI*5))*.22; b.position.z=zz; const ln=HELD.viewMesh.getObjectByName('string'); ln.geometry.setFromPoints([new THREE.Vector3(0,.1,.007), new THREE.Vector3(0,.1,zz)]); } } }
+    else { v.rotation.z*=.8; if(HELD.kind==='paddle' && HELD.viewMesh){ const b=HELD.viewMesh.getObjectByName('ball'); if(b && b.position.z!==.06){ b.position.z=.06; HELD.viewMesh.getObjectByName('string').geometry.setFromPoints([new THREE.Vector3(0,.1,.007), new THREE.Vector3(0,.1,.06)]); } } }
+    const bob=Math.sin(t*2)*.004 + Math.sin(performance.now()/170)*.01*Math.min(1,Math.hypot(player.vx,player.vz)/2.7);
+    v.position.set(px, py+bob, pz); v.rotation.x=rx;
+    if(HELD.kind==='glow' && HELD.viewMesh){ const s=HELD.viewMesh.getObjectByName('stick'); if(s) s.material.color.set(['#39ff14','#ff2bd6','#00f0ff','#ffe600'][Math.floor(t*(HELD.use>0?8:.5))%4]).multiplyScalar(2.4); }
+  }
+  // catching
+  const inc=incoming(); const cb=$('#catchBtn'); if(cb) cb.hidden=!inc;
+  // tickets printing
+  for(const cab of CABS) for(const s of (cab.tix||[])) if(s.grow<1){ s.grow=Math.min(1,s.grow+dt/1.6); layoutStrip(s); if(Math.random()<dt*24) tone(1800+Math.random()*400,.015,'square',.03); }
+  // spinning propellers
+  for(const av of [me.av, partner&&partner.av]) if(av && av.wear && av.wear.spin) av.wear.spin.rotation.y+=dt*(9+Math.hypot(player.vx,player.vz)*4);
+}
+function incoming(){
+  for(const o of WORLD.values()){ if(o.sim || o.rest || HELD.kind) continue; const d=Math.hypot(o.x-player.x,o.z-player.z);
+    if(d<1.5 && o.y>.25 && o.y<2.3){ const toward=(player.x-o.x)*(o.vx||0)+(player.z-o.z)*(o.vz||0); if(toward>0 || d<.8) return o; } }
+  return null;
+}
+function catchIncoming(){ const o=incoming(); if(!o) return; netSend('grab',{ id:o.id, caught:1 }); const k=o.kind, st=o.st; removeWorld(o.id); holdItem(k,st); sfx('coin'); toast('Nice catch! 🙌',1500); }
+function pickUp(id){
+  const o=WORLD.get(id); if(!o) return;
+  const d=Math.hypot(o.x-player.x,o.z-player.z); if(d>2.6){ const a=Math.atan2(player.x-o.x, player.z-o.z); travel(o.x+Math.sin(a)*1.1, o.z+Math.cos(a)*1.1, null, null); return; }
+  if(HELD.kind){ dropHeld(); }
+  netSend('grab',{ id }); removeWorld(id); holdItem(o.kind,o.st); sfx('sel');
+}
+/* save the room so things stay where they landed */
+let saveT=0;
+function saveRoom(){ if(Net.role==='guest' && Net.connected) return; clearTimeout(saveT); saveT=setTimeout(()=>{ try{ store('room', JSON.stringify([...WORLD.values()].filter(o=>o.rest).map(pack))); }catch(e){} },400); }
+function loadRoom(list){ for(const id of [...WORLD.keys()]) removeWorld(id); for(const p of list||[]) addFromNet(p,true); }
+function addFromNet(p, rest){ if(!p || !ITEMS[p.kind] || WORLD.has(p.id)) return; const o={ ...p, sim:false, t:0, from:'partner', tx:p.x, ty:p.y, tz:p.z }; if(rest) o.rest=true; WORLD.set(o.id,o); makeWorldMesh(o); }
+
+/* ---------- trash cans ---------- */
+const TRASH=[];
+function buildTrash(){
+  for(const [x,z] of [[5.6,9.6],[-5.3,3.4],[6.4,-1.0],[-6.5,-19.3]]){
+    const g=new THREE.Group(); g.position.set(x,0,z); scene.add(g);
+    const c=new THREE.Mesh(new THREE.CylinderGeometry(.27,.23,.95,18,1,true), new THREE.MeshStandardMaterial({color:'#1c1a2e',metalness:.6,roughness:.4,side:THREE.DoubleSide})); c.position.y=.475; g.add(c);
+    const bot=new THREE.Mesh(new THREE.CircleGeometry(.23,18), new THREE.MeshStandardMaterial({color:'#08060e'})); bot.rotation.x=-Math.PI/2; bot.position.y=.02; g.add(bot);
+    const rim=new THREE.Mesh(new THREE.TorusGeometry(.27,.02,8,24), neonMat(NEON.green,2)); rim.rotation.x=Math.PI/2; rim.position.y=.95; g.add(rim);
+    const sg=signPlane(signTex([{t:'TRASH', c:NEON.green, size:110, font:HEAD, weight:900}],512,128), .5,.13, 0,.6,.272, 0,1.5,g);
+    const sg2=sg.clone(); sg2.position.z=-.272; sg2.rotation.y=Math.PI; g.add(sg2);
+    const hit=box(.7,1.2,.7,0,.6,0,new THREE.MeshBasicMaterial({visible:false}),g); hit.userData.trash=true; hitList.push(hit);
+    collide(x-.27,x+.27,z-.27,z+.27); TRASH.push({x,z,g});
+  }
+}
+function trashHeld(){ if(!HELD.kind){ toast('Nothing in your hand to throw away.'); return; } const n=ITEMS[HELD.kind].name; holdItem(null); tone(500,.1,'square',.06,.5); noise(.15,.12,700); toast(`🗑️ Threw away the ${n.toLowerCase()}.`,1600); }
+
+/* ---------- ticket slots + strips ---------- */
+let ticketTex=null;
+function ticketTexture(){
+  if(ticketTex) return ticketTex; const c=document.createElement('canvas'); c.width=64; c.height=128; const x=c.getContext('2d');
+  x.fillStyle='#ff9a1a'; x.fillRect(0,0,64,128); x.fillStyle='#ffe14a'; x.fillRect(4,6,56,116);
+  x.fillStyle='#d2401a'; x.font='900 20px '+HEAD; x.textAlign='center'; x.fillText('★',32,46); x.font='900 15px '+BODY; x.fillText('1',32,80);
+  x.fillStyle='#ffffff'; for(let k=0;k<64;k+=8) x.fillRect(k,0,4,3);
+  ticketTex=canvasTex(c); return ticketTex;
+}
+function addTicketSlots(){
+  const slotM=new THREE.MeshStandardMaterial({color:'#05040a',roughness:.4});
+  for(const cab of CABS){
+    const a=new THREE.Group();
+    if(cab.kind==='upright'){ a.position.set(0,.84,.385); }
+    else if(cab.kind==='hockey'){ a.position.set(0,.62,1.27); }
+    else { a.position.set(-.42,.52,0); a.rotation.y=-Math.PI/2; }
+    cab.group.add(a);
+    const s=new THREE.Mesh(new THREE.BoxGeometry(.2,.035,.03), slotM); a.add(s);
+    const fr=new THREE.Mesh(new THREE.BoxGeometry(.24,.065,.012), neonMat(NEON.orange,2)); fr.position.z=-.01; a.add(fr);
+    const lab=signPlane(signTex([{t:'TICKETS', c:NEON.orange, size:90, font:HEAD, weight:900}],512,128), .24,.06, 0,.07,.007, 0,1.6,a);
+    const hit=new THREE.Mesh(new THREE.BoxGeometry(.5,.6,.5), new THREE.MeshBasicMaterial({visible:false})); hit.position.set(0,-.15,.18); hit.userData.tixcab=cab; a.add(hit); hitList.push(hit);
+    cab.slot=a; cab.tix=[];
+  }
+}
+function printTickets(cab, n, owner, id, name){
+  if(!cab) return; id=id||uid();
+  let s=cab.tix.find(x=>x.owner===owner);
+  if(s){ s.n+=n; s.grow=Math.min(s.grow,.6); }
+  else { const grp=new THREE.Group(); cab.slot.add(grp); s={ id, n, owner, name, grow:0, g:grp }; cab.tix.push(s); grp.position.x = cab.tix.length>1 ? .05 : -.0; }
+  layoutStrip(s);
+}
+function layoutStrip(s){
+  const g=s.g; while(g.children.length) g.remove(g.children[0]);
+  const segs=Math.max(1,Math.round(Math.min(16, 5+s.n/3)*s.grow)), L=.075;
+  const mat=new THREE.MeshStandardMaterial({ map:ticketTexture(), roughness:.6, emissive:'#552200', side:THREE.DoubleSide });
+  let y=0, z=.02, a=0;
+  for(let i=0;i<segs;i++){ const m=new THREE.Mesh(new THREE.PlaneGeometry(.095,L*.96), mat); a = Math.min(Math.PI*.85, Math.max(0,i-3)*.16);
+    const dy=-Math.cos(a)*L, dz=Math.sin(a)*L; m.position.set(0, y+dy/2, z+dz/2); m.rotation.x=-a; g.add(m); y+=dy; z+=dz; }
+  g.position.y=-.01;
+}
+function stripOf(cab, mineOnly){ return (cab.tix||[]).find(s=> !mineOnly || isMine(s.owner)); }
+function isMine(owner){ return owner==='me' || owner===(Net.role||'me') || (!Net.connected && owner!=='other'); }
+function collectTickets(cab){
+  const s=stripOf(cab,true);
+  if(!s){ const o=stripOf(cab,false); if(o) toast(`Those are ${o.name||'the other player'}'s tickets — they win, they collect!`); return false; }
+  setTickets(WALLET.n+s.n); cab.slot.remove(s.g); cab.tix.splice(cab.tix.indexOf(s),1);
+  netSend('tixgot',{ id:s.id, cab:cab.def.id }); sfx('coin'); setTimeout(()=>sfx('win'),150); toast(`🎟️ +${s.n} tickets! You have ${WALLET.n}.`, 2600); return true;
+}
+function awardTickets(def, winner){
+  // called when a game ends; the machine prints a strip for the winner
+  const cab=CABS.find(c=>c.def===def); if(!cab || winner<0) return;
+  if(S.mode==='cpu'){ if(winner===0) printTickets(cab, 15, 'me', null, nameOf(0)); return; }
+  if(S.mode==='local'){ printTickets(cab, 20, 'me', null, nameOf(winner)); return; }
+  if(S.mode==='online' && S.host){ const owner= winner===0?'host':'guest', id=uid(); printTickets(cab, 30, owner, id, nameOf(winner)); netSend('tix',{ cab:def.id, n:30, owner, id, name:nameOf(winner) }); }
+}
+
+/* ---------- shops ---------- */
+let shopKind='prizes', shopTab='toys';
+function openShop(kind){
+  shopKind=kind; shopTab = kind==='snacks' ? 'food' : (shopTab==='food'?'toys':shopTab);
+  $('#shopTitle').textContent = kind==='snacks' ? 'Snack Bar' : 'Prize Counter';
+  $('#shopKick').textContent = kind==='snacks' ? 'Fresh from the lobby' : 'Trade your tickets';
+  $('#shop .panel').style.borderColor = kind==='snacks' ? 'var(--orange)' : 'var(--cyan)';
+  renderShop(); $('#shop').hidden=false; keys.clear(); setTimeout(()=>{ const b=$('#shopList button:not([disabled])'); b&&b.focus({preventScroll:true}); },30);
+}
+function closeShop(){ $('#shop').hidden=true; canvas.focus({preventScroll:true}); }
+function renderShop(){
+  $('#shopWallet').textContent=WALLET.n;
+  const tabs=$('#shopTabs'); tabs.innerHTML='';
+  const T = shopKind==='snacks' ? [['food','Snacks']] : [['toys','Toys'],['masks','Masks'],['hats','Funny hats']];
+  tabs.hidden = T.length<2;
+  T.forEach(([id,label])=>{ const b=document.createElement('button'); b.className='btab'+(shopTab===id?' on':''); b.textContent=label; b.onclick=()=>{ shopTab=id; renderShop(); sfx('tick'); }; tabs.appendChild(b); });
+  const L=$('#shopList'); L.innerHTML='';
+  const card=(icon,name,cost,label,on,cls='')=>{ const b=document.createElement('button'); b.className='btn prize '+cls; b.innerHTML=`<span class="pi">${icon}</span><span class="pn">${name}</span><span class="pc">${label}</span>`; b.onclick=on; L.appendChild(b); return b; };
+  const look=myLook()||me.av.look;
+  if(shopTab==='toys'||shopTab==='food'){
+    for(const [id,it] of Object.entries(ITEMS)){ if(it.shop!==shopKind) continue;
+      const b=card(it.icon, it.name, it.cost, `🎟 ${it.cost}`, ()=>buy(id)); if(WALLET.n<it.cost) b.classList.add('poor'); }
+  } else {
+    const list = shopTab==='masks' ? MASKS : FUNHATS, key = shopTab==='masks' ? 'mask' : 'funhat';
+    for(const [id,name,cost,icon] of list){ if(id==='none') continue; const has=OWNED.has(key+':'+id), wearing=look[key]===id;
+      const b=card(icon, name, cost, wearing?'Wearing · tap to take off':has?'Owned · tap to wear':`🎟 ${cost}`, ()=>wearPrize(key,id,cost), wearing?'on':''); if(!has && WALLET.n<cost) b.classList.add('poor'); }
+  }
+}
+function buy(id){
+  const it=ITEMS[id]; if(WALLET.n<it.cost){ toast(`You need ${it.cost-WALLET.n} more tickets. Win games to earn them!`); sfx('miss'); return; }
+  if(HELD.kind){ const was=ITEMS[HELD.kind].name; dropHeld(); toast(`Put down the ${was.toLowerCase()} to take your ${it.name.toLowerCase()}.`,2200); }
+  setTickets(WALLET.n-it.cost); holdItem(id,0); sfx('coin'); renderShop();
+  setTimeout(closeShop, 450);
+  toast(`${it.icon} ${it.name}! Press ${IS_TOUCH?'the '+it.use+' button':'F to '+it.use.toLowerCase()}.`, 2600);
+}
+function wearPrize(key,id,cost){
+  const has=OWNED.has(key+':'+id); const look=cleanLook(myLook()||me.av.look);
+  if(!has){ if(WALLET.n<cost){ toast(`You need ${cost-WALLET.n} more tickets.`); sfx('miss'); return; } setTickets(WALLET.n-cost); own(key+':'+id); sfx('coin'); }
+  look[key] = look[key]===id ? 'none' : id;
+  store('look', JSON.stringify(look)); setMyLook(look); netSend('look',{ a:look }); renderShop(); skinForView();
+  toast(look[key]==='none' ? 'Taken off.' : 'Looking good! It also shows up in your avatar maker.', 2000);
+}
 
 /* =====================================================================
    ONLINE — PeerJS (WebRTC data channel, free public broker, no key)
@@ -2725,6 +3195,8 @@ function onNetUp(){
   Net.connected=true; makePartner('…'); netSend('hello', { name:myName(), look:myLook() }); netUI(); sfx('coin');
   if(Net.role==='host' && Music.playing>=0) netSend('juke',{ i:Music.playing, pos:musicPos() });
   if(Voice.stream){ callPartner(); netSend('voice',{on:Voice.state==='on'}); }
+  if(Net.role==='host'){ netSend('items',{ list:[...WORLD.values()].map(pack), tix:CABS.flatMap(c=>(c.tix||[]).map(t=>({cab:c.def.id, id:t.id, n:t.n, owner:t.owner==='me'?'host':t.owner, name:t.name}))) }); }
+  if(HELD.kind) netSend('hold',{ k:HELD.kind, st:HELD.stage });
   if(Net.role==='guest'){ try{ const u=new URL(location.href); u.searchParams.delete('room'); history.replaceState(null,'',u); }catch(e){} }
 }
 function onNetDown(){
@@ -2743,6 +3215,19 @@ function onNet(m){
     case 'dance': if(partner) partner.dance = DANCES.some(d=>d[0]===m.d) ? m.d : null; break;
     case 'juke': { const i=m.i|0; if(m.i<0){ juke(-1); toast(`${Net.partner} stopped the music.`,1800); } else if(SONGS[i]){ juke(i, +m.pos||0); toast(`♪ ${Net.partner} played ${SONGS[i].name}`); } break; }
     case 'voice': Voice.partnerOn=!!m.on; setPartnerLabel(null,null); break;
+    case 'items': if(Net.role==='guest'){ loadRoom(m.list||[]); for(const c of CABS){ for(const t of (c.tix||[])) c.slot.remove(t.g); c.tix=[]; } for(const t of (m.tix||[])){ const c=CABS.find(c=>c.def.id===t.cab); if(c){ printTickets(c,t.n,t.owner,t.id,t.name); c.tix[c.tix.length-1].grow=1; layoutStrip(c.tix[c.tix.length-1]); } } } break;
+    case 'hold': if(partner){ partner.hold = m.k && ITEMS[m.k] ? { k:m.k, st:m.st|0 } : null; attachToHand(partner.av, partner.hold&&partner.hold.k, partner.hold&&partner.hold.st, partner.slot); } break;
+    case 'use': if(partner){ partner.useT=.6; partner.useKind = m.k==='throw' ? 'throw' : (ITEMS[m.k]&&ITEMS[m.k].bites ? 'eat' : 'play');
+      if(m.k!=='throw' && ITEMS[m.k]){ const d=Math.hypot(partner.x-player.x,partner.z-player.z); if(d<9) useSound(m.k); } } break;
+    case 'item': { const p=m.o; if(!p||!ITEMS[p.kind]) break; const o=WORLD.get(p.id);
+      if(!o) addFromNet(p, p.rest); else if(!o.sim){ Object.assign(o,{ tx:p.x, ty:p.y, tz:p.z, vx:p.vx, vy:p.vy, vz:p.vz, rest:!!p.rest, st:p.st }); if(p.rest){ o.x=p.x; o.y=p.y; o.z=p.z; } }
+      saveRoom(); break; }
+    case 'imove': { const o=WORLD.get(m.id); if(o && !o.sim){ o.tx=m.x; o.ty=m.y; o.tz=m.z; o.vx=m.vx; o.vy=m.vy; o.vz=m.vz; o.rest=false; } break; }
+    case 'itemdel': removeWorld(m.id); break;
+    case 'grab': if(WORLD.has(m.id)){ removeWorld(m.id); if(m.caught) toast(`${Net.partner} caught it! 🙌`,1600); } break;
+    case 'bonk': toast('Bonk! 🏐',1200); tone(300,.25,'sine',.2,2.4); break;
+    case 'tix': { const c=CABS.find(c=>c.def.id===m.cab); if(c) printTickets(c, m.n|0, m.owner, m.id, m.name); break; }
+    case 'tixgot': for(const c of CABS){ const t=(c.tix||[]).find(x=>x.id===m.id); if(t){ c.slot.remove(t.g); c.tix.splice(c.tix.indexOf(t),1); toast(`${Net.partner} collected their tickets.`,1600); } } break;
     case 'full': netFail('That room already has two players.'); break;
     case 'pos': if(partner){ partner.tx=m.x; partner.tz=m.z; partner.tyaw=m.yaw; partner.dance = DANCES.some(d=>d[0]===m.d) ? m.d : null; if(!partner.g.visible){ partner.x=m.x; partner.z=m.z; partner.g.visible=true; } } break;
     case 'where': setPartnerLabel(Net.partner, m.g?`playing ${m.g}`:''); break;
@@ -3041,6 +3526,13 @@ function raiseCurtain(p){
     <div class="row"><button class="btn big" data-act="curtain" style="border-color:${PC[p]}">I'm ${esc(nameOf(p))} — show me</button></div>`);
 }
 function dropCurtain(){ if(!S.curtain) return; S.curtain=false; S.lastViewer=S.pendingViewer; gMsg(null); sfx('sel'); gc.focus({preventScroll:true}); }
+function ticketLine(w){
+  if(w<0) return '';
+  const n = S.mode==='online' ? 30 : S.mode==='cpu' ? 15 : 20;
+  if(S.mode==='cpu' && w!==0) return '<p class="tixmsg">Beat the computer to win 15 tickets.</p>';
+  const mine = S.mode!=='online' || w===S.me;
+  return mine ? `<p class="tixmsg">🎟️ The machine printed <b>${n} tickets</b> for ${S.mode==='local'?esc(nameOf(w)):'you'} — grab them from the ticket slot!</p>` : `<p class="tixmsg">🎟️ ${esc(nameOf(w))} won ${n} tickets.</p>`;
+}
 function showEnd(){
   const s=S.state, w=s.winner, d=S.def;
   let head, col;
@@ -3052,6 +3544,7 @@ function showEnd(){
   if(w>=0){ if(mine) sfx('win'); else sfx('lose'); } else sfx('sel');
   gMsg(`<span class="kicker">${d.name}</span><div class="headline" style="color:${col}; text-shadow:0 0 14px ${col}">${head}</div>
     <div class="series">Series: <b style="color:${PC[0]}">${esc(nameOf(0))} ${S.wins[0]}</b> – <b style="color:${PC[1]}">${S.wins[1]} ${esc(nameOf(1))}</b></div>
+    ${ticketLine(w)}
     <div class="row"><button class="btn big pink" data-act="again">Play again</button><button class="btn big ghost" data-act="leave">Back to the arcade</button></div>`);
 }
 $('#gMsg').addEventListener('click', e=>{
@@ -3127,7 +3620,7 @@ function gameFrame(dt, t){
     $('#gL').classList.toggle('turn', sb.turn===L); $('#gR').classList.toggle('turn', sb.turn===R); }
   // ---- game over ----
   if(st.over && !S.ended){ S.ended=true; S.endAt=t+(def.kind==='field'?1.3:1.1);
-    if(S.host && st.winner>=0){ S.wins[st.winner]++; if(S.mode==='online') netSend('st',{ s:ser(st), fx:S.fxq, w:S.wins }); }
+    if(S.host && st.winner>=0){ S.wins[st.winner]++; if(S.mode==='online') netSend('st',{ s:ser(st), fx:S.fxq, w:S.wins }); awardTickets(def, st.winner); }
     const wn = st.winner<0 ? 'Draw' : `${nameOf(st.winner)} won`; logResult(def.name, wn, st.winner<0?NEON.yellow:PC[st.winner]); }
   if(S.ended && S.endAt && t>=S.endAt && $('#gMsg').hidden){ S.endAt=0; showEnd(); }
 }
@@ -3158,14 +3651,26 @@ let pointerStart=null, dragging=false, introOpen=true, exitArm=0;
 const mouse={ x:0, y:0, has:false };
 const ray=new THREE.Raycaster(), ndc=new THREE.Vector2();
 function setKb(on){ document.body.classList.toggle('kb', on); }
-function overlayOpen(){ return introOpen || S.open || BLD.open || !$('#launch').hidden || !$('#netPanel').hidden || !$('#invite').hidden || !$('#jukebox').hidden; }
+function overlayOpen(){ return introOpen || S.open || BLD.open || !$('#shop').hidden || !$('#launch').hidden || !$('#netPanel').hidden || !$('#invite').hidden || !$('#jukebox').hidden; }
 function pick(cx,cy){ ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1); ray.setFromCamera(ndc,camera); ray.far=40;
-  const h=ray.intersectObjects([...hitList, lobbyFloor, roomFloor, ...wallHits], false); return h[0]||null; }
+  const h=ray.intersectObjects([...hitList, ...itemHits, lobbyFloor, roomFloor, ...wallHits], false); return h[0]||null; }
 const wallHits=[];
+function infoOf(o){ const u=o.userData; if(u.juke) return {type:'juke'}; if(u.item) return {type:'item', id:u.item}; if(u.trash) return {type:'trash'}; if(u.shop) return {type:'shop', shop:u.shop};
+  if(u.tixcab) return (u.tixcab.tix||[]).length ? {type:'tix', cab:u.tixcab} : {type:'cab', cab:u.tixcab}; if(u.cab) return {type:'cab', cab:u.cab}; return null; }
+function interactWith(info, far){
+  if(!info) return false;
+  switch(info.type){
+    case 'juke': if(far){ travel(JUKE.x, JUKE.z+1.6, 0, -.1); } else openJuke(); return true;
+    case 'item': pickUp(info.id); return true;
+    case 'trash': if(far){ toast('Walk over to the trash can.'); return true; } if(HELD.kind) trashHeld(); else toast(IS_TOUCH?'Trash can — bring empty wrappers and cups here, or throw things in.':'Trash can — hold something and press Enter here, or throw it in with R.'); return true;
+    case 'shop': if(far){ toast(info.shop==='snacks'?'Walk up to the snack bar.':'Walk up to the prize counter.'); return true; } openShop(info.shop); return true;
+    case 'tix': if(far){ goTo(info.cab); return true; } if(collectTickets(info.cab)) return true; return true;
+    case 'cab': { const cab=info.cab; if(far){ goTo(cab); return true; } if(stripOf(cab,true)){ collectTickets(cab); return true; } cur=CABS.indexOf(cab); updateCounter(cab); openLaunch(cab); return true; }
+  } return false;
+}
 function handleTap(cx,cy){
   const h=pick(cx,cy); if(!h) return; const o=h.object;
-  if(o.userData.juke){ if(h.distance>3.6){ travel(JUKE.x, JUKE.z+1.6, 0, -.1); } else openJuke(); return; }
-  if(o.userData.cab){ const cab=o.userData.cab; if(h.distance>3.4) goTo(cab); else { cur=CABS.indexOf(cab); updateCounter(cab); openLaunch(cab); } return; }
+  const info=infoOf(o); if(info){ interactWith(info, h.distance>(info.type==='item'?6:3.6)); return; }
   if(o.userData.floor){ const p=h.point, dx=p.x-player.x, dz=p.z-player.z, d=Math.hypot(dx,dz); let tx=p.x, tz=p.z; if(d>.6){ tx=p.x-dx/d*.4; tz=p.z-dz/d*.4; }
     if(blocked(tx,tz)){ toast("Can't walk there."); return; } travel(tx,tz,null,null); }
 }
@@ -3206,6 +3711,7 @@ addEventListener('keydown', e=>{
   if(S.open){ keys.add(c); gameKey(e); return; }
   if(BLD.open){ if(k==='Escape'){ e.preventDefault(); if(!$('#bSex').hidden && !BLD.first) $('#bSex').hidden=true; else closeBuilder(true); } return; }
   if(!$('#jukebox').hidden){ if(k==='Escape'){ e.preventDefault(); closeJuke(); } return; }
+  if(!$('#shop').hidden){ if(k==='Escape'){ e.preventDefault(); closeShop(); } return; }
   if(typing){ if(k==='Enter'){ if(document.activeElement.id==='joinCode') $('#joinRoom').click(); else if(['myName','p2Name'].includes(document.activeElement.id)) $('#enter').click(); } if(k==='Escape') document.activeElement.blur(); return; }
   if(!$('#invite').hidden){ if(k==='Escape') answerInvite(false); return; }
   if(!$('#launch').hidden){ if(k==='Escape'){ e.preventDefault(); closeLaunch(); } return; }
@@ -3225,6 +3731,9 @@ addEventListener('keydown', e=>{
   if(c==='KeyV'){ toggleView(); return; }
   if(c==='KeyT'){ voiceToggle(); return; }
   if(c==='KeyJ'){ openJuke(); return; }
+  if(c==='KeyF'){ useHeld(); return; }
+  if(c==='KeyR'){ throwHeld(); return; }
+  if(c==='KeyX'){ dropHeld(); return; }
   if(c==='KeyH'||k==='?'){ openIntro(); return; }
   if(k==='Escape'||k==='Backspace'){ e.preventDefault(); armExit('Press Esc again to leave the arcade.'); }
 });
@@ -3240,10 +3749,10 @@ function pollPad(){
   if(S.open){ pad.lx=pad.ly=pad.rx=pad.ry=0; return; }
   const gp=pads()[0]; if(!gp){ pad.lx=pad.ly=pad.rx=pad.ry=0; pad.run=false; return; }
   const b=i=>!!(gp.buttons[i]&&gp.buttons[i].pressed), a=gp.axes;
-  const panel = !$('#invite').hidden ? $('#invite') : BLD.open ? $('#builder') : !$('#jukebox').hidden ? $('#jukebox') : !$('#launch').hidden ? $('#launch') : !$('#netPanel').hidden ? $('#netPanel') : introOpen ? $('#intro') : null;
+  const panel = !$('#invite').hidden ? $('#invite') : BLD.open ? $('#builder') : !$('#shop').hidden ? $('#shop') : !$('#jukebox').hidden ? $('#jukebox') : !$('#launch').hidden ? $('#launch') : !$('#netPanel').hidden ? $('#netPanel') : introOpen ? $('#intro') : null;
   if(panel){ pad.lx=pad.ly=pad.rx=pad.ry=0; setKb(true);
     btn('a', b(0), ()=>{ const f=document.activeElement; if(f && (f.tagName==='BUTTON')) f.click(); else focusCycle(panel,1); });
-    btn('b', b(1), ()=>{ if(panel.id==='launch') closeLaunch(); else if(panel.id==='netPanel') closeNet(); else if(panel.id==='invite') answerInvite(false); else if(panel.id==='jukebox') closeJuke(); else if(panel.id==='builder') closeBuilder(true); });
+    btn('b', b(1), ()=>{ if(panel.id==='launch') closeLaunch(); else if(panel.id==='netPanel') closeNet(); else if(panel.id==='invite') answerInvite(false); else if(panel.id==='jukebox') closeJuke(); else if(panel.id==='shop') closeShop(); else if(panel.id==='builder') closeBuilder(true); });
     if(panel.id==='builder'){ btn('lb', b(4), ()=>{ BLD.tab=(BLD.tab+BTABS.length-1)%BTABS.length; bTabs(); bOpts(); }); btn('rb', b(5), ()=>{ BLD.tab=(BLD.tab+1)%BTABS.length; bTabs(); bOpts(); }); }
     const dir = b(13)||b(15)||(a[1]||0)>.6||(a[0]||0)>.6 ? 1 : b(12)||b(14)||(a[1]||0)<-.6||(a[0]||0)<-.6 ? -1 : 0;
     btn('nav', dir!==0, ()=>focusCycle(panel,dir));
@@ -3256,14 +3765,14 @@ function pollPad(){
   btn('a', b(0), interactCentre);
   btn('b', b(1), ()=>armExit('Press Ⓑ again to leave the arcade.'));
   btn('lb', b(4), ()=>step(-1)); btn('rb', b(5), ()=>step(1));
-  btn('y', b(3), toggleMap); btn('start', b(9), openIntro); btn('x', b(2), toggleDance); btn('rs', b(11), toggleView); btn('sel', b(8), ()=>openBuilder());
+  btn('y', b(3), ()=>HELD.kind?dropHeld():toggleMap()); btn('start', b(9), openIntro); btn('x', b(2), ()=>(HELD.kind||incoming())?useHeld():toggleDance()); btn('lt', b(6), throwHeld); btn('rs', b(11), toggleView); btn('sel', b(8), ()=>openBuilder());
 }
 addEventListener('gamepadconnected', e=>{ toast(S.open ? `Controller ${pads().length} connected.` : 'Controller connected — left stick walk, right stick look, Ⓐ play.'); });
 addEventListener('gamepaddisconnected', ()=>toast('Controller disconnected.'));
 
 let centreCab=null;
-function centreTarget(){ ndc.set(0,0); ray.setFromCamera(ndc,camera); ray.far = viewMode()==='first' ? 4.2 : 7; const h=ray.intersectObjects(hitList,false)[0]; return h ? (h.object.userData.juke ? 'juke' : h.object.userData.cab) : null; }
-function interactCentre(){ const c=centreTarget(); if(c==='juke'){ openJuke(); return; } if(JUKE && Math.hypot(JUKE.x-player.x,JUKE.z-player.z)<2.4 && !c){ openJuke(); return; } if(c){ cur=CABS.indexOf(c); updateCounter(c); openLaunch(c); return; } const list=ORDER(); const near=list.map(c=>[c,Math.hypot(c.x-player.x,c.z-player.z)]).sort((a,b)=>a[1]-b[1])[0];
+function centreTarget(){ ndc.set(0,0); ray.setFromCamera(ndc,camera); ray.far = viewMode()==='first' ? 4.2 : 7; const h=ray.intersectObjects([...hitList,...itemHits],false)[0]; return h ? infoOf(h.object) : null; }
+function interactCentre(){ const info=centreTarget(); if(info){ interactWith(info,false); return; } if(JUKE && Math.hypot(JUKE.x-player.x,JUKE.z-player.z)<2.4){ openJuke(); return; } const list=ORDER(); const near=list.map(c=>[c,Math.hypot(c.x-player.x,c.z-player.z)]).sort((a,b)=>a[1]-b[1])[0];
   if(near && near[1]<3.1){ openLaunch(near[0]); return; } toast(IS_TOUCH?'Walk up to a machine and tap it.':'Walk up to a machine and press Enter — or use Q / E to jump to one.'); }
 
 /* ---------- intro / panels ---------- */
@@ -3290,6 +3799,8 @@ $('#lBack').onclick=closeLaunch;
 $('#iYes').onclick=()=>answerInvite(true); $('#iNo').onclick=()=>answerInvite(false);
 $('#sndBtn').onclick=()=>setSound(!SND.on);
 $('#helpBtn').onclick=openIntro;
+$('#hUse').onclick=()=>useHeld(); $('#hThrow').onclick=()=>throwHeld(); $('#hDrop').onclick=()=>dropHeld(); $('#catchBtn').onclick=()=>catchIncoming();
+$('#shopClose').onclick=closeShop; $('#tixChip').onclick=()=>toast(`🎟️ You have ${WALLET.n} tickets. Win games to earn more, then visit the prize counter or snack bar in the lobby.`,3200);
 $('#meBtn').onclick=()=>{ sfx('blip'); openBuilder(); };
 $('#introMe').onclick=()=>{ closeIntro(); setTimeout(()=>openBuilder(!myLook()),180); };
 $('#danceBtn').onclick=()=>{ sfx('blip'); $('#dmenu').hidden ? openDanceMenu() : closeDanceMenu(); };
@@ -3386,7 +3897,8 @@ function frame(){
   const spd=Math.hypot(player.vx,player.vz), bob=RM?0:Math.sin(performance.now()/170)*.018*Math.min(1,spd/2.7);
   placeCamera(dt,t,bob);
   voiceFrame();
-  if(me.av) animateAvatar(me.av, dt, { speed:spd, dance:myDance, beat:musicBeat(t), level:Voice.level });
+  if(me.av) animateAvatar(me.av, dt, { speed:spd, dance:myDance, beat:musicBeat(t), level:Voice.level, hold:!!HELD.kind, use:HELD.use>0?1-HELD.use/HELD.useDur:0, useKind:HELD.useKind });
+  itemsFrame(dt,t);
   animateJukebox(t);
   // attract screens: refresh the nearest ones every frame, the rest in turn
   const near=CABS.map(c=>[c,Math.hypot(c.x-player.x,c.z-player.z)]).sort((a,b)=>a[1]-b[1]);
@@ -3397,20 +3909,28 @@ function frame(){
   if(partner && partner.g.visible){ const k=1-Math.exp(-dt*10), ox=partner.x, oz=partner.z; partner.x+= (partner.tx-partner.x)*k; partner.z+=(partner.tz-partner.z)*k; partner.yaw+=wrapA(partner.tyaw-partner.yaw)*k;
     const v=Math.hypot(partner.x-ox,partner.z-oz)/Math.max(dt,.001); partner.speed+= (v-partner.speed)*Math.min(1,dt*6);
     partner.g.position.set(partner.x,0,partner.z); partner.g.rotation.y=partner.yaw+Math.PI;
-    if(partner.av) animateAvatar(partner.av, dt, { speed:partner.speed, dance:partner.dance, beat:musicBeat(t), level:Voice.plevel }); }
+    partner.useT=Math.max(0,partner.useT-dt);
+    if(partner.av) animateAvatar(partner.av, dt, { speed:partner.speed, dance:partner.dance, beat:musicBeat(t), level:Voice.plevel, hold:!!partner.hold, use:partner.useT>0?1-partner.useT/.6:0, useKind:partner.useKind }); }
   if(Net.connected){ posT-=dt; if(posT<=0){ posT=.1; netSend('pos',{ x:+player.x.toFixed(2), z:+player.z.toFixed(2), yaw:+player.yaw.toFixed(2), d:myDance||'' }); } }
   hintT-=dt;
   if(hintT<=0){ hintT=.12;
     centreCab = overlayOpen() ? null : centreTarget();
     $('#reticle').classList.toggle('on', !!centreCab);
     let txt='';
-    if(centreCab==='juke'){ txt=`Jukebox — ${IS_TOUCH?'tap it':'click or <b>Enter</b>'} to pick a song`; }
-    else if(centreCab){ txt=`${centreCab.def.name} — ${IS_TOUCH?'tap it':'click or <b>Enter</b>'} to play`; if(CABS.indexOf(centreCab)!==cur){ cur=CABS.indexOf(centreCab); updateCounter(centreCab); } }
+    const how = IS_TOUCH?'tap it':'click or <b>Enter</b>';
+    if(centreCab){ const ci=centreCab;
+      if(ci.type==='juke') txt=`Jukebox — ${how} to pick a song`;
+      else if(ci.type==='item'){ const o=WORLD.get(ci.id); txt = o ? `${ITEMS[o.kind].name} — ${how} to pick it up` : ''; }
+      else if(ci.type==='trash') txt = HELD.kind ? `Trash can — ${how} to throw away the ${ITEMS[HELD.kind].name.toLowerCase()}` : 'Trash can';
+      else if(ci.type==='shop') txt = `${ci.shop==='snacks'?'Snack bar':'Prize counter'} — ${how} to shop (🎟 ${WALLET.n})`;
+      else if(ci.type==='tix'){ const m=stripOf(ci.cab,true), o=stripOf(ci.cab,false); txt = m ? `🎟️ Your ${m.n} tickets — ${how} to collect` : `${o.name||'The other player'}'s tickets`; }
+      else if(ci.type==='cab'){ const cab=ci.cab; const m=stripOf(cab,true); txt = m ? `🎟️ ${m.n} tickets are waiting — ${how} to collect` : `${cab.def.name} — ${how} to play`; if(CABS.indexOf(cab)!==cur){ cur=CABS.indexOf(cab); updateCounter(cab); } }
+    }
     else if(player.z>9 && !overlayOpen() && t<40) txt = IS_TOUCH ? 'Walk forward into the arcade — drag bottom-left' : 'Walk forward with <b>W</b> or <b>↑</b> — or press <b>E</b> to jump to a machine';
     if(txt!==lastHint){ lastHint=txt; $('#hint').innerHTML=txt; $('#hint').classList.toggle('on',!!txt); }
     if(!centreCab && cur<0 && (Math.floor(t*2)%4===0)) updateCounter(null);
-    if((!centreCab||centreCab==='juke') && cur>=0 && Math.hypot(CABS[cur].x-player.x,CABS[cur].z-player.z)>5){ cur=-1; updateCounter(null); }
-    if(mouse.has && !overlayOpen() && !dragging){ const h=pick(mouse.x,mouse.y); canvas.style.cursor = h && (h.object.userData.cab||h.object.userData.juke) ? 'pointer' : (h && h.object.userData.floor ? 'crosshair' : 'grab'); }
+    if((!centreCab||centreCab.type!=='cab') && cur>=0 && Math.hypot(CABS[cur].x-player.x,CABS[cur].z-player.z)>5){ cur=-1; updateCounter(null); }
+    if(mouse.has && !overlayOpen() && !dragging){ const h=pick(mouse.x,mouse.y); canvas.style.cursor = h && infoOf(h.object) ? 'pointer' : (h && h.object.userData.floor ? 'crosshair' : 'grab'); }
     drawMap();
   }
   // render (bloom if the device keeps up)
@@ -3425,7 +3945,7 @@ function frame(){
   $('#bar').style.width='25%';
   try{ await Promise.race([ Promise.all([document.fonts.load(`400 80px Monoton`), document.fonts.load(`900 40px Orbitron`), document.fonts.load(`700 30px "Chakra Petch"`)]), new Promise(r=>setTimeout(r,2500)) ]); }catch(e){}
   $('#bar').style.width='50%';
-  buildRooms(); buildLobby(); buildArcade(); setMyLook(myLook()||randomLook());
+  buildRooms(); buildLobby(); buildArcade(); setMyLook(myLook()||randomLook()); initHeld(); skinForView(); loadRoom(JSON.parse(store('room')||'[]'));
   $('#bar').style.width='80%';
   for(const cab of CABS) paintScreen(cab,0);
   camera.position.set(player.x,EYE,player.z); camera.rotation.set(player.pitch,player.yaw,0); resize();
@@ -3437,7 +3957,7 @@ function frame(){
   window.__arcadeReady=true;
   requestAnimationFrame(frame);
 })();
-window.__arcade = { voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
+window.__arcade = { WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
 addEventListener('pagehide', ()=>{ if(Net.connected) leaveRoom(); });
 </script>
 </body>
