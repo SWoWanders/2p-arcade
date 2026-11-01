@@ -3445,6 +3445,7 @@ function makeComposer(){
 try{ if(bloomOn) makeComposer(); }catch(e){ bloomOn=false; console.warn('[arcade] bloom off', e); }
 
 const EYE=1.65, RAD=.35;
+const SHELF_SUPER=[];
 const LOBBY={x0:-8,x1:8,z0:0,z1:12,h:3.6}, ROOM={x0:-7,x1:7,z0:-20,z1:0,h:3.3}, DOOR=2.2;
 const player = { x:0, z:10.4, yaw:0, pitch:-.04, vx:0, vz:0 };
 const colliders=[];   // {x0,x1,z0,z1}
@@ -3620,8 +3621,8 @@ function buildLobby(){
   signPlane(signTex([{t:'PRIZES', c:NEON.cyan, size:150}],1024,256), 2.4,.6,.84,3.0,0,Math.PI/2,1.8,tb);
   // prize shelves behind the glass
   for(const y of [1.5,2.05]){ box(.5,.03,2.4,.35,y,0,chromeMat,tb); tubeZ(-1.2,1.2,y-.02,.62,NEON.pink,.015,tb); }
-  [['paddle',1.53,-.9],['puppet',1.53,-.35],['chicken',1.53,.25],['glow',1.6,.8],['plane',2.12,-.75],['ball',2.3,.15],['popcorn',2.12,.85]].forEach(([k,y,z])=>{
-    const m=itemMesh(k); m.position.set(.35,y+(k==='ball'?0:.02),z); m.scale.setScalar(k==='ball'?.7:1.8); m.rotation.y=Math.PI/2; tb.add(m); });
+  [['paddle',1.53,-.9],['puppet',1.53,-.35],['chicken',1.53,.25],['glow',1.6,.8],['plane',2.12,-.75],['ball',2.3,.15],['super',2.06,.52],['popcorn',2.12,.85]].forEach(([k,y,z])=>{
+    const m=itemMesh(k); m.position.set(.35,y+(k==='ball'?0:.02),z); m.scale.setScalar(k==='ball'?.7:1.8); m.rotation.y=Math.PI/2; tb.add(m); if(k==='super') SHELF_SUPER.push(m); });
   { const hit=box(.6,1.6,2.7,1.0,.8,0,new THREE.MeshBasicMaterial({visible:false}),tb); hit.userData.shop='prizes'; hitList.push(hit); }
   collide(-8,-6.15,4.65,7.35);
   // concession stand (right)
@@ -4635,6 +4636,7 @@ const ITEMS={
   puppet:  { name:'Jiggly finger puppet', cost:12, icon:'👾', use:'Jiggle', shop:'prizes' },
   plane:   { name:'Model plane', cost:25, icon:'✈️', use:'Fly it', shop:'prizes', flies:true },
   ball:    { name:'Beach ball', cost:20, icon:'🏐', use:'Toss', shop:'prizes', ball:true },
+  super:   { name:'Glowing superball', cost:10, icon:'🔮', use:'Bounce', shop:'prizes', ball:true, superb:true },
   chicken: { name:'Rubber chicken', cost:10, icon:'🐔', use:'Squeeze', shop:'prizes' },
   glow:    { name:'Glow stick', cost:8, icon:'🪄', use:'Shake', shop:'prizes' },
   hotdog:  { name:'Hot dog', cost:10, icon:'🌭', use:'Bite', bites:5, empty:'tray', shop:'snacks' },
@@ -4736,6 +4738,7 @@ function itemMesh(kind, stage=0){
       add(new THREE.BoxGeometry(.1,.005,.035), imat('#ff2bd6'), 0,.005,-.095); add(new THREE.BoxGeometry(.005,.05,.035), imat('#00d8f0'), 0,.025,-.095);
       add(new THREE.ConeGeometry(.016,.04,10), iglow('#ffe600',1.6), 0,0,.13).rotation.x=Math.PI/2; add(new THREE.BoxGeometry(.282,.007,.012), iglow('#00f0ff',2), 0,0,.035); break; }
     case 'ball': { const t=stripeTex(['#ff2e4d','#ffe14a','#2f7bff','#ffffff','#7dff3a','#ff7a1a']); add(new THREE.SphereGeometry(.22,22,16), new THREE.MeshStandardMaterial({map:t,roughness:.35})); add(new THREE.SphereGeometry(.03,8,6), imat('#ffffff'), 0,.215,0); break; }
+    case 'super': { add(new THREE.SphereGeometry(.03,16,12), iglow('#ff2bd6',2.6)).name='core'; add(new THREE.SphereGeometry(.045,14,10), new THREE.MeshBasicMaterial({color:'#ff2bd6',transparent:true,opacity:.4,depthWrite:false})).name='halo'; break; }
     case 'chicken': { const b=add(new THREE.CapsuleGeometry(.025,.11,4,10), imat('#ffe14a')); b.rotation.z=Math.PI/2; b.name='body';
       add(new THREE.SphereGeometry(.03,10,8), imat('#ffe14a'), .08,.02,0); add(new THREE.ConeGeometry(.012,.03,6), imat('#ff8a00'), .115,.02,0).rotation.z=-Math.PI/2;
       for(let k=0;k<3;k++) add(new THREE.SphereGeometry(.01,8,6), iglow('#ff3355',1.4), .07+k*.012,.05,0); add(new THREE.SphereGeometry(.005,6,4), imat('#000'), .09,.03,.022); break; }
@@ -4760,8 +4763,14 @@ function itemMesh(kind, stage=0){
   }
   g.userData.kind=kind; return g;
 }
-const RADIUS={ ball:.22, plane:.04, paddle:.05, puppet:.04, chicken:.04, glow:.02, hotdog:.03, tray:.02, cola:.07, slushie:.07, cup:.06, popcorn:.07, bucket:.065, gummies:.05, bag:.01, bar:.01, wrapper:.01 };
+const RADIUS={ super:.03, ball:.22, plane:.04, paddle:.05, puppet:.04, chicken:.04, glow:.02, hotdog:.03, tray:.02, cola:.07, slushie:.07, cup:.06, popcorn:.07, bucket:.065, gummies:.05, bag:.01, bar:.01, wrapper:.01 };
 
+const SUPERCOLS=['#ff2bd6','#00f0ff','#39ff14','#ffe600','#ff8a00','#9d4dff'].map(c=>new THREE.Color(c));
+const _sc=new THREE.Color();
+function superGlow(m,t,o){ const core=m.getObjectByName('core'), halo=m.getObjectByName('halo'); if(!core) return;
+  const sp = o ? Math.hypot(o.vx||0,o.vy||0,o.vz||0) : 0, f=(t*(1.2+sp*.6))%SUPERCOLS.length, i=Math.floor(f);
+  _sc.copy(SUPERCOLS[i]).lerp(SUPERCOLS[(i+1)%SUPERCOLS.length], f-i); core.material.color.copy(_sc).multiplyScalar(1.25); halo.material.color.copy(_sc);
+  halo.scale.setScalar(1+Math.sin(t*9)*.15+Math.min(.8,sp*.08)); }
 /* ---------- held item (you) ---------- */
 const HELD={ kind:null, stage:0, use:0, useDur:0, mesh3:null, view:null, viewMesh:null, flip:0 };
 function initHeld(){
@@ -4778,7 +4787,7 @@ function holdItem(kind, stage=0, quiet){
   HELD.kind=kind; HELD.stage=stage; HELD.use=0;
   if(HELD.viewMesh){ HELD.view.remove(HELD.viewMesh); } HELD.viewMesh=null;
   if(HELD.mesh3 && HELD.mesh3.parent) HELD.mesh3.parent.remove(HELD.mesh3); HELD.mesh3=null;
-  if(kind){ const vm=itemMesh(kind,stage); vm.scale.setScalar(kind==='ball'?.55:1); vm.position.set(0,.04,0); if(kind==='plane'){ vm.rotation.y=Math.PI; } HELD.view.add(vm); HELD.viewMesh=vm;
+  if(kind){ const vm=itemMesh(kind,stage); vm.scale.setScalar(kind==='ball'?.55:kind==='super'?.8:1); vm.position.set(0,.04,0); if(kind==='plane'){ vm.rotation.y=Math.PI; } HELD.view.add(vm); HELD.viewMesh=vm;
     attachToHand(me.av, kind, stage, HELD); }
   store('held', kind ? JSON.stringify({kind,stage}) : 'null');
   handUI(); if(!quiet) netSend('hold',{ k:kind||'', st:stage });
@@ -4796,6 +4805,7 @@ function useHeld(){
   if(incoming()){ catchIncoming(); return; }
   if(!HELD.kind){ toast(IS_TOUCH?'Your hands are empty. Win tickets and visit the prize counter!':'Your hands are empty. Win tickets and visit the prize counter in the lobby.'); return; }
   const k=HELD.kind, it=ITEMS[k]; if(!it.use) return;
+  if(it.superb){ bounceHeld(); return; }
   if(it.flies || it.ball){ throwHeld(it.flies?7.5:6); return; }
   if(HELD.use>0) return;
   HELD.use=it.bites?.55:(k==='paddle'?1.6:.9); HELD.useDur=HELD.use; HELD.useKind = it.bites?'eat':'play';
@@ -4812,8 +4822,14 @@ function useSound(k){
   else { noise(.08,.18,2200); tone(180,.06,'square',.06,.6,.05); }
 }
 function dropHeld(){ if(!HELD.kind) return; const f=fwd(); spawnWorld(HELD.kind,HELD.stage, player.x+f.x*.6, .9, player.z+f.z*.6, f.x*.6, 0, f.z*.6); holdItem(null); sfx('drop'); }
+function bounceHeld(){   // slam the superball into the floor just ahead: it rockets up to the ceiling
+  if(!HELD.kind) return; const f=fwd();
+  spawnWorld(HELD.kind, HELD.stage, player.x+f.x*.45, 1.2, player.z+f.z*.45, f.x*1.6, -11, f.z*1.6, true);
+  HELD.use=.35; HELD.useDur=.35; HELD.useKind='throw'; netSend('use',{k:'throw'}); holdItem(null); tone(500,.08,'triangle',.08,.5);
+}
 function throwHeld(speed=6){
-  if(!HELD.kind) return; const it=ITEMS[HELD.kind], f=fwd(); const up = (it.flies ? .9 : (it.ball ? 2.0 : 2.2)) + player.pitch*4;
+  if(HELD.kind && ITEMS[HELD.kind].superb && speed===6) speed=10;
+  if(!HELD.kind) return; const it=ITEMS[HELD.kind], f=fwd(); const up = (it.flies ? .9 : (it.superb ? 1.2 : it.ball ? 2.0 : 2.2)) + player.pitch*(it.superb?9:4);
   const sx=player.x+f.x*.5, sz=player.z+f.z*.5;
   spawnWorld(HELD.kind, HELD.stage, sx, 1.45, sz, f.x*speed, up, f.z*speed, true);
   HELD.use=.35; HELD.useDur=.35; HELD.useKind='throw'; netSend('use',{k:'throw'}); holdItem(null); tone(300,.15,'triangle',.08,2.5);
@@ -4838,18 +4854,18 @@ function removeWorld(id){ const o=WORLD.get(id); if(!o) return; scene.remove(o.m
 function inRoomXZ(x,z,r){ const m=r+.06; return inRect(x,z,LOBBY.x0+m,LOBBY.x1-m,LOBBY.z0+m,LOBBY.z1-m) || inRect(x,z,ROOM.x0+m,ROOM.x1-m,ROOM.z0+m,ROOM.z1-m) || (Math.abs(x)<DOOR-m && z>-.4 && z<.4); }
 function hitCollider(x,z,y,r){ for(const c of colliders){ if(x>c.x0-r && x<c.x1+r && z>c.z0-r && z<c.z1+r && y<1.1) return true; } return false; }
 function simItem(o, dt){
-  const r=RADIUS[o.kind]||.05, isBall=o.kind==='ball', isPlane=o.kind==='plane';
+  const r=RADIUS[o.kind]||.05, isSuper=o.kind==='super', isBall=o.kind==='ball'||isSuper, isPlane=o.kind==='plane';
   o.t+=dt;
-  const g = isPlane && o.y>r+.02 ? 2.2 : (isBall ? 6.5 : 9.8);
+  const g = isPlane && o.y>r+.02 ? 2.2 : (isSuper ? 9.8 : isBall ? 6.5 : 9.8);
   o.vy -= g*dt;
-  if(isBall){ const d=Math.exp(-.35*dt); o.vx*=d; o.vz*=d; }
+  if(isBall){ const d=Math.exp(-(isSuper?.05:.35)*dt); o.vx*=d; o.vz*=d; }
   if(isPlane && o.y>r+.02){ const sp=Math.hypot(o.vx,o.vz); o.vy += Math.min(2.0, sp*.22)*dt; }
   let nx=o.x+o.vx*dt, nz=o.z+o.vz*dt, ny=o.y+o.vy*dt;
-  if(!inRoomXZ(nx,o.z,r) || hitCollider(nx,o.z,ny,r)){ o.vx=-o.vx*(isBall?.8:.3); nx=o.x; if(isBall) sfxAt('wall',o); }
-  if(!inRoomXZ(o.x,nz,r) || hitCollider(o.x,nz,ny,r)){ o.vz=-o.vz*(isBall?.8:.3); nz=o.z; if(isBall) sfxAt('wall',o); }
-  const ceil=(o.z>0?LOBBY.h:ROOM.h)-r; if(ny>ceil){ ny=ceil; o.vy=-Math.abs(o.vy)*.5; }
-  if(ny<r){ ny=r; if(o.vy<-1.2){ o.vy=-o.vy*(isBall?.72:.18); if(isBall) sfxAt('bounce',o); else if(!isPlane) sfxAt('thud',o); } else o.vy=0;
-    const fr=Math.exp(-(isBall?.9:isPlane?2.5:6)*dt); o.vx*=fr; o.vz*=fr; }
+  if(!inRoomXZ(nx,o.z,r) || hitCollider(nx,o.z,ny,r)){ o.vx=-o.vx*(isSuper?.95:isBall?.8:.3); nx=o.x; if(isBall) sfxAt(isSuper?'pock':'wall',o); }
+  if(!inRoomXZ(o.x,nz,r) || hitCollider(o.x,nz,ny,r)){ o.vz=-o.vz*(isSuper?.95:isBall?.8:.3); nz=o.z; if(isBall) sfxAt(isSuper?'pock':'wall',o); }
+  const ceil=(o.z>0?LOBBY.h:ROOM.h)-r; if(ny>ceil){ ny=ceil; o.vy=-Math.abs(o.vy)*(isSuper?.92:.5); if(isSuper) sfxAt('pock',o); }
+  if(ny<r){ ny=r; if(o.vy<(isSuper?-.5:-1.2)){ o.vy=-o.vy*(isSuper?.9:isBall?.72:.18); if(isSuper) sfxAt('pock',o); else if(isBall) sfxAt('bounce',o); else if(!isPlane) sfxAt('thud',o); } else o.vy=0;
+    const fr=Math.exp(-(isSuper?.25:isBall?.9:isPlane?2.5:6)*dt); o.vx*=fr; o.vz*=fr; }
   o.x=nx; o.y=ny; o.z=nz; if(isBall) o.rot=(o.rot||0)+Math.hypot(o.vx,o.vz)*dt*3;
   // bounce off the other player (and off you, once it has left your hand)
   for(const body of bodies()){ if(o.from===body.who && o.t<.5) continue;
@@ -4862,7 +4878,7 @@ function simItem(o, dt){
 }
 function bodies(){ const b=[{ who:'me', x:player.x, z:player.z, h:me.av?me.av.height:1.7 }]; if(partner && partner.g.visible) b.push({ who:'partner', x:partner.x, z:partner.z, h:partner.av?partner.av.height:1.7 }); return b; }
 function sfxAt(kind,o){ const d=Math.hypot(o.x-player.x,o.z-player.z), v=Math.max(0,1-d/14); if(v<=0) return;
-  if(kind==='bounce') tone(160,.12,'sine',.25*v,.6); else if(kind==='wall') tone(220,.06,'triangle',.12*v,.7); else if(kind==='boing') { tone(300,.25,'sine',.2*v,2.4); } else if(kind==='thud') noise(.05,.1*v,500); }
+  if(kind==='bounce') tone(160,.12,'sine',.25*v,.6); else if(kind==='wall') tone(220,.06,'triangle',.12*v,.7); else if(kind==='boing') { tone(300,.25,'sine',.2*v,2.4); } else if(kind==='thud') noise(.05,.1*v,500); else if(kind==='pock'){ tone(1300+Math.random()*500,.05,'sine',.14*v,.5); } }
 function trashed(o){ sfxAt('thud',o); tone(500,.1,'square',.06,.5); netSend('itemdel',{ id:o.id, trash:1 }); removeWorld(o.id); toast('🗑️ In the trash!',1400); }
 let streamT=0;
 function itemsFrame(dt,t){
@@ -4870,8 +4886,12 @@ function itemsFrame(dt,t){
   for(const o of WORLD.values()){
     if(o.sim){ const n=Math.ceil(dt/.012); for(let i=0;i<n && o.sim && WORLD.has(o.id);i++) simItem(o, dt/n); if(!WORLD.has(o.id)) continue; if(stream && o.sim) netSend('imove',{ id:o.id, x:+o.x.toFixed(3), y:+o.y.toFixed(3), z:+o.z.toFixed(3), vx:+o.vx.toFixed(2), vy:+o.vy.toFixed(2), vz:+o.vz.toFixed(2) }); }
     else if(o.tx!=null && !o.rest){ const k=1-Math.exp(-dt*14); o.x+=(o.tx-o.x)*k; o.y+=(o.ty-o.y)*k; o.z+=(o.tz-o.z)*k; if(o.kind==='ball') o.rot=(o.rot||0)+Math.hypot(o.vx,o.vz)*dt*3; }
+    if(o.kind==='super') superGlow(o.mesh,t,o);
     placeMesh(o);
   }
+  for(const m of SHELF_SUPER){ if(m.userData.y0==null) m.userData.y0=m.position.y; m.position.y=m.userData.y0+Math.abs(Math.sin(t*3.2))*.12; superGlow(m,t); }
+  if(HELD.kind==='super' && HELD.viewMesh) superGlow(HELD.viewMesh,t);
+  if(HELD.kind==='super' && HELD.mesh3) superGlow(HELD.mesh3,t);
   // first-person hand + use animation
   const mode=viewMode();
   if(HELD.view){ HELD.view.visible = mode==='first' && !!HELD.kind; }
