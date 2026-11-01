@@ -5768,9 +5768,13 @@ function endPointer(e){
   const wasTap = pointerStart && pointerStart.id===e.pointerId && Math.hypot(e.clientX-pointerStart.x,e.clientY-pointerStart.y)<10 && performance.now()-pointerStart.t<500;
   if(e.pointerId===stick.id){ stick.id=null; stick.x=stick.y=0; $('#stick').style.display='none'; }
   if(e.pointerId===look.id){ look.id=null; dragging=false; }
-  if(wasTap && e.type==='pointerup' && !overlayOpen()) handleTap(e.clientX,e.clientY);
+  if(wasTap && e.type==='pointerup' && !overlayOpen()){ handleTap(e.clientX,e.clientY); if(overlayOpen()) ghostUntil=performance.now()+600; }
   pointerStart=null;
 }
+// A tap that opens a panel (shop, snack bar, jukebox, game menu) is followed by the browser's own
+// "click" at the same spot, which would land on whatever button just appeared under the finger.
+let ghostUntil=0;
+for(const ev of ['click','pointerdown','pointerup','touchend']) document.addEventListener(ev, e=>{ if(performance.now()<ghostUntil && e.target!==canvas){ if(ev==='pointerdown'||ev==='touchend') ghostUntil=0; else { e.stopPropagation(); if(ev==='click') e.preventDefault(); } } }, true);
 canvas.addEventListener('pointerup', endPointer); canvas.addEventListener('pointercancel', endPointer);
 canvas.addEventListener('wheel', e=>{ e.preventDefault(); if(overlayOpen()) return; const f=fwd(), d=-Math.sign(e.deltaY)*.6; auto=null; tryMove(f.x*d,f.z*d); }, {passive:false});
 canvas.addEventListener('contextmenu', e=>e.preventDefault());
@@ -6032,7 +6036,7 @@ function frame(){
   window.__arcadeReady=true;
   requestAnimationFrame(frame);
 })();
-window.__arcade = { BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
+window.__arcade = { hitList, camera, BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
 addEventListener('pagehide', ()=>{ if(Net.connected) leaveRoom(); });
 </script>
 </body>
