@@ -233,6 +233,30 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
 .bdTools .swatch{width:44px; height:44px}
 .bdTools .chip{min-height:46px}
 .lTracks{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:4px 0 10px} .lTracks .lab{font-weight:700; font-size:16px; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; width:100%}
+
+/* Glow Roll alley HUD */
+body.alley-on .hud.bottom, body.alley-on .stick-hint, body.alley-on #side, body.alley-on .handp, body.alley-on #catchBtn, body.alley-on #hint, body.alley-on .reticle{display:none !important}
+#alleyHud{position:fixed; inset:0; z-index:7; pointer-events:none}
+#alleyHud[hidden]{display:none}
+#alPad{position:absolute; inset:0; pointer-events:auto; touch-action:none; cursor:grab}
+#alInfo{position:absolute; left:50%; transform:translateX(-50%); top:calc(max(10px, env(safe-area-inset-top)) + 64px); display:flex; gap:clamp(10px,3vw,26px); align-items:center;
+  background:rgba(6,4,20,.78); border:2px solid var(--cyan); border-radius:14px; padding:8px 16px; box-shadow:0 0 18px rgba(0,240,255,.35); pointer-events:auto; white-space:nowrap}
+#alInfo .k{font:700 clamp(13px,3.2vw,16px) var(--body,system-ui); color:#9fb0e0; letter-spacing:.06em; text-transform:uppercase}
+#alInfo .v{font:900 clamp(24px,6vw,34px) Orbitron,system-ui; color:#fff; text-shadow:0 0 12px var(--cyan); margin-left:6px}
+#alClose{min-width:52px}
+#alHow{position:absolute; left:50%; transform:translateX(-50%); bottom:calc(max(12px, env(safe-area-inset-bottom)) + 12px); width:min(640px,92vw); text-align:center;
+  font-size:clamp(16px,3.8vw,19px); color:#eafcff; background:rgba(6,4,20,.7); border-radius:12px; padding:10px 14px; pointer-events:none}
+#alPower{position:absolute; right:max(18px, env(safe-area-inset-right)); top:50%; transform:translateY(-50%); width:34px; height:min(46vh,300px); border:3px solid var(--yellow); border-radius:12px; overflow:hidden; background:rgba(0,0,0,.5)}
+#alPowerFill{position:absolute; left:0; right:0; bottom:0; background:linear-gradient(0deg,#39ff14,#ffe600 60%,#ff3355); box-shadow:0 0 16px #ffe600}
+#alPop{position:absolute; left:50%; top:38%; transform:translate(-50%,-50%); font:900 clamp(44px,12vw,92px) Orbitron,system-ui; opacity:0; pointer-events:none}
+#alPop.go{animation:alpop 1.1s ease-out}
+@keyframes alpop{0%{opacity:0; transform:translate(-50%,-30%) scale(.6)} 15%{opacity:1; transform:translate(-50%,-50%) scale(1.1)} 70%{opacity:1} 100%{opacity:0; transform:translate(-50%,-90%) scale(1)}}
+#alEnd{position:absolute; inset:0; display:grid; place-items:center; background:rgba(3,2,10,.55); pointer-events:auto; padding:16px}
+#alEnd[hidden]{display:none}
+@media (max-height:520px){ #alInfo{padding:4px 10px; top:calc(max(6px, env(safe-area-inset-top)) + 54px)} #alInfo .v{font-size:20px} #alInfo .k{font-size:12px} #alHow{font-size:14px; padding:6px 10px} }
+#alEnd .panel{text-align:center; width:min(520px,100%)}
+#alEnd .headline{font-family:var(--head); font-weight:900; font-size:clamp(48px,12vw,84px); line-height:1.05; margin:6px 0 10px}
+#alEnd .row{justify-content:center} #alEnd p{font-size:clamp(17px,4vw,20px)}
 </style>
 </head>
 <body>
@@ -258,6 +282,15 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
   <button class="btn green" id="micBtn" title="Turn on voice chat (T)" aria-label="Turn on voice chat" hidden>🎙️</button>
 </div>
 <div class="dmenu" id="dmenu" hidden><h3>Dance</h3></div>
+<div id="alleyHud" hidden>
+  <div id="alPad"></div>
+  <div id="alInfo"><span><span class="k">Score</span><span class="v" id="alScore">0</span></span><span><span class="k">Balls</span><span class="v" id="alBalls">9</span></span><span><span class="k">High</span><span class="v" id="alBest">—</span></span><button class="btn ghost" id="alClose" title="Leave (Esc)">✕</button></div>
+  <div id="alPower" hidden><div id="alPowerFill"></div></div>
+  <div id="alPop"></div>
+  <div id="alHow"></div>
+  <div id="alEnd" hidden><div class="panel"><span class="kicker">Glow Roll</span><div class="headline" style="color:var(--yellow); text-shadow:0 0 14px var(--yellow)" id="alEndScore">0</div><p id="alEndMsg"></p>
+    <div class="row"><button class="btn big pink" id="alAgain">Roll again</button><button class="btn big ghost" id="alLeave">Collect &amp; leave</button></div></div></div>
+</div>
 <div class="handp" id="handPanel" hidden>
   <div class="hname" id="hName">—</div>
   <button class="btn pink" id="hUse">Use</button>
@@ -3608,7 +3641,7 @@ function buildRooms(){
 function buildLobby(){
   // big ARCADE sign over the doorway
   signPlane(signTex([{t:'ARCADE', c:NEON.pink, size:170}], 1024, 256), 3.2, .8, 0, 3.2, .14, 0, 1.9);
-  signPlane(signTex([{t:'8 TWO-PLAYER GAMES', c:NEON.cyan, size:70, font:HEAD, weight:900}], 1024, 128), 2.6, .33, -5.6, 2.95, .14, 0, 1.6);
+  signPlane(signTex([{t:'13 GAMES + ROLL ALLEYS', c:NEON.cyan, size:62, font:HEAD, weight:900}], 1024, 128), 2.6, .33, -5.6, 2.95, .14, 0, 1.6);
   signPlane(signTex([{t:'NOW PLAYING', c:NEON.yellow, size:74, font:HEAD, weight:900}], 1024, 128), 2.6, .33, 5.6, 2.95, .14, 0, 1.6);
   // posters on the lobby walls
   poster(0,-5.4,1.75,.13,0); poster(1,-3.6,1.75,.13,0); poster(2,3.6,1.75,.13,0); poster(3,5.4,1.75,.13,0);
@@ -3857,7 +3890,7 @@ function step(dir){
   goTo(list[(i+dir+list.length)%list.length]);
 }
 function fwd(){ return { x:-Math.sin(player.yaw), z:-Math.cos(player.yaw) }; }
-function updateCounter(cab){ const list=ORDER(); $('#counter').textContent = cab ? `${cab.def.name} · ${list.indexOf(cab)+1} / ${list.length}` : (player.z>0 ? 'Lobby · arcade ahead' : `Arcade · ${CABS.length} machines + jukebox`); }
+function updateCounter(cab){ const list=ORDER(); $('#counter').textContent = cab ? `${cab.def.name} · ${list.indexOf(cab)+1} / ${list.length}` : (player.z>0 ? 'Lobby · arcade ahead' : `Arcade · ${CABS.length} machines + ${ALLEYS.length} roll alleys`); }
 
 /* =====================================================================
    AVATARS — 1980s neon people
@@ -4911,7 +4944,7 @@ function itemsFrame(dt,t){
   // catching
   const inc=incoming(); const cb=$('#catchBtn'); if(cb) cb.hidden=!inc;
   // tickets printing
-  for(const cab of CABS) for(const s of (cab.tix||[])) if(s.grow<1){ s.grow=Math.min(1,s.grow+dt/1.6); layoutStrip(s); if(Math.random()<dt*24) tone(1800+Math.random()*400,.015,'square',.03); }
+  for(const cab of TIXCABS()) for(const s of (cab.tix||[])) if(s.grow<1){ s.grow=Math.min(1,s.grow+dt/1.6); layoutStrip(s); if(Math.random()<dt*24) tone(1800+Math.random()*400,.015,'square',.03); }
   // spinning propellers
   for(const av of [me.av, partner&&partner.av]) if(av && av.wear && av.wear.spin) av.wear.spin.rotation.y+=dt*(9+Math.hypot(player.vx,player.vz)*4);
 }
@@ -5149,6 +5182,309 @@ function sendBoardSnapshot(){
 }
 
 /* =====================================================================
+   GLOW ROLL — a neon roll-the-ball alley (two side-by-side lanes)
+   Played right in the 3D room: walk up, flick the ball up the lane,
+   it hops the ramp onto the ring board and drops into a scoring hole.
+   Physics runs in lane-local coords:  u = along the lane (0 at the
+   foul line), v = across (+ is to the right), y = height.
+   ===================================================================== */
+const AL = {
+  R:.038,                       // ball radius
+  LANE_L:2.2, LANE_W:.27,       // lane length, half-width between rails
+  Y0:.80, Y1:.93,               // lane height at the foul line / the ramp
+  RAMP:.14, RAMP_A:.78,         // ramp length + launch angle (rad)
+  B0:2.48, TH:.62, BL:.86, BW:.36, BY:.98,   // board start u, tilt, length along slope, half-width, height at its foot
+  BALLS:9, U0:.32,
+};
+AL.cos=Math.cos(AL.TH); AL.sin=Math.sin(AL.TH);
+AL.BACK = AL.B0 + AL.BL*AL.cos + .02;          // backboard (u)
+// rings + holes on the board, in board coords (s up the slope, v across)
+AL.RING={ s:.30, r:.29 };
+AL.HOLES=[ {s:.075,v:0,r:.07,pts:10}, {s:.205,v:0,r:.062,pts:20}, {s:.335,v:0,r:.058,pts:30}, {s:.465,v:0,r:.054,pts:40},
+           {s:.70,v:0,r:.052,pts:50}, {s:.75,v:-.27,r:.048,pts:100}, {s:.75,v:.27,r:.048,pts:100} ];
+const laneY=u=>AL.Y0+(AL.Y1-AL.Y0)*clamp(u/AL.LANE_L,0,1);
+const boardY=u=>AL.BY+(u-AL.B0)*Math.tan(AL.TH);
+
+// one ball: { st:'lane'|'air'|'board'|'drop'|'done', u,v,y, vu,vv,vy, s,vs, pts, t }
+function alleyBall(v0, speed, ang){
+  let seed=(Math.round(speed*1e4)*7919 ^ Math.round((ang+1)*1e5)*104729 ^ Math.round((v0+1)*1e5)*31)>>>0||1;
+  const rnd=()=>{ seed^=seed<<13; seed>>>=0; seed^=seed>>17; seed^=seed<<5; seed>>>=0; return seed/4294967296; };
+  return { rnd, st:'lane', u:AL.U0, v:v0, y:laneY(AL.U0)+AL.R, vu:speed*Math.cos(ang), vv:speed*Math.sin(ang), vy:0, s:0, vs:0, pts:-1, t:0, spin:0, bumps:0 };
+}
+// advance one fixed step; returns an event name when something audible happens
+function alleyStep(b, h){
+  const G=9.8, R=AL.R; b.t+=h; let ev='';
+  if(b.st==='lane'){
+    const inc=Math.atan2(AL.Y1-AL.Y0, AL.LANE_L);
+    b.vu -= (G*Math.sin(inc) + .25)*h; b.vv*=Math.exp(-.2*h);
+    b.u+=b.vu*h; b.v+=b.vv*h; b.y=laneY(b.u)+R; b.spin+=b.vu*h/R;
+    if(Math.abs(b.v)>AL.LANE_W-R){ b.v=Math.sign(b.v)*(AL.LANE_W-R); b.vv=-b.vv*.55; ev='rail'; }
+    if(b.vu<=0){ b.st='done'; b.pts=0; b.gutter='short'; return 'short'; }   // too weak: it rolls back to you
+    if(b.u>=AL.LANE_L+AL.RAMP){ // over the hump: airborne
+      const sp=Math.hypot(b.vu,b.vv), k=b.vu/sp; b.st='air'; b.vy=b.vu*Math.sin(AL.RAMP_A)*.95; b.vu=b.vu*Math.cos(AL.RAMP_A)*.97; b.y=AL.Y1+.05+R; ev='hop'; }
+    else if(b.u>=AL.LANE_L){ b.y=AL.Y1+R+(b.u-AL.LANE_L)/AL.RAMP*.05; }
+    return ev;
+  }
+  if(b.st==='air'){
+    b.vy-=G*h; b.u+=b.vu*h; b.v+=b.vv*h; b.y+=b.vy*h; b.spin+=b.vu*h/R;
+    if(Math.abs(b.v)>AL.BW-R){ b.v=Math.sign(b.v)*(AL.BW-R); b.vv=-b.vv*.5; ev='glass'; }
+    if(b.u>AL.BACK-R){ b.u=AL.BACK-R; b.vu=-Math.abs(b.vu)*.08; b.vv=b.vv*.5+(b.rnd()-.5)*.9; ev='back'; }
+    if(b.y>AL.BY+1.0){ b.y=AL.BY+1.0; b.vy=-Math.abs(b.vy)*.3; ev='net'; }
+    if(b.u<AL.B0){ if(b.y<AL.BY-.05){ b.st='done'; b.pts=0; b.gutter='gap'; return 'gutter'; } }
+    else if(b.y-R<=boardY(b.u)+.002){
+      // land on the tilted board: keep the along-slope part of the velocity, lose most of the rest
+      b.st='board'; b.s=(b.u-AL.B0)/AL.cos; b.vs=(b.vu*AL.cos + b.vy*AL.sin)*.55; b.vv=b.vv*.6+(b.rnd()-.5)*.12; return 'land'; }
+    return ev;
+  }
+  if(b.st==='board'){
+    const gs=-G*AL.sin; b.vs+=gs*h; const f=Math.exp(-.6*h); b.vs*=f; b.vv*=f;
+    const os=b.s, ov=b.v; b.s+=b.vs*h; b.v+=b.vv*h; b.spin+=Math.hypot(b.vs,b.vv)*h/R;
+    if(Math.abs(b.v)>AL.BW-R){ b.v=Math.sign(b.v)*(AL.BW-R); b.vv=-b.vv*.5; ev='glass'; }
+    if(b.s>AL.BL-R){ b.s=AL.BL-R; b.vs=-Math.abs(b.vs)*.3; ev='back'; }
+    // the big ring is a low wall: bounce off it from either side
+    const rd0=Math.hypot(os-AL.RING.s,ov), rd1=Math.hypot(b.s-AL.RING.s,b.v), RR=AL.RING.r, gap=R*.55;
+    const outside = rd0>=RR;
+    if(outside ? rd1<RR+gap : rd1>RR-gap){ const nx=(b.s-AL.RING.s)/(rd1||1), ny=b.v/(rd1||1), vn=b.vs*nx+b.vv*ny;
+      const want = outside ? RR+gap : RR-gap; b.s=AL.RING.s+nx*want; b.v=ny*want;
+      if(outside ? vn<0 : vn>0){ b.vs-=1.4*vn*nx; b.vv-=1.4*vn*ny; if(Math.abs(vn)>.3){ b.bumps++; ev='ring'; } } }
+    // holes: drop in if centred enough and not skipping across too fast
+    const sp=Math.hypot(b.vs,b.vv);
+    for(const H of AL.HOLES){ const d=Math.hypot(b.s-H.s,b.v-H.v); if(d<H.r-R*.35 && sp<2.6+(H.r-d)*20){ b.st='drop'; b.pts=H.pts; b.hole=H; b.dt=0; return 'drop'; } }
+    if(b.s<0){ b.st='done'; b.pts=0; b.gutter='low'; return 'gutter'; }
+    if(Math.abs(b.vv)<.02 && Math.abs(b.vs)<.05) b.vv+=(b.rnd()-.5)*.4;   // never balance on top of a ring
+    if(b.t>14){ b.st='done'; b.pts=0; return 'gutter'; }
+    return ev;
+  }
+  if(b.st==='drop'){ b.dt+=h; const H=b.hole; b.s+= (H.s-b.s)*Math.min(1,h*20); b.v+=(H.v-b.v)*Math.min(1,h*20); if(b.dt>.35){ b.st='done'; return 'score'; } return ''; }
+  return '';
+}
+// world position of a ball (lane-local → world) for drawing
+function alleyPos(b){
+  if(b.st==='board'||b.st==='drop'){ const u=AL.B0+b.s*AL.cos, y=AL.BY+b.s*AL.sin+AL.R*AL.cos - (b.st==='drop'?Math.min(.12,b.dt*.5):0); return { u, v:b.v, y }; }
+  return { u:b.u, v:b.v, y:b.y };
+}
+
+/* ---------------- the machines ---------------- */
+const ALLEYS=[];
+const TIXCABS=()=>CABS.concat(ALLEYS);
+const ALLEY={ open:false, a:null, v:0, ang:0, drag:null, charge:-1, chargeT:0, cool:0, ended:false, padA:false };
+const ALCOL=[NEON.cyan, NEON.pink];
+function makeAlley(x, zf, i){
+  const col=ALCOL[i], g=new THREE.Group(); g.position.set(x,0,zf); scene.add(g);
+  const P=(u,v,y)=>new THREE.Vector3(v,y,-u);                    // lane-local → group-local
+  const bx=(w,h,d,u,v,y,mat)=>{ const m=box(w,h,d,v,y,-u,mat,g); return m; };
+  const laneMat=new THREE.MeshStandardMaterial({ color:'#8a8fa8', roughness:.38, metalness:.1 });
+  const inc=Math.atan2(AL.Y1-AL.Y0, AL.LANE_L);
+  // cabinet under the lane + lane surface
+  bx(.8, AL.Y0-.03, AL.LANE_L+.5, AL.LANE_L/2+.05, 0, (AL.Y0-.03)/2, darkMat);
+  const lane=bx(AL.LANE_W*2+.02, .03, AL.LANE_L, AL.LANE_L/2, 0, (AL.Y0+AL.Y1)/2-.015, laneMat); lane.rotation.x=inc;
+  // rails, side caps with light panels, neon edge tubes
+  for(const s of [-1,1]){
+    const cap=bx(.11, .12, AL.LANE_L+.4, AL.LANE_L/2+.05, s*(AL.LANE_W+.07), (AL.Y0+AL.Y1)/2+.03, darkMat); cap.rotation.x=inc;
+    const tube=bx(.025,.025,AL.LANE_L, AL.LANE_L/2, s*(AL.LANE_W+.015), (AL.Y0+AL.Y1)/2+.03, neonMat(col,1.8)); tube.rotation.x=inc;
+    for(const u of [.45,1.55]){ const lp=bx(.07,.012,.55, u, s*(AL.LANE_W+.07), laneY(u)+.095, neonMat(col,.75)); lp.rotation.x=inc; }
+  }
+  // front face: glowing ovals + ticket slot
+  for(const s of [-1,1]){ const o=new THREE.Mesh(new THREE.CapsuleGeometry(.03,.12,4,10), neonMat(col,1.4)); o.position.set(s*.2,.42,.161); g.add(o); }
+  bx(.8,.06,.02, -.21, 0, AL.Y0+.02, neonMat(col,1.5));
+  // ramp hump
+  const ramp=bx(AL.LANE_W*2, .05, AL.RAMP+.04, AL.LANE_L+AL.RAMP/2, 0, AL.Y1+.0, laneMat); ramp.rotation.x=AL.RAMP_A*.45;
+  // target housing: side walls, glass, backdrop, net
+  const H=2.25, uMid=(AL.LANE_L+AL.BACK)/2+.1, hl=AL.BACK-AL.LANE_L+.25;
+  for(const s of [-1,1]){ bx(.04, H, hl, uMid, s*.42, H/2, darkMat); bx(.012,.012,hl, uMid, s*.4, H-.02, neonMat(col,1.6)); bx(.012,H-.8,.012, AL.LANE_L-.02, s*.4, (H+.8)/2, neonMat(col,1.6)); }
+  const glass=new THREE.MeshStandardMaterial({ color:col, transparent:true, opacity:.08, roughness:.05, metalness:.6, depthWrite:false, side:THREE.DoubleSide });
+  for(const s of [-1,1]){ const gl=new THREE.Mesh(new THREE.PlaneGeometry(hl, H-AL.Y1-.05), glass); gl.rotation.y=Math.PI/2; gl.position.set(s*.395,(H+AL.Y1)/2,-uMid); g.add(gl); }
+  bx(.84, H+.55, .06, AL.BACK+.06, 0, (H+.55)/2, darkMat);
+  bx(.8, .03, AL.BACK-AL.LANE_L+.1, (AL.LANE_L+AL.BACK)/2, 0, AL.Y1-.08, blackMat);    // gutter floor in the gap
+  // backdrop art above the board
+  { const c=document.createElement('canvas'); c.width=512; c.height=384; const x2=c.getContext('2d'); const gr=x2.createLinearGradient(0,0,0,384); gr.addColorStop(0,'#05031a'); gr.addColorStop(1,'#1a0838'); x2.fillStyle=gr; x2.fillRect(0,0,512,384);
+    for(let k=0;k<70;k++){ x2.fillStyle=`rgba(255,255,255,${.3+Math.random()*.6})`; x2.fillRect(Math.random()*512,Math.random()*384,2,2); }
+    x2.strokeStyle=col; x2.lineWidth=5; x2.shadowColor=col; x2.shadowBlur=16; for(let r=60;r<360;r+=52){ x2.beginPath(); x2.arc(256,420,r,Math.PI,TAU); x2.stroke(); }
+    x2.shadowBlur=20; x2.fillStyle='#fff'; x2.font=`900 54px ${HEAD}`; x2.textAlign='center'; x2.fillText('ROLL ON!',256,92);
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(.78,.66), new THREE.MeshBasicMaterial({ map:canvasTex(c) })); m.position.set(0,1.82,-(AL.BACK+.025)); g.add(m); }
+  // LED score display + marquee
+  const led=document.createElement('canvas'); led.width=512; led.height=128; const ledTex=canvasTex(led);
+  const lm=new THREE.Mesh(new THREE.PlaneGeometry(.8,.2), new THREE.MeshBasicMaterial({ map:ledTex })); lm.position.set(0,2.29,-(AL.BACK+.025)); g.add(lm);
+  signPlane(signTex([{t:'GLOW ROLL', c:col, size:110, font:HEAD, weight:900}],1024,200), .86,.17, 0,2.56,-(AL.BACK+.02), 0,1.7, g);
+  bx(.9,.02,.03, AL.BACK+.02, 0, 2.66, neonMat(col,2)); bx(.9,.02,.03, AL.BACK+.02, 0, 2.17, neonMat(col,2));
+  // the scoring board: tilted, with ring + holes
+  const bd=new THREE.Group(); bd.position.copy(P(AL.B0,0,AL.BY)); bd.rotation.x=-(Math.PI/2-AL.TH); g.add(bd);
+  { const c=document.createElement('canvas'); c.width=360; c.height=430; const x2=c.getContext('2d'); const K=c.width/(AL.BW*2);
+    const X=v=>(v+AL.BW)*K, Y=s=>c.height-s*K; x2.fillStyle='#0b0f2a'; x2.fillRect(0,0,c.width,c.height);
+    x2.fillStyle='rgba(255,43,214,.10)'; x2.beginPath(); x2.arc(X(0),Y(AL.RING.s),AL.RING.r*K,0,TAU); x2.fill();
+    for(let k=0;k<40;k++){ x2.fillStyle=`rgba(0,240,255,${.06+Math.random()*.1})`; x2.beginPath(); x2.arc(Math.random()*c.width,Math.random()*c.height,3+Math.random()*7,0,TAU); x2.fill(); }
+    x2.textAlign='center'; x2.textBaseline='middle'; x2.font=`900 22px ${HEAD}`;
+    for(const h of AL.HOLES){ x2.fillStyle=h.pts>=50?NEON.yellow:'#ffffff'; x2.shadowColor=col; x2.shadowBlur=10; x2.fillText(String(h.pts), X(h.v), Y(h.s)-h.r*K-13); }
+    const bm=new THREE.Mesh(new THREE.PlaneGeometry(AL.BW*2, AL.BL), new THREE.MeshStandardMaterial({ map:canvasTex(c), roughness:.5, emissive:'#1a1040', emissiveIntensity:.6 }));
+    bm.position.set(0,AL.BL/2,0); bd.add(bm); }
+  const holeMat=new THREE.MeshBasicMaterial({ color:'#000000' });
+  for(const h of AL.HOLES){ const d=new THREE.Mesh(new THREE.CircleGeometry(h.r,24), holeMat); d.position.set(h.v,h.s,.003); bd.add(d);
+    const rim=new THREE.Mesh(new THREE.TorusGeometry(h.r,.009,8,28), neonMat(h.pts>=50?NEON.yellow:h.pts>=30?NEON.pink:NEON.cyan,1.7)); rim.position.set(h.v,h.s,.012); bd.add(rim); }
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(AL.RING.r,.016,10,48), new THREE.MeshStandardMaterial({ color:'#ff3355', emissive:'#ff2bd6', emissiveIntensity:.9, roughness:.4 })); ring.position.set(0,AL.RING.s,.016); bd.add(ring);
+  // ball return tray (right side, front) shows the balls you have left
+  bx(.1,.05,.42, .2, AL.LANE_W+.19, AL.Y0+.055, blackMat); bx(.1,.01,.42, .2, AL.LANE_W+.19, AL.Y0+.085, neonMat(col,.7));
+  const ballMat=neonMat(col,1.5), ballGeo=new THREE.SphereGeometry(AL.R,16,12);
+  const tray=[]; for(let k=0;k<AL.BALLS;k++){ const m=new THREE.Mesh(ballGeo, ballMat); m.position.copy(P(.02+k*.046, AL.LANE_W+.19, AL.Y0+.1)); g.add(m); tray.push(m); }
+  const aimBall=new THREE.Mesh(ballGeo, ballMat); aimBall.visible=false; g.add(aimBall);
+  const arrow=new THREE.Mesh(new THREE.BoxGeometry(.012,.004,.7), neonMat(NEON.yellow,1.6)); arrow.visible=false; g.add(arrow);
+  // hit boxes + collider + ticket slot
+  const hit=new THREE.Mesh(new THREE.BoxGeometry(.85,1.2,AL.BACK+.3), new THREE.MeshBasicMaterial({visible:false})); hit.position.set(0,.9,-(AL.BACK/2)); g.add(hit);
+  collide(x-.44,x+.44,zf-(AL.BACK+.1),zf+.17);
+  const a={ i, x, zf, g, P, col, def:{ id:'alley'+i, name:`Glow Roll ${i+1}`, color:col }, alley:true, kind:'alley', tray, aimBall, arrow, led, ledTex, live:[], score:0, balls:AL.BALLS, who:null, whoName:'', flash:null, flashT:0, best:+(store('alley-best')||0) };
+  hit.userData.alley=a; hitList.push(hit);
+  { const s=new THREE.Group(); s.position.set(.24,.62,.162); g.add(s);
+    s.add(new THREE.Mesh(new THREE.BoxGeometry(.2,.035,.03), new THREE.MeshStandardMaterial({color:'#05040a',roughness:.4})));
+    const fr=new THREE.Mesh(new THREE.BoxGeometry(.24,.065,.012), neonMat(NEON.orange,2)); fr.position.z=-.01; s.add(fr);
+    signPlane(signTex([{t:'TICKETS', c:NEON.orange, size:90, font:HEAD, weight:900}],512,128), .24,.06, 0,.07,.007, 0,1.6,s);
+    const th=new THREE.Mesh(new THREE.BoxGeometry(.4,.4,.4), new THREE.MeshBasicMaterial({visible:false})); th.position.set(0,-.05,.18); th.userData.tixcab=a; s.add(th); hitList.push(th);
+    a.slot=s; a.tix=[]; }
+  ledDraw(a); return a;
+}
+function buildAlleys(){ ALLEYS.push(makeAlley(-3.3,-3.3,0), makeAlley(-2.35,-3.3,1)); }
+function ledDraw(a){
+  const c=a.led.getContext('2d'), w=a.led.width, h=a.led.height; c.fillStyle='#120004'; c.fillRect(0,0,w,h);
+  c.fillStyle='rgba(255,40,60,.07)'; for(let x=0;x<w;x+=8) for(let y=0;y<h;y+=8) c.fillRect(x+1,y+1,5,5);
+  c.textAlign='center'; c.textBaseline='middle'; c.shadowColor='#ff2a3a'; c.shadowBlur=14; c.fillStyle='#ff3a4a';
+  if(a.flash){ c.font=`900 78px ${HEAD}`; c.fillText(a.flash,w/2,h/2+4); }
+  else if(a.who){ c.font=`900 50px ${HEAD}`; c.fillText(String(a.score).padStart(3,'0'), w*.3, h/2+2); c.font=`700 30px ${BODY}`; c.fillText(`BALLS ${a.balls}`, w*.74, h/2+2); }
+  else { c.font=`900 44px ${HEAD}`; c.fillText(a.best?`HIGH ${a.best}`:'ROLL ON!', w/2, h/2+2); }
+  a.ledTex.needsUpdate=true;
+}
+function ledFlash(a, txt, dur=1.2){ a.flash=txt; a.flashT=dur; ledDraw(a); }
+
+/* ---------------- sounds ---------------- */
+function alleySound(ev, a, pts){ const d=Math.hypot(a.x-player.x, a.zf-player.z), v=ALLEY.a===a?1:Math.max(0,1-d/12); if(v<=0) return;
+  if(ev==='hop') tone(260,.12,'triangle',.09*v,1.8);
+  else if(ev==='land'||ev==='back'||ev==='net') noise(.06,.16*v,ev==='land'?700:1300);
+  else if(ev==='ring'||ev==='rail'||ev==='glass') tone(ev==='ring'?900:1400,.04,'square',.05*v,.6);
+  else if(ev==='drop'){ const n=pts>=100?6:pts>=50?4:pts>=30?3:2; for(let k=0;k<n;k++) tone(660*Math.pow(1.26,k),.09,'square',.07*v,1,k*.07); }
+  else if(ev==='gutter'||ev==='short') tone(140,.25,'sawtooth',.06*v,.6);
+  else if(ev==='roll') noise(.5,.05*v,300);
+}
+
+/* ---------------- playing ---------------- */
+function openAlley(a){
+  if(a.who==='partner'){ toast(`${Net.partner||'The other player'} is rolling on this lane — try the other one!`,2200); return; }
+  const other=ALLEYS.find(o=>o!==a && o.who==='me'); if(other) closeAlley();
+  stopDance(); auto=null; player.x=a.x; player.z=a.zf+.62; player.yaw=0; player.pitch=-.32; player.vx=player.vz=0;
+  ALLEY.open=true; ALLEY.a=a; ALLEY.v=0; ALLEY.ang=0; ALLEY.drag=null; ALLEY.charge=-1; ALLEY.cool=0; ALLEY.ended=false; ALLEY.pending=0;
+  a.who='me'; a.score=0; a.balls=AL.BALLS; a.flash=null; ledDraw(a); trayDraw(a);
+  netSend('alley',{ a:a.i, ev:'open', name:nameOf(Net.role==='guest'?1:0) });
+  $('#alleyHud').hidden=false; document.body.classList.add('alley-on'); $('#alEnd').hidden=true; alleyHud(); keys.clear(); sfx('sel');
+  $('#alHow').innerHTML = IS_TOUCH ? 'Flick the ball up the lane. <b>Faster flick = harder roll.</b> Flick at an angle to aim for the corners.'
+    : 'Drag the ball up and let go — or hold <b>Space</b> for power. <b>A D</b> slide, <b>← →</b> aim. <b>Esc</b> to leave.';
+}
+function closeAlley(){ const a=ALLEY.a; if(!a) return; ALLEY.open=false; ALLEY.a=null; a.who=null; a.aimBall.visible=false; a.arrow.visible=false; ledDraw(a); trayDraw(a);
+  $('#alleyHud').hidden=true; document.body.classList.remove('alley-on'); netSend('alley',{ a:a.i, ev:'close' }); canvas.focus({preventScroll:true}); }
+function trayDraw(a){ a.tray.forEach((m,k)=>m.visible = a.who ? k<a.balls : true); }
+function alleyHud(){ const a=ALLEY.a; if(!a) return; $('#alScore').textContent=a.score; $('#alBalls').textContent=`${a.balls}`; $('#alBest').textContent=a.best||'—'; }
+function rollBall(sp, ang){
+  const a=ALLEY.a; if(!a || a.balls<=0 || ALLEY.cool>0 || ALLEY.ended) return;
+  sp=clamp(sp,1.6,7.2); ang=clamp(ang,-.16,.16); const v=ALLEY.v;
+  a.balls--; ALLEY.cool=.55; ALLEY.pending++; trayDraw(a); alleyHud();
+  spawnAlleyBall(a, v, sp, ang, 'me'); netSend('alley',{ a:a.i, ev:'roll', v:+v.toFixed(4), sp:+sp.toFixed(4), ang:+ang.toFixed(4) }); netSend('use',{k:'throw'});
+  ledDraw(a);
+}
+function spawnAlleyBall(a, v, sp, ang, owner){
+  const m=new THREE.Mesh(a.aimBall.geometry, a.aimBall.material); a.g.add(m);
+  a.live.push({ b:alleyBall(v,sp,ang), m, owner, acc:0 }); alleySound('roll',a);
+}
+function ballDone(a, L){
+  a.g.remove(L.m); if(L.owner!=='me') return;
+  const pts=Math.max(0,L.b.pts); a.score+=pts; ALLEY.pending--;
+  if(pts>0) ledFlash(a, pts>=100?'★ 100 ★':`+${pts}`, 1.0); else ledFlash(a, L.b.gutter==='short'?'TOO SOFT':'MISS', .9);
+  pop(pts>0?`+${pts}`:(L.b.gutter==='short'?'Too soft!':'Gutter!'), pts>=50?NEON.yellow:pts>0?a.col:'#8890b0');
+  netSend('alley',{ a:a.i, ev:'score', score:a.score, balls:a.balls }); alleyHud();
+  if(a.balls<=0 && ALLEY.pending<=0) setTimeout(()=>alleyEnd(a), 700);
+}
+function pop(txt,col){ const p=$('#alPop'); p.textContent=txt; p.style.color=col; p.style.textShadow=`0 0 18px ${col}`; p.classList.remove('go'); void p.offsetWidth; p.classList.add('go'); }
+function alleyEnd(a){
+  if(ALLEY.a!==a || ALLEY.ended) return; ALLEY.ended=true;
+  const n=Math.max(1, Math.round(a.score/20)), best=a.score>a.best;
+  if(best){ a.best=a.score; store('alley-best',String(a.score)); ALLEYS.forEach(o=>{ o.best=Math.max(o.best,a.score); ledDraw(o); }); }
+  const owner = Net.connected ? Net.role : 'me', id=uid(), nm=nameOf(Net.role==='guest'?1:0);
+  printTickets(a, n, owner, id, nm); netSend('tix',{ cab:a.def.id, n, owner, id, name:nm }); netSend('alley',{ a:a.i, ev:'end', score:a.score });
+  ledFlash(a, best?'NEW HIGH!':'WINNER', 3); sfx('win');
+  $('#alEndScore').textContent=a.score; $('#alEndMsg').innerHTML = `${best?'🏆 New high score! ':''}The machine printed <b>${n} ticket${n>1?'s':''}</b> — grab them from the slot on the front.`;
+  alleyHud(); $('#alEnd').hidden=false; setTimeout(()=>{ const b=$('#alAgain'); b&&b.focus({preventScroll:true}); },50);
+}
+function alleyAgain(){ const a=ALLEY.a; if(!a) return; if(stripOf(a,true)) collectTickets(a); a.score=0; a.balls=AL.BALLS; ALLEY.ended=false; ALLEY.pending=0; a.flash=null; ledDraw(a); trayDraw(a); alleyHud(); $('#alEnd').hidden=true; netSend('alley',{ a:a.i, ev:'open', name:nameOf(Net.role==='guest'?1:0) }); }
+function alleyCollect(){ const a=ALLEY.a; if(!a) return; const had=stripOf(a,true); closeAlley(); if(had) collectTickets(a); }
+
+/* power meter (keyboard / controller): ping-pongs while held */
+const powerAt=t=>{ const p=(t%1.6)/0.8; return p<=1?p:2-p; };
+function alleyKey(e, down){
+  const c=e.code, k=e.key;
+  if(!down){ if((c==='Space'||c==='KeyW'||c==='ArrowUp'||k==='Enter') && ALLEY.charge>=0){ const p=powerAt(ALLEY.chargeT); ALLEY.charge=-1; rollBall(2.2+p*4.3, ALLEY.ang); } keys.delete(c); return; }
+  if(k==='Escape'){ e.preventDefault(); closeAlley(); return; }
+  if(!$('#alEnd').hidden){ if(k==='Enter'||k===' '){ e.preventDefault(); alleyAgain(); } return; }
+  if(['KeyA','KeyD','ArrowLeft','ArrowRight'].includes(c)){ keys.add(c); e.preventDefault(); return; }
+  if((c==='Space'||c==='KeyW'||c==='ArrowUp'||k==='Enter') && !e.repeat){ e.preventDefault(); if(ALLEY.charge<0 && ALLEY.cool<=0 && ALLEY.a && ALLEY.a.balls>0){ ALLEY.charge=0; ALLEY.chargeT=0; } }
+}
+function alleyPointer(){
+  const el=$('#alPad'); let pts=[];
+  el.addEventListener('pointerdown', e=>{ if(!ALLEY.open || ALLEY.ended) return; try{ el.setPointerCapture(e.pointerId); }catch(_){} audio(); pts=[[e.clientX,e.clientY,e.timeStamp]]; ALLEY.drag={ id:e.pointerId, x0:e.clientX, v0:ALLEY.v }; });
+  el.addEventListener('pointermove', e=>{ const d=ALLEY.drag; if(!d||d.id!==e.pointerId) return; for(const ce of (e.getCoalescedEvents?e.getCoalescedEvents():[])) pts.push([ce.clientX,ce.clientY,ce.timeStamp]); if(!e.getCoalescedEvents||!e.getCoalescedEvents().length) pts.push([e.clientX,e.clientY,e.timeStamp]); if(pts.length>40) pts.shift();
+    // the ball slides with your finger until you flick it
+    const dy=pts[0][1]-e.clientY; if(dy<40) ALLEY.v=clamp(d.v0+(e.clientX-d.x0)/innerWidth*.6, -.2,.2);
+    const n=pts.length, q=pts[Math.max(0,n-5)], dx=e.clientX-q[0], dyy=q[1]-e.clientY; if(dyy>8) ALLEY.ang=clamp(Math.atan2(dx,dyy)*.35,-.16,.16); });
+  const up=e=>{ const d=ALLEY.drag; if(!d||d.id!==e.pointerId) return; ALLEY.drag=null; if(e.type==='pointercancel') return;
+    const now=e.timeStamp; const S=pts.filter(p=>now-p[2]<300).concat([[e.clientX,e.clientY,now]]);
+    // fastest upward stretch of at least ~40ms in the last quarter second (so a tiny pause before lifting doesn't kill it)
+    let best=null; for(let j=1;j<S.length;j++) for(let i=j-1;i>=0;i--){ const dt=(S[j][2]-S[i][2])/1000; if(dt<.04 && i>0) continue; const T=Math.max(.016,dt), vy=(S[i][1]-S[j][1])/T; if(!best||vy>best.vy) best={ vy, vx:(S[j][0]-S[i][0])/T }; break; }
+    const f = best ? best.vy/innerHeight : 0;
+    if(f<.8){ if(pts.length>2 && (pts[0][1]-e.clientY)>30) toast('Flick faster to roll it!',1200); return; }
+    rollBall(2.2+(f-.4)*.75, clamp(Math.atan2(best.vx,best.vy)*.35,-.16,.16)); };
+  el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  $('#alClose').onclick=()=>closeAlley(); $('#alAgain').onclick=()=>alleyAgain(); $('#alLeave').onclick=()=>alleyCollect();
+}
+
+/* ---------------- per frame ---------------- */
+let alleyGpA=false;
+function alleyFrame(dt,t){
+  for(const a of ALLEYS){
+    if(a.flashT>0){ a.flashT-=dt; if(a.flashT<=0){ a.flash=null; ledDraw(a); } }
+    for(const L of a.live.slice()){ L.acc+=dt; const H=1/240; let n=0;
+      while(L.acc>=H && n<60 && L.b.st!=='done'){ L.acc-=H; n++; const ev=alleyStep(L.b,H); if(ev){ alleySound(ev,a,L.b.pts); } }
+      const p=alleyPos(L.b); L.m.position.copy(a.P(p.u,p.v,p.y)); L.m.rotation.x=-L.b.spin;
+      if(L.b.st==='done'){ a.live.splice(a.live.indexOf(L),1); ballDone(a,L); } }
+  }
+  if(!ALLEY.open) return;
+  const a=ALLEY.a;
+  // controls
+  const gp=pads()[0]; let gA=false, lx=0, rx=0; if(gp){ const b=i=>!!(gp.buttons[i]&&gp.buttons[i].pressed); gA=b(0)||b(7); lx=Math.abs(gp.axes[0]||0)>.2?gp.axes[0]:0; rx=Math.abs(gp.axes[2]||0)>.2?gp.axes[2]:0; if(b(14)) rx=-1; if(b(15)) rx=1;
+    if(b(1) && $('#alEnd').hidden) closeAlley(); if(!$('#alEnd').hidden && gA && !alleyGpA){ alleyAgain(); alleyGpA=true; return; } }
+  if(gA && !alleyGpA && ALLEY.charge<0 && ALLEY.cool<=0 && a.balls>0 && !ALLEY.ended){ ALLEY.charge=0; ALLEY.chargeT=0; }
+  if(!gA && alleyGpA && ALLEY.charge>=0){ const p=powerAt(ALLEY.chargeT); ALLEY.charge=-1; rollBall(2.2+p*4.3, ALLEY.ang); }
+  alleyGpA=gA;
+  const sl=(keys.has('KeyD')?1:0)-(keys.has('KeyA')?1:0)+lx, tn=(keys.has('ArrowRight')?1:0)-(keys.has('ArrowLeft')?1:0)+rx;
+  if(sl) ALLEY.v=clamp(ALLEY.v+sl*.35*dt,-.2,.2); if(tn) ALLEY.ang=clamp(ALLEY.ang+tn*.22*dt,-.16,.16);
+  if(ALLEY.cool>0) ALLEY.cool-=dt;
+  if(ALLEY.charge>=0) ALLEY.chargeT+=dt;
+  const pm=$('#alPower'); pm.hidden = ALLEY.charge<0; if(ALLEY.charge>=0) $('#alPowerFill').style.height=(powerAt(ALLEY.chargeT)*100).toFixed(0)+'%';
+  // the ball waiting in your hand + the aim arrow
+  const ready = a.balls>0 && ALLEY.cool<=0 && !ALLEY.ended;
+  a.aimBall.visible=ready; a.arrow.visible=ready;
+  if(ready){ a.aimBall.position.copy(a.P(AL.U0,ALLEY.v,laneY(AL.U0)+AL.R)); a.arrow.position.copy(a.P(AL.U0+.42*Math.cos(ALLEY.ang),ALLEY.v+.42*Math.sin(ALLEY.ang),laneY(AL.U0+.4)+.004)); a.arrow.rotation.set(0,-ALLEY.ang,0); a.arrow.rotation.x=0; }
+  // camera behind the lane
+  const tall=innerHeight>innerWidth, wide=innerWidth/innerHeight>1.45;
+  camera.position.copy(a.P(tall?-.75:-.5, ALLEY.v*.4, tall?1.48:1.34)).add(a.g.position);
+  camTmp.copy(a.P(tall?1.9:2.0, 0, tall?.9:wide?1.06:.94)).add(a.g.position); camera.lookAt(camTmp);
+  if(HELD.view) HELD.view.visible=false;
+}
+/* ---------------- network ---------------- */
+function alleyOnNet(m){
+  const a=ALLEYS[m.a]; if(!a) return;
+  if(m.ev==='open'){ if(a.who==='me' && Net.role==='guest'){ /* both grabbed the same lane: host keeps it */ closeAlley(); toast('The other player took that lane.'); }
+    a.who='partner'; a.score=0; a.balls=AL.BALLS; a.flash=null; ledDraw(a); trayDraw(a); }
+  else if(m.ev==='close'){ if(a.who==='partner'){ a.who=null; ledDraw(a); trayDraw(a); } }
+  else if(m.ev==='roll'){ if(a.who!=='partner'){ a.who='partner'; } a.balls=Math.max(0,a.balls-1); trayDraw(a); spawnAlleyBall(a, m.v, m.sp, m.ang, 'partner'); }
+  else if(m.ev==='score'){ const d=m.score-a.score; a.score=m.score; a.balls=m.balls; if(d>0) ledFlash(a, d>=100?'★ 100 ★':`+${d}`, 1.0); else ledDraw(a); }
+  else if(m.ev==='end'){ a.score=m.score; if(m.score>a.best){ a.best=m.score; } ledFlash(a,'WINNER',3); }
+}
+function alleySnapshot(){ return ALLEYS.filter(a=>a.who==='me').map(a=>({ a:a.i, score:a.score, balls:a.balls })); }
+
+/* =====================================================================
    ONLINE — PeerJS (WebRTC data channel, free public broker, no key)
    ?net=tab swaps in a BroadcastChannel so two tabs can test it offline.
    ===================================================================== */
@@ -5253,8 +5589,9 @@ function onNetUp(){
   Net.connected=true; makePartner('…'); netSend('hello', { name:myName(), look:myLook() }); netUI(); sfx('coin');
   if(Net.role==='host' && Music.playing>=0) netSend('juke',{ i:Music.playing, pos:musicPos() });
   if(Voice.stream){ callPartner(); netSend('voice',{on:Voice.state==='on'}); }
-  if(Net.role==='host'){ netSend('items',{ list:[...WORLD.values()].map(pack), tix:CABS.flatMap(c=>(c.tix||[]).map(t=>({cab:c.def.id, id:t.id, n:t.n, owner:t.owner==='me'?'host':t.owner, name:t.name}))) }); }
+  if(Net.role==='host'){ netSend('items',{ list:[...WORLD.values()].map(pack), tix:TIXCABS().flatMap(c=>(c.tix||[]).map(t=>({cab:c.def.id, id:t.id, n:t.n, owner:t.owner==='me'?'host':t.owner, name:t.name}))) }); }
   if(HELD.kind) netSend('hold',{ k:HELD.kind, st:HELD.stage });
+  for(const q of alleySnapshot()){ netSend('alley',{ a:q.a, ev:'open' }); netSend('alley',{ a:q.a, ev:'score', score:q.score, balls:q.balls }); }
   if(Net.role==='host') sendBoardSnapshot();
   if(Net.role==='guest'){ try{ const u=new URL(location.href); u.searchParams.delete('room'); history.replaceState(null,'',u); }catch(e){} }
 }
@@ -5264,6 +5601,7 @@ function onNetDown(){
   Net.connected=false; if(partner) partner.g.visible=false; voiceStop();
   toast(`${who} disconnected.`, 4000);
   Session.netLost();
+  for(const a of ALLEYS) if(a.who==='partner'){ a.who=null; a.live=a.live.filter(L=>{ if(L.owner==='partner'){ a.g.remove(L.m); return false; } return true; }); ledDraw(a); trayDraw(a); }
   if(Net.role==='host'){ Net.conn=null; Net.partner=''; netUI(); } else { leaveRoom(true); }
 }
 function onNet(m){
@@ -5274,7 +5612,7 @@ function onNet(m){
     case 'dance': if(partner) partner.dance = DANCES.some(d=>d[0]===m.d) ? m.d : null; break;
     case 'juke': { const i=m.i|0; if(m.i<0){ juke(-1); toast(`${Net.partner} stopped the music.`,1800); } else if(SONGS[i]){ juke(i, +m.pos||0); toast(`♪ ${Net.partner} played ${SONGS[i].name}`); } break; }
     case 'voice': Voice.partnerOn=!!m.on; setPartnerLabel(null,null); break;
-    case 'items': if(Net.role==='guest'){ loadRoom(m.list||[]); for(const c of CABS){ for(const t of (c.tix||[])) c.slot.remove(t.g); c.tix=[]; } for(const t of (m.tix||[])){ const c=CABS.find(c=>c.def.id===t.cab); if(c){ printTickets(c,t.n,t.owner,t.id,t.name); c.tix[c.tix.length-1].grow=1; layoutStrip(c.tix[c.tix.length-1]); } } } break;
+    case 'items': if(Net.role==='guest'){ loadRoom(m.list||[]); for(const c of TIXCABS()){ for(const t of (c.tix||[])) c.slot.remove(t.g); c.tix=[]; } for(const t of (m.tix||[])){ const c=TIXCABS().find(c=>c.def.id===t.cab); if(c){ printTickets(c,t.n,t.owner,t.id,t.name); c.tix[c.tix.length-1].grow=1; layoutStrip(c.tix[c.tix.length-1]); } } } break;
     case 'hold': if(partner){ partner.hold = m.k && ITEMS[m.k] ? { k:m.k, st:m.st|0 } : null; attachToHand(partner.av, partner.hold&&partner.hold.k, partner.hold&&partner.hold.st, partner.slot); } break;
     case 'use': if(partner){ partner.useT=.6; partner.useKind = m.k==='throw' ? 'throw' : (ITEMS[m.k]&&ITEMS[m.k].bites ? 'eat' : 'play');
       if(m.k!=='throw' && ITEMS[m.k]){ const d=Math.hypot(partner.x-player.x,partner.z-player.z); if(d<9) useSound(m.k); } } break;
@@ -5285,12 +5623,13 @@ function onNet(m){
     case 'itemdel': removeWorld(m.id); break;
     case 'grab': if(WORLD.has(m.id)){ removeWorld(m.id); if(m.caught) toast(`${Net.partner} caught it! 🙌`,1600); } break;
     case 'bonk': toast('Bonk! 🏐',1200); tone(300,.25,'sine',.2,2.4); break;
-    case 'tix': { const c=CABS.find(c=>c.def.id===m.cab); if(c) printTickets(c, m.n|0, m.owner, m.id, m.name); break; }
-    case 'tixgot': for(const c of CABS){ const t=(c.tix||[]).find(x=>x.id===m.id); if(t){ c.slot.remove(t.g); c.tix.splice(c.tix.indexOf(t),1); toast(`${Net.partner} collected their tickets.`,1600); } } break;
+    case 'tix': { const c=TIXCABS().find(c=>c.def.id===m.cab); if(c) printTickets(c, m.n|0, m.owner, m.id, m.name); break; }
+    case 'tixgot': for(const c of TIXCABS()){ const t=(c.tix||[]).find(x=>x.id===m.id); if(t){ c.slot.remove(t.g); c.tix.splice(c.tix.indexOf(t),1); toast(`${Net.partner} collected their tickets.`,1600); } } break;
     case 'full': netFail('That room already has two players.'); break;
     case 'pos': if(partner){ partner.tx=m.x; partner.tz=m.z; partner.tyaw=m.yaw; partner.dance = DANCES.some(d=>d[0]===m.d) ? m.d : null; if(!partner.g.visible){ partner.x=m.x; partner.z=m.z; partner.g.visible=true; } } break;
     case 'where': setPartnerLabel(Net.partner, m.g?`playing ${m.g}`:''); break;
     case 'bye': onNetDown(); break;
+    case 'alley': alleyOnNet(m); break;
     default: if(!boardOnNet(m)) Session.onNet(m);
   }
 }
@@ -5742,12 +6081,13 @@ let pointerStart=null, dragging=false, introOpen=true, exitArm=0;
 const mouse={ x:0, y:0, has:false };
 const ray=new THREE.Raycaster(), ndc=new THREE.Vector2();
 function setKb(on){ document.body.classList.toggle('kb', on); }
-function overlayOpen(){ return BOARD.open || introOpen || S.open || BLD.open || !$('#shop').hidden || !$('#launch').hidden || !$('#netPanel').hidden || !$('#invite').hidden || !$('#jukebox').hidden; }
+function overlayOpen(){ return ALLEY.open || BOARD.open || introOpen || S.open || BLD.open || !$('#shop').hidden || !$('#launch').hidden || !$('#netPanel').hidden || !$('#invite').hidden || !$('#jukebox').hidden; }
 function pick(cx,cy){ ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1); ray.setFromCamera(ndc,camera); ray.far=40;
   const h=ray.intersectObjects([...hitList, ...itemHits, lobbyFloor, roomFloor, ...wallHits], false); return h[0]||null; }
 const wallHits=[];
 function infoOf(o){ const u=o.userData; if(u.board) return {type:'board'}; if(u.juke) return {type:'juke'}; if(u.item) return {type:'item', id:u.item}; if(u.trash) return {type:'trash'}; if(u.shop) return {type:'shop', shop:u.shop};
-  if(u.tixcab) return (u.tixcab.tix||[]).length ? {type:'tix', cab:u.tixcab} : {type:'cab', cab:u.tixcab}; if(u.cab) return {type:'cab', cab:u.cab}; return null; }
+  if(u.alley) return stripOf(u.alley,true) ? {type:'tix', cab:u.alley} : {type:'alley', a:u.alley};
+  if(u.tixcab) return (u.tixcab.tix||[]).length ? {type:'tix', cab:u.tixcab} : (u.tixcab.alley ? {type:'alley', a:u.tixcab} : {type:'cab', cab:u.tixcab}); if(u.cab) return {type:'cab', cab:u.cab}; return null; }
 function interactWith(info, far){
   if(!info) return false;
   switch(info.type){
@@ -5756,7 +6096,8 @@ function interactWith(info, far){
     case 'item': pickUp(info.id); return true;
     case 'trash': if(far){ toast('Walk over to the trash can.'); return true; } if(HELD.kind) trashHeld(); else toast(IS_TOUCH?'Trash can — bring empty wrappers and cups here, or throw things in.':'Trash can — hold something and press Enter here, or throw it in with R.'); return true;
     case 'shop': if(far){ toast(info.shop==='snacks'?'Walk up to the snack bar.':'Walk up to the prize counter.'); return true; } openShop(info.shop); return true;
-    case 'tix': if(far){ goTo(info.cab); return true; } if(collectTickets(info.cab)) return true; return true;
+    case 'alley': if(far){ travel(info.a.x, info.a.zf+.62, 0, -.32); return true; } openAlley(info.a); return true;
+    case 'tix': if(far){ if(info.cab.alley) travel(info.cab.x, info.cab.zf+.62, 0, -.32); else goTo(info.cab); return true; } if(collectTickets(info.cab)) return true; return true;
     case 'cab': { const cab=info.cab; if(far){ goTo(cab); return true; } if(stripOf(cab,true)){ collectTickets(cab); return true; } cur=CABS.indexOf(cab); updateCounter(cab); openLaunch(cab); return true; }
   } return false;
 }
@@ -5805,6 +6146,7 @@ addEventListener('keydown', e=>{
   if(k==='Tab'){ setKb(true); return; }
   const typing = document.activeElement && document.activeElement.tagName==='INPUT';
   if(S.open){ keys.add(c); if(!e.repeat) keyPressN[c]=(keyPressN[c]||0)+1; gameKey(e); return; }
+  if(ALLEY.open){ alleyKey(e,true); return; }
   if(BLD.open){ if(k==='Escape'){ e.preventDefault(); if(!$('#bSex').hidden && !BLD.first) $('#bSex').hidden=true; else closeBuilder(true); } return; }
   if(!$('#jukebox').hidden){ if(k==='Escape'){ e.preventDefault(); closeJuke(); } return; }
   if(!$('#shop').hidden){ if(k==='Escape'){ e.preventDefault(); closeShop(); } return; }
@@ -5834,7 +6176,7 @@ addEventListener('keydown', e=>{
   if(c==='KeyH'||k==='?'){ openIntro(); return; }
   if(k==='Escape'||k==='Backspace'){ e.preventDefault(); armExit('Press Esc again to leave the arcade.'); }
 });
-addEventListener('keyup', e=>keys.delete(e.code));
+addEventListener('keyup', e=>{ if(ALLEY.open) alleyKey(e,false); keys.delete(e.code); });
 addEventListener('blur', ()=>{ keys.clear(); touches.clear(); });
 
 /* world gamepad */
@@ -5843,7 +6185,7 @@ const dzf=v=>Math.abs(v)<.16?0:(v-Math.sign(v)*.16)/(1-.16);
 function btn(n,on,fn){ if(on&&!held[n]){ held[n]=true; fn(); } else if(!on) held[n]=false; }
 function focusCycle(container, dir){ const bs=[...container.querySelectorAll('button:not([disabled]), input')].filter(b=>b.offsetParent); if(!bs.length) return; setKb(true); let i=bs.indexOf(document.activeElement); i=(i+dir+bs.length)%bs.length; bs[i].focus(); }
 function pollPad(){
-  if(S.open){ pad.lx=pad.ly=pad.rx=pad.ry=0; return; }
+  if(S.open||ALLEY.open){ pad.lx=pad.ly=pad.rx=pad.ry=0; return; }
   const gp=pads()[0]; if(!gp){ pad.lx=pad.ly=pad.rx=pad.ry=0; pad.run=false; return; }
   const b=i=>!!(gp.buttons[i]&&gp.buttons[i].pressed), a=gp.axes;
   const panel = !$('#invite').hidden ? $('#invite') : BLD.open ? $('#builder') : !$('#shop').hidden ? $('#shop') : !$('#jukebox').hidden ? $('#jukebox') : !$('#launch').hidden ? $('#launch') : !$('#netPanel').hidden ? $('#netPanel') : introOpen ? $('#intro') : null;
@@ -5950,6 +6292,7 @@ function drawMap(){
   R(LOBBY.x0,LOBBY.z0,LOBBY.x1,LOBBY.z1,NEON.violet,'rgba(60,20,120,.35)'); R(ROOM.x0,ROOM.z0,ROOM.x1,ROOM.z1,NEON.cyan,'rgba(0,40,60,.35)');
   { const [a,b]=toMap(-DOOR,0), [d]=toMap(DOOR,0); c.fillStyle='#000'; c.fillRect(a,b-3,d-a,6); }
   c.font=`700 15px ${BODY}`; c.textAlign='center'; c.fillStyle='#c7d4ff'; { const [a,b]=toMap(0,9); c.fillText('LOBBY',a,b); }
+  for(const al of ALLEYS){ const [a,b]=toMap(al.x-.4,al.zf), [d,e]=toMap(al.x+.4,al.zf-AL.BACK); c.fillStyle=al.col; c.globalAlpha=.7; c.fillRect(a,e,d-a,b-e); c.globalAlpha=1; }
   for(const cab of CABS){ const [a,b]=toMap(cab.x,cab.z); c.fillStyle=cab.def.color; c.shadowColor=cab.def.color; c.shadowBlur=8; c.fillRect(a-7,b-7,14,14); c.shadowBlur=0; }
   if(partner && partner.g.visible){ const [a,b]=toMap(partner.x,partner.z); c.fillStyle=PC[Net.role==='host'?1:0]; c.beginPath(); c.arc(a,b,8,0,TAU); c.fill(); }
   const [px,py]=toMap(player.x,player.z), f=fwd(); c.save(); c.translate(px,py); c.rotate(Math.atan2(f.z,f.x)); c.fillStyle=NEON.yellow; c.beginPath(); c.moveTo(12,0); c.lineTo(-8,-8); c.lineTo(-4,0); c.lineTo(-8,8); c.closePath(); c.fill(); c.restore();
@@ -5996,7 +6339,7 @@ function frame(){
   placeCamera(dt,t,bob);
   voiceFrame();
   if(me.av) animateAvatar(me.av, dt, { speed:spd, dance:myDance, beat:musicBeat(t), level:Voice.level, hold:!!HELD.kind, use:HELD.use>0?1-HELD.use/HELD.useDur:0, useKind:HELD.useKind });
-  itemsFrame(dt,t); boardFrame();
+  itemsFrame(dt,t); boardFrame(); alleyFrame(dt,t);
   animateJukebox(t);
   // attract screens: refresh the nearest ones every frame, the rest in turn
   const near=CABS.map(c=>[c,Math.hypot(c.x-player.x,c.z-player.z)]).sort((a,b)=>a[1]-b[1]);
@@ -6021,6 +6364,7 @@ function frame(){
       else if(ci.type==='juke') txt=`Jukebox — ${how} to pick a song`;
       else if(ci.type==='item'){ const o=WORLD.get(ci.id); txt = o ? `${ITEMS[o.kind].name} — ${how} to pick it up` : ''; }
       else if(ci.type==='trash') txt = HELD.kind ? `Trash can — ${how} to throw away the ${ITEMS[HELD.kind].name.toLowerCase()}` : 'Trash can';
+      else if(ci.type==='alley') txt = ci.a.who==='partner' ? `Glow Roll — ${esc(Net.partner||'the other player')} is rolling here` : `Glow Roll — ${how} to play (9 balls${ci.a.best?`, high score ${ci.a.best}`:''})`;
       else if(ci.type==='shop') txt = `${ci.shop==='snacks'?'Snack bar':'Prize counter'} — ${how} to shop (🎟 ${WALLET.n})`;
       else if(ci.type==='tix'){ const m=stripOf(ci.cab,true), o=stripOf(ci.cab,false); txt = m ? `🎟️ Your ${m.n} tickets — ${how} to collect` : `${o.name||'The other player'}'s tickets`; }
       else if(ci.type==='cab'){ const cab=ci.cab; const m=stripOf(cab,true); txt = m ? `🎟️ ${m.n} tickets are waiting — ${how} to collect` : `${cab.def.name} — ${how} to play`; if(CABS.indexOf(cab)!==cur){ cur=CABS.indexOf(cab); updateCounter(cab); } }
@@ -6044,7 +6388,7 @@ function frame(){
   $('#bar').style.width='25%';
   try{ await Promise.race([ Promise.all([document.fonts.load(`400 80px Monoton`), document.fonts.load(`900 40px Orbitron`), document.fonts.load(`700 30px "Chakra Petch"`)]), new Promise(r=>setTimeout(r,2500)) ]); }catch(e){}
   $('#bar').style.width='50%';
-  buildRooms(); buildLobby(); buildArcade(); buildBoard(); setupBoardInput(); setMyLook(myLook()||randomLook()); initHeld(); skinForView(); loadRoom(JSON.parse(store('room')||'[]'));
+  buildRooms(); buildLobby(); buildArcade(); buildAlleys(); alleyPointer(); buildBoard(); setupBoardInput(); setMyLook(myLook()||randomLook()); initHeld(); skinForView(); loadRoom(JSON.parse(store('room')||'[]'));
   $('#bar').style.width='80%';
   for(const cab of CABS) paintScreen(cab,0);
   camera.position.set(player.x,EYE,player.z); camera.rotation.set(player.pitch,player.yaw,0); resize();
@@ -6056,7 +6400,7 @@ function frame(){
   window.__arcadeReady=true;
   requestAnimationFrame(frame);
 })();
-window.__arcade = { hitList, camera, BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
+window.__arcade = { ALLEY, ALLEYS, openAlley, closeAlley, rollBall, hitList, camera, BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
 addEventListener('pagehide', ()=>{ if(Net.connected) leaveRoom(); });
 </script>
 </body>
