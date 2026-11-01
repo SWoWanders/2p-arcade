@@ -2378,9 +2378,10 @@ const wdx = (a, b, W) => { let d=b-a; if(d>W/2) d-=W; if(d<-W/2) d+=W; return d;
 // taps are sent as a running count so a quick tap is never lost online
 function tapInput(def, vc, p, extraUp){
   def._jc=def._jc||[0,0]; def._jp=def._jp||[false,false];
-  const down = !!(vc.a || vc.touchFire || (extraUp && vc.y<-.55));
+  const down = !!(vc.padA || vc.touchFire || (extraUp && vc.sy<-.55));          // controller / touch: count the edges
   if(down && !def._jp[p]) def._jc[p]++; def._jp[p]=down;
-  return { x:+(Math.abs(vc.x)<.15?0:clamp(vc.x,-1,1)).toFixed(2), jc:def._jc[p], h:down?1:0 };
+  const held = down || vc.a || (extraUp && vc.y<-.55);
+  return { x:+(Math.abs(vc.x)<.15?0:clamp(vc.x,-1,1)).toFixed(2), jc:def._jc[p] + vc.aN + (extraUp?vc.upN:0), h:held?1:0 };
 }
 SFX.jump=()=>tone(380,.12,'square',.07,2.2);
 SFX.bonk=()=>{ tone(150,.08,'square',.12,.6); noise(.06,.12,900); };
@@ -2782,6 +2783,419 @@ game({
     this._rider(c,{x:1600-x, y:500+Math.cos(t*2)*100, face:-1, wing:(Math.cos(t*8)+1)/2},NEON.red,t,{rider:NEON.red}); c.restore(); }
 });
 
+/* ---------------- DOUBLE AGENTS ----------------
+   Original neon take on the split-screen trap-the-other-spy game.
+   An embassy of 3×3 rooms. Search furniture for the 4 secret items and
+   the briefcase, booby-trap furniture and doors, defuse traps with the
+   right tool, club each other, and get out the EXIT door first.        */
+const DA = {
+  GW:3, GH:3, RW:1000, RH:640, TIME:240,
+  ITEMS:['plans','key','passport','money'],
+  ICON:{ plans:'📜', key:'🔑', passport:'🛂', money:'💰', brief:'💼', bucket:'🪣', cutters:'🔧', umbrella:'☂️', scissors:'✂️', bomb:'💣', spring:'🌀', paint:'🎨', zap:'⚡', time:'⏱️', hide:'📥' },
+  NAME:{ plans:'Secret plans', key:'Key', passport:'Passport', money:'Money', brief:'Briefcase', bucket:'Fire bucket', cutters:'Wire cutters', umbrella:'Umbrella', scissors:'Scissors' },
+  TOOLS:{ bucket:'bomb', cutters:'spring', umbrella:'paint', scissors:'zap' },          // tool -> trap it beats
+  TOOLFUR:{ bucket:'firebox', cutters:'toolbox', umbrella:'coatrack', scissors:'firstaid' },
+  FUR:['desk','shelf','cabinet','sofa','plant','safe','tv','lamp'],
+  SLOTS:[ [230,232], [770,232], [140,520], [860,520] ],
+  TRAPS:[ ['bomb','Bomb','fur'], ['spring','Spring','fur'], ['paint','Paint bucket','door'], ['zap','Zap wire','door'], ['time','Time bomb','room'], ['hide','Hide item','hide'] ],
+  WALL:['#2a0f3d','#0f2a3d','#3d1a0f','#0f3d24','#3d0f2a','#22223d','#3d330f','#0f363d','#331a3d'],
+};
+SFX.search=()=>{ noise(.25,.1,2400); }; SFX.setTrap=()=>{ tone(500,.06,'square',.08); tone(750,.08,'square',.08,1,.08); };
+SFX.boom=()=>{ noise(.9,.5,700); tone(70,.8,'sawtooth',.2,.3); }; SFX.sproing=()=>{ tone(180,.5,'sine',.22,5); }; SFX.splash=()=>{ noise(.5,.3,1800); };
+SFX.zapz=()=>{ for(let i=0;i<6;i++) tone(1200+Math.random()*900,.04,'sawtooth',.08,1,i*.05); }; SFX.thwack=()=>{ noise(.06,.3,1200); tone(160,.06,'square',.12,.5); };
+SFX.defuse=()=>{ tone(880,.08,'triangle',.1); tone(1320,.15,'triangle',.1,1,.08); }; SFX.tick=SFX.tick||(()=>tone(1320,.03,'square',.05));
+const daRoom=(gx,gy)=> (gx<0||gy<0||gx>=DA.GW||gy>=DA.GH) ? -1 : gy*DA.GW+gx;
+const daDoorKey=(a,b)=> a<b ? a+'-'+b : b+'-'+a;
+const daBound=y=>{ const k=clamp((y-200)/420,0,1); return lerp(60,0,k)+46; };   // left edge of floor at depth y
+function daNeighbors(r){ const gx=r%DA.GW, gy=Math.floor(r/DA.GW); return { N:daRoom(gx,gy-1), S:daRoom(gx,gy+1), W:daRoom(gx-1,gy), E:daRoom(gx+1,gy) }; }
+const DA_OPP={N:'S',S:'N',W:'E',E:'W'};
+
+game({
+  id:'agents', name:'Double Agents', color:NEON.violet, color2:NEON.yellow, kind:'field', screen:true, noRotate:true, touch:'pad', solo:true, padLabel:'ACT', pad2:'TRAP', W:1600, H:900,
+  blurb:'Two rival agents, one embassy. Search the furniture for the secret plans, key, passport, money and the briefcase to carry them, then escape through the EXIT. Booby-trap furniture and doors to stop the other agent. Fight with clubs when you meet.',
+  how:{ touch:'Drag to walk. ACT searches furniture, picks things up and swings your club. TRAP opens the trap menu (drag left/right to choose, ACT to set).',
+    keys:'Walk <b>W A S D</b> / arrows. <b>F</b>, <b>Space</b> or <b>Enter</b>: search / pick up / swing club. <b>G</b> or <b>Shift</b>: trap menu (← → choose, F set).',
+    keys2:'Same device: left agent <b>W A S D</b> + <b>F</b> act + <b>G</b> traps; right agent <b>arrows</b> + <b>Enter</b> act + <b>Shift (right)</b> traps.',
+    pad:'Stick to walk, Ⓐ act, Ⓑ trap menu (stick ← → to choose, Ⓐ to set).' },
+  init(o){
+    const solo=o.mode==='solo', N=DA.GW*DA.GH, rnd=Math.random;
+    const rooms=[]; let fid=0;
+    // furniture: two of each tool box spread around, the rest ordinary
+    const kinds=[]; for(const t of Object.keys(DA.TOOLFUR)) kinds.push(DA.TOOLFUR[t],DA.TOOLFUR[t]);
+    while(kinds.length<N*4) kinds.push(DA.FUR[Math.floor(rnd()*DA.FUR.length)]);
+    shuffle(kinds);
+    for(let r=0;r<N;r++){ const fur=DA.SLOTS.map((sl,i)=>{ const k=kinds[r*4+i]; const tool=Object.keys(DA.TOOLFUR).find(t=>DA.TOOLFUR[t]===k); return { id:fid++, k, x:sl[0], y:sl[1], side:i, item: tool||null, trap:null, shake:0 }; });
+      rooms.push({ id:r, fur, wall:DA.WALL[r%DA.WALL.length] }); }
+    const plain=[]; rooms.forEach(R=>R.fur.forEach(F=>{ if(!F.item) plain.push(F); })); shuffle(plain);
+    [...DA.ITEMS,'brief'].forEach((it,i)=>{ plain[i].item=it; });
+    // exit: an outside door of a border room, away from where the agents start
+    const border=[]; for(let r=0;r<N;r++){ const nb=daNeighbors(r); for(const sd of ['N','S','W','E']) if(nb[sd]<0) border.push([r,sd]); }
+    const starts = solo ? [0] : [0, N-1];
+    const far=border.filter(([r])=>!starts.includes(r)); const ex=far[Math.floor(rnd()*far.length)];
+    const mk=(p,r)=>({ room:r, x:p?700:300, y:420, face:p?-1:1, walk:0, hand:null, bag:[], tool:null, traps:{bomb:3,spring:3,paint:3,zap:3,time:2},
+      time:DA.TIME, act:null, menu:-1, msel:0, hp:100, hpT:0, dead:0, deathKind:'', out:false, escaped:false, seen:[r], msg:'', msgT:0, ac:undefined, bc:undefined, lc:undefined, rc:undefined, vx:0, vy:0 });
+    const s={ rooms, dt:{}, exit:{room:ex[0], side:ex[1]}, pl: solo?[mk(0,0)]:[mk(0,0),mk(1,N-1)], floor:[], tb:[], fx:[], t:0, over:false, winner:-1, banner:'FIND 4 ITEMS + 💼', solo };
+    if(solo){ // the rival agency left a few surprises
+      const fl=rooms.flatMap(R=>R.fur).filter(F=>!F.item || !Object.keys(DA.TOOLFUR).includes(F.item)); shuffle(fl); fl.slice(0,5).forEach((F,i)=>F.trap={type:i%2?'spring':'bomb', owner:-1});
+      const keys=[]; for(let r=0;r<N;r++){ const nb=daNeighbors(r); for(const sd of ['E','S']) if(nb[sd]>=0) keys.push(daDoorKey(r,nb[sd])); } shuffle(keys); keys.slice(0,3).forEach((k,i)=>s.dt[k]={type:i%2?'zap':'paint',owner:-1}); }
+    return s;
+  },
+  _msg(P,txt,sec=2.2){ P.msg=txt; P.msgT=sec; },
+  _near(P,R){ let best=null, bd=125; for(const F of R.fur){ const d=Math.hypot(P.x-F.x, (P.y-(F.y+(F.side>=2?0:30)))*1.3); if(d<bd){ bd=d; best=F; } } return best; },
+  _doorNear(P, big){ const nb=daNeighbors(P.room), b=daBound(P.y), e=big?70:0;
+    if(P.y<285+e && Math.abs(P.x-500)<90+e*.5) return 'N'; if(P.y>545-e && Math.abs(P.x-500)<100+e*.5) return 'S';
+    if(P.x<b+70+e && Math.abs(P.y-415)<80+e*.5) return 'W'; if(P.x>DA.RW-b-70-e && Math.abs(P.y-415)<80+e*.5) return 'E'; return null; },
+  _isExit(s,room,side){ return s.exit.room===room && s.exit.side===side; },
+  _menuOpts(s,P){ const R=s.rooms[P.room], F=this._near(P,R), d=this._doorNear(P,true), nb=daNeighbors(P.room), other=this._otherHere(s,P);
+    return DA.TRAPS.map(([id,name,where])=>{ let ok=false, why='';
+      if(other){ why='Not while the other agent is here'; }
+      else if(id==='hide'){ ok = !!P.hand && !!F && !F.item; why = !P.hand ? 'Nothing in your hand' : !F ? 'Stand by furniture' : 'Something is already in there'; }
+      else if(P.traps[id]<=0) why='None left';
+      else if(where==='fur'){ ok=!!F && !F.trap; why=!F?'Stand by furniture':'Already trapped'; }
+      else if(where==='door'){ ok=!!d && nb[d]>=0 && !s.dt[daDoorKey(P.room,nb[d])]; why=!d||nb[d]<0?'Stand by an inside door':'Already trapped'; }
+      else ok=true;
+      return { id, name, ok, why, n: id==='hide' ? '' : P.traps[id] }; }); },
+  _otherHere(s,P){ return s.pl.find(O=>O!==P && O.room===P.room && !O.dead && !O.out && !O.escaped); },
+  tick(s, dt, inp){
+    if(s.over) return; dt=Math.min(dt,.05); s.t+=dt; if(s.t>3) s.banner='';
+    s.fx=s.fx.filter(f=>(f.t+=dt)<(f.life||1.2));
+    for(const R of s.rooms) for(const F of R.fur) if(F.shake>0) F.shake-=dt;
+    s.pl.forEach((P,p)=>this._player(s,P,p,dt,inp[p]||{}));
+    // time bombs
+    for(const b of s.tb){ b.t-=dt; if(b.t<=0){ b.done=1; s.fx.push({room:b.room,x:b.x,y:b.y,t:0,boom:1,life:1.4}); emit('boom');
+      for(const P of s.pl) if(P.room===b.room && !P.dead && !P.out && !P.escaped) this._die(s,P,'blast'); } }
+    s.tb=s.tb.filter(b=>!b.done);
+    // end of game
+    const live=s.pl.filter(P=>!P.out && !P.escaped);
+    const esc=s.pl.findIndex(P=>P.escaped);
+    if(esc>=0){ s.over=true; s.winner=esc; }
+    else if(!live.length){ s.over=true; if(s.solo) s.winner=-1; else { const n=P=>P.bag.length+(P.hand&&P.hand!=='brief'?1:0); const a=n(s.pl[0]), b=n(s.pl[1]); s.winner = a===b ? -1 : (a>b?0:1); } }
+  },
+  _player(s,P,p,dt,ci){
+    if(P.out||P.escaped) return;
+    if(P.msgT>0){ P.msgT-=dt; if(P.msgT<=0) P.msg=''; }
+    // the clock always runs while you're in the building
+    P.time-=dt; if(P.time<=0){ P.time=0; P.out=true; this._msg(P,"Time's up!",9); this._dropAll(s,P); return; }
+    // taps (sent as counts so they survive the network)
+    const tap=(k)=>{ const v=ci[k]; if(v==null) return false; const fresh=P[k]!=null && v!==P[k]; P[k]=v; return fresh; };
+    const A=tap('ac'), B=tap('bc'), L=tap('lc'), Rr=tap('rc');
+    if(P.dead){ P.dead+=dt; const tot=P.deathKind==='ko'?6:3.6; if(P.dead>tot){ P.dead=0; P.deathKind=''; P.hp=100; if(P.respawnRoom!=null){ P.room=P.respawnRoom; P.respawnRoom=null; } P.x=500; P.y=430; if(!P.seen.includes(P.room)) P.seen.push(P.room); } return; }
+    if(P.act){ P.act.t+=dt; const a=P.act;
+      if(a.k==='search' && a.t>=.75){ P.act=null; this._resolveSearch(s,P,p,a.f); }
+      else if(a.k==='set' && a.t>=.8){ P.act=null; this._resolveSet(s,P,p,a.opt); }
+      else if(a.k==='swing' && a.t>=.38){ P.act=null; }
+      else if(a.k==='swing' && !a.hit && a.t>=.16){ a.hit=1; this._hit(s,P,p); }
+      if(P.act) return; }
+    if(P.hpT>0) P.hpT-=dt; else P.hp=Math.min(100,P.hp+12*dt);
+    // trap menu
+    if(P.menu>=0){ const opts=this._menuOpts(s,P);
+      if(L){ P.msel=(P.msel+opts.length-1)%opts.length; emit('tick'); } if(Rr){ P.msel=(P.msel+1)%opts.length; emit('tick'); }
+      if(B){ P.menu=-1; }
+      else if(A){ const o=opts[P.msel]; if(o.ok){ P.menu=-1; P.act={k:'set',t:0,opt:o.id}; emit('setTrap'); } else { this._msg(P,o.why,1.6); emit('miss'); } }
+      return; }
+    if(B){ if(this._otherHere(s,P)) this._msg(P,"Can't set traps while the other agent is here — fight or leave!",2); else { P.menu=0; P.msel=P.msel||0; } }
+    // walking
+    const ix=ci.x||0, iy=ci.y||0, sp=300; const m=Math.hypot(ix,iy);
+    const vx=m>.15?ix/Math.max(1,m)*sp:0, vy=m>.15?iy/Math.max(1,m)*sp*.75:0;
+    P.vx=vx; P.vy=vy; if(Math.abs(vx)>5) P.face=Math.sign(vx);
+    let nx=P.x+vx*dt, ny=clamp(P.y+vy*dt, 240, 600); const b=daBound(ny); nx=clamp(nx, b, DA.RW-b);
+    // furniture blocks a little
+    for(const F of s.rooms[P.room].fur){ const fy=F.side>=2?F.y:F.y+10, fw=F.side>=2?70:110; if(Math.abs(nx-F.x)<fw && Math.abs(ny-fy)<26){ if(Math.abs(P.x-F.x)>=fw) nx=P.x; else ny=P.y; } }
+    P.x=nx; P.y=ny; if(m>.15) P.walk+=dt*7;
+    // doors
+    const d=this._doorNear(P);
+    if(d){ const push = (d==='N'&&iy<-.4)||(d==='S'&&iy>.4)||(d==='W'&&ix<-.4)||(d==='E'&&ix>.4);
+      if(push){ this._door(s,P,p,d); return; } }
+    if(A){ // club, pick up from the floor, or search
+      const O=this._otherHere(s,P);
+      if(O && Math.hypot(O.x-P.x,(O.y-P.y)*1.4)<170){ P.face=Math.sign(O.x-P.x)||P.face; P.act={k:'swing',t:0}; emit('jump'); return; }
+      const fl=s.floor.find(it=>it.room===P.room && Math.hypot(it.x-P.x,it.y-P.y)<80); if(fl){ this._take(s,P,fl.item,null); s.floor.splice(s.floor.indexOf(fl),1); return; }
+      const F=this._near(P,s.rooms[P.room]); if(F){ P.act={k:'search',t:0,f:F.id}; F.shake=.75; emit('search'); P.face=Math.sign(F.x-P.x)||P.face; }
+      else this._msg(P,'Walk up to some furniture to search it.',1.4); }
+  },
+  _furById(s,id){ for(const R of s.rooms) for(const F of R.fur) if(F.id===id) return F; return null; },
+  _resolveSearch(s,P,p,fid){ const F=this._furById(s,fid); if(!F) return;
+    if(F.trap && F.trap.owner!==p){ const t=F.trap.type, tool=Object.keys(DA.TOOLS).find(k=>DA.TOOLS[k]===t);
+      if(P.tool===tool){ F.trap=null; this._msg(P,`${DA.ICON[t]} Trap! Your ${DA.NAME[tool].toLowerCase()} saved you.`); emit('defuse'); }
+      else { F.trap=null; this._die(s,P,t); return; } }
+    if(!F.item){ this._msg(P,'Nothing here.',1.2); return; }
+    const it=F.item; F.item=null; this._take(s,P,it,F);
+  },
+  _take(s,P,it,F){
+    if(DA.TOOLS[it]){ if(P.tool){ const old=P.tool; if(F) F.item=old; else s.floor.push({room:P.room,x:P.x,y:P.y,item:old}); this._msg(P,`Swapped your ${DA.NAME[old].toLowerCase()} for the ${DA.NAME[it].toLowerCase()}.`); } else this._msg(P,`Found the ${DA.NAME[it].toLowerCase()}! It beats the ${DA.ICON[DA.TOOLS[it]]} trap.`); P.tool=it; emit('coin2'); return; }
+    if(it==='brief'){ const bag=(F&&F.bag)||[]; if(F) F.bag=null; P.bag=bag; if(P.hand && P.hand!=='brief' && !DA.TOOLS[P.hand]){ P.bag.push(P.hand); } P.hand='brief'; this._msg(P,'💼 Got the briefcase! Now you can carry everything.'); emit('coin'); return; }
+    if(P.hand==='brief'){ P.bag.push(it); this._msg(P,`${DA.ICON[it]} ${DA.NAME[it]} into the briefcase (${P.bag.length}/4).`); emit('coin2'); if(P.bag.length===4) this._msg(P,'All 4 items! Find the EXIT door. ✈',3); return; }
+    if(P.hand){ const old=P.hand; if(F) F.item=old; else s.floor.push({room:P.room,x:P.x,y:P.y,item:old}); this._msg(P,`You can only carry one thing without the briefcase — left the ${DA.NAME[old].toLowerCase()} here.`,2.6); }
+    else this._msg(P,`${DA.ICON[it]} Found the ${DA.NAME[it].toLowerCase()}!`);
+    P.hand=it; emit('coin2');
+  },
+  _resolveSet(s,P,p,id){ const R=s.rooms[P.room];
+    if(id==='hide'){ const F=this._near(P,R); if(F && !F.item && P.hand){ F.item=P.hand; if(P.hand==='brief'){ /* the bag goes with it */ F.bag=P.bag; P.bag=[]; } P.hand=null; this._msg(P,'Hidden.',1.2); } return; }
+    if(id==='time'){ s.tb.push({room:P.room,x:P.x,y:P.y+6,t:15,owner:p}); P.traps.time--; this._msg(P,'⏱️ Time bomb set — 15 seconds. Get out!',2.5); return; }
+    const where=DA.TRAPS.find(t=>t[0]===id)[2];
+    if(where==='fur'){ const F=this._near(P,R); if(F && !F.trap){ F.trap={type:id,owner:p}; P.traps[id]--; this._msg(P,`${DA.ICON[id]} Trap set.`,1.2); } }
+    else { const d=this._doorNear(P,true), nb=daNeighbors(P.room); if(d && nb[d]>=0){ s.dt[daDoorKey(P.room,nb[d])]={type:id,owner:p}; P.traps[id]--; this._msg(P,`${DA.ICON[id]} Door rigged.`,1.2); } }
+  },
+  _door(s,P,p,d){
+    const nb=daNeighbors(P.room);
+    if(nb[d]<0){ if(this._isExit(s,P.room,d)){ if(P.hand==='brief' && P.bag.length>=4){ P.escaped=true; this._msg(P,'ESCAPED! ✈',9); emit('win'); } else { this._msg(P,'🛂 Guard: "Nobody leaves without the briefcase and all 4 items."',2.4); P.y=clamp(P.y,300,520); P.x=clamp(P.x,200,800); } } return; }
+    const key=daDoorKey(P.room,nb[d]), tr=s.dt[key];
+    const to=nb[d], from=P.room; P.room=to; if(!P.seen.includes(to)) P.seen.push(to);
+    const od=DA_OPP[d]; if(od==='S'){ P.x=500; P.y=585; } else if(od==='N'){ P.x=500; P.y=300; } else if(od==='W'){ P.y=415; P.x=daBound(415)+80; } else { P.y=415; P.x=DA.RW-daBound(415)-80; }
+    if(tr && tr.owner!==p){ const tool=Object.keys(DA.TOOLS).find(k=>DA.TOOLS[k]===tr.type); delete s.dt[key];
+      if(P.tool===tool){ this._msg(P,`${DA.ICON[tr.type]} Rigged door! Your ${DA.NAME[tool].toLowerCase()} saved you.`); emit('defuse'); }
+      else this._die(s,P,tr.type); }
+  },
+  _hit(s,P,p){ const O=this._otherHere(s,P); if(!O) return; const dx=O.x-P.x;
+    if(Math.abs(dx)<150 && Math.abs(O.y-P.y)<70 && Math.sign(dx)===P.face){ O.hp-=17; O.hpT=2.2; O.x=clamp(O.x+P.face*40,daBound(O.y),DA.RW-daBound(O.y)); emit('thwack'); s.fx.push({room:O.room,x:O.x,y:O.y-150,t:0,star:1,life:.5});
+      if(O.act && O.act.k!=='swing') O.act=null; if(O.hp<=0) this._die(s,O,'ko'); } },
+  _dropAll(s,P){ // whatever you carried ends up in the room
+    const R=s.rooms[P.room]; const drop=[]; if(P.hand){ if(P.hand==='brief'){ drop.push('brief', ...P.bag); P.bag=[]; } else drop.push(P.hand); } P.hand=null;
+    for(const it of drop){ const F=R.fur.find(F=>!F.item); if(F) F.item=it; else s.floor.push({room:P.room,x:clamp(P.x+(Math.random()-.5)*120,150,850),y:clamp(P.y+(Math.random()-.5)*60,260,590),item:it}); } },
+  _die(s,P,kind){ if(P.dead) return; P.dead=.01; P.deathKind=kind; P.act=null; P.menu=-1;
+    const pen = kind==='ko' ? 45 : 30; P.time=Math.max(0,P.time-pen);
+    this._dropAll(s,P);
+    if(kind==='ko'){ const others=s.rooms.map(R=>R.id).filter(r=>r!==P.room); P.respawnRoom=others[Math.floor(Math.random()*others.length)]; }
+    emit({bomb:'boom',blast:'boom',spring:'sproing',paint:'splash',zap:'zapz',ko:'thwack'}[kind]||'boom'); emit('die');
+    this._msg(P, {bomb:'💣 BOOM! −30 seconds',blast:'⏱️ Caught in the time bomb! −30 s',spring:'🌀 SPROING! −30 seconds',paint:'🎨 SPLAT! −30 seconds',zap:'⚡ ZAP! −30 seconds',ko:'💫 Knocked out! −45 seconds'}[kind], 3.5); },
+  cont(vc,p){ this._tp=this._tp||[{},{}]; const T=this._tp[p], o={ x:+(Math.abs(vc.x)<.15?0:clamp(vc.x,-1,1)).toFixed(2), y:+(Math.abs(vc.y)<.15?0:clamp(vc.y,-1,1)).toFixed(2) };
+    const edge=(k,on)=>{ T[k]=T[k]||0; if(on && !T['_'+k]) T[k]++; T['_'+k]=on; o[k]=T[k]; };
+    edge('ac', !!(vc.padA||vc.touchFire)); edge('bc', !!(vc.padB||vc.touchB)); edge('lc', vc.sx<-.6); edge('rc', vc.sx>.6);
+    o.ac+=vc.aN; o.bc+=vc.bN; o.lc+=vc.lN; o.rc+=vc.rN; return o; },
+  // ---------- computer agent ----------
+  cpu(s,p,dt,mem){
+    const P=s.pl[p]; ['ac','bc','lc','rc'].forEach(k=>mem[k]=mem[k]||0); mem.searched=mem.searched||{}; mem.known=mem.known||{}; mem.cool=(mem.cool||0)-dt;
+    const out=()=>({ x:mem.x||0, y:mem.y||0, ac:mem.ac, bc:mem.bc, lc:mem.lc, rc:mem.rc });
+    mem.x=0; mem.y=0;
+    if(!P||P.dead||P.out||P.escaped) return out();
+    if(P.act){ if(P.act.k==='search') mem.justSearched=P.act.f; return out(); }
+    const press=k=>{ if(mem.cool<=0){ mem[k]++; mem.cool=.25; } };
+    if(P.menu>=0){ // choose the trap we decided on, then set it
+      const opts=this._menuOpts(s,P), want=opts.findIndex(o=>o.id===mem.plan); if(want<0 || !opts[want].ok){ press('bc'); return out(); }
+      if(P.msel!==want){ if(mem.cool<=0){ mem.rc++; mem.cool=.12; } } else press('ac'); return out(); }
+    const R=s.rooms[P.room], O=this._otherHere(s,P);
+    for(const F of R.fur) if(mem.searched[F.id]) mem.known[F.id]=F.item;
+    // just finished searching something: sometimes booby-trap it for the rival
+    if(mem.justSearched!=null){ const F=R.fur.find(F=>F.id===mem.justSearched); mem.justSearched=null;
+      if(F && !F.trap && !O && Math.random()<.25 && (P.traps.bomb>0||P.traps.spring>0)){ mem.plan = P.traps.bomb>0 && (P.traps.spring<=0 || Math.random()<.5) ? 'bomb' : 'spring'; mem.cool=0; mem.bc++; mem.cool=.3; return out(); } }
+    mem.doorT=(mem.doorT||0)-dt;
+    const go=(tx,ty)=>{ const dx=tx-P.x, dy=ty-P.y, d=Math.hypot(dx,dy); if(d>14){ mem.x=dx/d; mem.y=dy/d; } return d; };
+    // fight when the rival is close and we're healthy, else leave
+    if(O){ const d=Math.hypot(O.x-P.x,(O.y-P.y)*1.4); if(P.hp>35 && (mem.brave ?? (mem.brave=Math.random()<.7))){ if(d<150 && Math.abs(O.y-P.y)<60){ P.face=Math.sign(O.x-P.x)||1; press('ac'); } else go(O.x-Math.sign(O.x-P.x||1)*110, O.y); return out(); } }
+    else mem.brave=undefined;
+    // done? head for the exit
+    let target=null;
+    if(P.hand==='brief' && P.bag.length>=4) target={ room:s.exit.room, door:s.exit.side };
+    // floor pickup here
+    const fl=s.floor.find(it=>it.room===P.room); if(!target && fl && (P.hand==='brief' || !P.hand || DA.TOOLS[fl.item] || fl.item==='brief')){ if(go(fl.x,fl.y)<60) press('ac'); return out(); }
+    if(!target){ // where to search next: known items first (once we have the briefcase), else unsearched furniture, nearest room first
+      const want=[]; for(const Rm of s.rooms) for(const F of Rm.fur){ const k=mem.known[F.id];
+        if(P.hand==='brief' && k && !DA.TOOLS[k]) want.push({F,room:Rm.id,pri:0});
+        else if(!mem.searched[F.id]) want.push({F,room:Rm.id,pri:1}); }
+      if(!want.length){ mem.searched={}; return out(); }
+      const dist=this._roomDist(P.room); want.sort((a,b)=>(a.pri-b.pri)*10 + (dist[a.room]-dist[b.room]) || Math.hypot(a.F.x-P.x,a.F.y-P.y)-Math.hypot(b.F.x-P.x,b.F.y-P.y));
+      target={ room:want[0].room, f:want[0].F };
+    }
+    if(target.room===P.room){
+      if(target.door){ const pt={N:[500,180],S:[500,680],W:[-60,415],E:[1060,415]}[target.door]; go(pt[0],pt[1]); return out(); }
+      const F=target.f, ty=F.side>=2?F.y:F.y+52, tx=F.side>=2?F.x+(F.side===2?95:-95):F.x;
+      if(go(tx,ty)<26 && this._near(P,R)===F && mem.cool<=0){ mem.ac++; mem.cool=.9; mem.searched[F.id]=1; }
+      return out(); }
+    // walk to the next room on the path
+    const step=this._nextStep(P.room,target.room); const pt={N:[500,180],S:[500,680],W:[-60,415],E:[1060,415]}[step];
+    const d=go(pt[0],pt[1]);
+    if(mem.doorT<=0 && this._doorNear(P,true)===step && !this._doorNear(P) && (P.traps.paint>0||P.traps.zap>0) && !s.dt[daDoorKey(P.room,daNeighbors(P.room)[step])] && !O){
+      mem.doorT=12; if(Math.random()<.3){ mem.plan=P.traps.paint>0?'paint':'zap'; mem.x=0; mem.y=0; mem.cool=0; press('bc'); } }
+    return out();
+  },
+  _roomDist(from){ const N=DA.GW*DA.GH, d=Array(N).fill(99); d[from]=0; const q=[from]; while(q.length){ const r=q.shift(); for(const n of Object.values(daNeighbors(r))) if(n>=0 && d[n]>d[r]+1){ d[n]=d[r]+1; q.push(n); } } return d; },
+  _nextStep(from,to){ if(from===to) return null; const N=DA.GW*DA.GH, prev=Array(N).fill(-1); prev[from]=from; const q=[from];
+    while(q.length){ const r=q.shift(); if(r===to) break; for(const n of Object.values(daNeighbors(r))) if(n>=0 && prev[n]<0){ prev[n]=r; q.push(n); } }
+    let c=to; while(prev[c]!==from && prev[c]>=0 && c!==from) c=prev[c]; const nb=daNeighbors(from); return Object.keys(nb).find(k=>nb[k]===c); },
+  lerp(a,b,t){ const o=JSON.parse(JSON.stringify(b)); o.pl.forEach((P,i)=>{ const A=a.pl&&a.pl[i]; if(A && A.room===P.room){ P.x=lerp(A.x,P.x,t); P.y=lerp(A.y,P.y,t); } }); return o; },
+  status(s){ const n=P=>`${P.hand==='brief'?'💼':''}${P.bag.length+(P.hand&&P.hand!=='brief'&&!DA.TOOLS[P.hand]?1:0)}/4`; const f=t=>`${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
+    if(s.solo) return { l:n(s.pl[0]), r:f(s.pl[0].time), c:'Escape the embassy' };
+    return { l:`${n(s.pl[0])} · ${f(s.pl[0].time)}`, r:`${f(s.pl[1].time)} · ${n(s.pl[1])}`, c:'' }; },
+  endHead(s){ if(!s.solo) return null; const P=s.pl[0]; if(P.escaped) { const left=P.time; const b=+(store('da-best')||0); s.newBest=left>b; if(left>b) store('da-best',String(left));
+      return { big:'ESCAPED!', col:NEON.yellow, sub:`${Math.floor(left)} seconds to spare${s.newBest?' · 🏆 New best!':b?` · Best: ${Math.floor(b)} s to spare`:''}` }; }
+    return { big:"Time's up", col:NEON.red, sub:`You had ${P.bag.length+(P.hand&&P.hand!=='brief'?1:0)} of the 4 items.` }; },
+  views(S2,w,h){ const n=S2.local.length; if(n<2) return [{ p:S2.local[0]??0, x:0, y:0, w, h }];
+    if(w>=h) return [{p:0,x:0,y:0,w:w/2-2,h},{p:1,x:w/2+2,y:0,w:w/2-2,h}]; return [{p:1,x:0,y:0,w,h:h/2-2},{p:0,x:0,y:h/2+2,w,h:h/2-2}]; },
+  whoAt(x,y,w,h){ return w>=h ? (x<w/2?0:1) : (y>h/2?0:1); },
+  // ---------- drawing ----------
+  draw(g,s,viewer,ui,t){
+    const c=g.ctx, views=this.views(S,g.w,g.h);
+    views.forEach(V=>{ c.save(); c.beginPath(); c.rect(V.x,V.y,V.w,V.h); c.clip(); this._view(c,s,V.p,V,t); c.restore(); });
+    if(views.length>1){ c.fillStyle='#000'; if(g.w>=g.h) c.fillRect(g.w/2-2,0,4,g.h); else c.fillRect(0,g.h/2-2,g.w,4); }
+  },
+  _view(c,s,p,V,t){
+    const P=s.pl[Math.min(p,s.pl.length-1)], R=s.rooms[P.room];
+    c.fillStyle='#04030a'; c.fillRect(V.x,V.y,V.w,V.h);
+    const hud=Math.max(58, Math.min(84, V.h*.13)); const ah=V.h-hud-8;
+    const k=Math.min(V.w/DA.RW, ah/DA.RH), ox=V.x+(V.w-DA.RW*k)/2, oy=V.y+hud+(ah-DA.RH*k)/2;
+    c.save(); c.translate(ox,oy); c.scale(k,k); this._room(c,s,R,p,t); c.restore();
+    this._hud(c,s,P,p,V,hud,t);
+    if(P.menu>=0) this._menu(c,s,P,V);
+    if(P.msg){ const fs=clamp(V.w*.032,16,24); c.save(); c.font=`700 ${fs}px ${BODY}`; c.textAlign='center'; c.textBaseline='middle'; const w=Math.min(V.w-20, c.measureText(P.msg).width+30);
+      const y = P.menu>=0 ? V.y+V.h-ah*.42 : V.y+V.h-fs*1.6; c.fillStyle='rgba(4,3,10,.85)'; c.fillRect(V.x+V.w/2-w/2, y-fs, w, fs*2); c.strokeStyle=NEON.yellow; c.lineWidth=2; c.strokeRect(V.x+V.w/2-w/2, y-fs, w, fs*2);
+      c.fillStyle='#fff'; c.fillText(P.msg, V.x+V.w/2, y, V.w-30); c.restore(); }
+    if(P.out||P.escaped){ c.save(); c.fillStyle='rgba(0,0,0,.55)'; c.fillRect(V.x,V.y,V.w,V.h); glowText(c, P.escaped?'ESCAPED ✈':"TIME'S UP", V.x+V.w/2, V.y+V.h/2, clamp(V.w*.08,28,64), P.escaped?NEON.green:NEON.red, {font:HEAD,weight:900}); c.restore(); }
+  },
+  _room(c,s,R,p,t){
+    const W=DA.RW, H=DA.RH, nb=daNeighbors(R.id), wall=R.wall, col=PC[p];
+    // walls + floor in pseudo-3D
+    c.fillStyle=wall; c.fillRect(0,0,W,200);
+    const sh=(x0,y0,x1,y1,x2,y2,x3,y3,f)=>{ c.fillStyle=f; c.beginPath(); c.moveTo(x0,y0); c.lineTo(x1,y1); c.lineTo(x2,y2); c.lineTo(x3,y3); c.closePath(); c.fill(); };
+    sh(0,0,60,40,60,200,0,620,shade(wall,.7)); sh(W,0,W-60,40,W-60,200,W,620,shade(wall,.7));
+    sh(60,200,W-60,200,W,620,0,620,'#0d0a1c');
+    c.strokeStyle='rgba(157,77,255,.18)'; c.lineWidth=2; c.beginPath(); for(let i=0;i<=10;i++){ const u=i/10; c.moveTo(60+(W-120)*u,200); c.lineTo(W*u,620); } for(let j=1;j<6;j++){ const y=200+Math.pow(j/6,1.4)*420, b=daBound(y)-46; c.moveTo(b,y); c.lineTo(W-b,y); } c.stroke();
+    glowStroke(c,col,3,()=>{ c.moveTo(60,40); c.lineTo(W-60,40); c.lineTo(W-60,200); c.lineTo(60,200); c.closePath(); c.moveTo(0,620); c.lineTo(60,200); c.moveTo(W,620); c.lineTo(W-60,200); });
+    // wallpaper stripes
+    c.fillStyle='rgba(255,255,255,.04)'; for(let x=80;x<W-80;x+=60) c.fillRect(x,40,22,160);
+    // doors (and the exit)
+    const exitSide = s.exit.room===R.id ? s.exit.side : null;
+    const doorCol=sd=> (exitSide===sd ? NEON.green : NEON.yellow);
+    const showTrap=(sd)=>{ if(nb[sd]<0) return null; const tr=s.dt[daDoorKey(R.id,nb[sd])]; return tr && tr.owner===p ? tr.type : null; };
+    if(nb.N>=0 || exitSide==='N'){ c.fillStyle='#06040e'; c.fillRect(450,70,100,130); glowStroke(c,doorCol('N'),4,()=>c.rect(450,70,100,130)); c.fillStyle=doorCol('N'); c.beginPath(); c.arc(538,140,5,0,TAU); c.fill(); const tr=showTrap('N'); if(tr) this._icon(c,DA.ICON[tr],500,55,30); }
+    if(nb.W>=0 || exitSide==='W'){ sh(14,300,44,260,44,420,14,500,'#06040e'); glowStroke(c,doorCol('W'),4,()=>{ c.moveTo(14,300); c.lineTo(44,260); c.lineTo(44,420); c.lineTo(14,500); c.closePath(); }); const tr=showTrap('W'); if(tr) this._icon(c,DA.ICON[tr],60,250,30); }
+    if(nb.E>=0 || exitSide==='E'){ sh(W-14,300,W-44,260,W-44,420,W-14,500,'#06040e'); glowStroke(c,doorCol('E'),4,()=>{ c.moveTo(W-14,300); c.lineTo(W-44,260); c.lineTo(W-44,420); c.lineTo(W-14,500); c.closePath(); }); const tr=showTrap('E'); if(tr) this._icon(c,DA.ICON[tr],W-60,250,30); }
+    if(nb.S>=0 || exitSide==='S'){ glowStroke(c,doorCol('S'),4,()=>{ c.moveTo(420,630); c.lineTo(440,606); c.lineTo(560,606); c.lineTo(580,630); }); glowText(c,'▼',500,622,22,doorCol('S'),{font:BODY}); const tr=showTrap('S'); if(tr) this._icon(c,DA.ICON[tr],620,600,30); }
+    if(exitSide){ const pos={N:[500,32],S:[500,580],W:[90,240],E:[W-90,240]}[exitSide]; c.save(); c.fillStyle='#002a10'; c.fillRect(pos[0]-58,pos[1]-18,116,34); glowStroke(c,NEON.green,3,()=>c.rect(pos[0]-58,pos[1]-18,116,34)); glowText(c,'EXIT ✈',pos[0],pos[1],22,NEON.green,{font:HEAD,weight:900}); c.restore(); }
+    // things to draw, sorted by depth
+    const list=[];
+    for(const F of R.fur) list.push({ y: F.side>=2 ? F.y+20 : F.y, d:()=>this._fur(c,F,p,t) });
+    for(const it of s.floor) if(it.room===R.id) list.push({ y:it.y, d:()=>{ glowFill(c,NEON.yellow,30,it.x,it.y-14); this._icon(c,DA.ICON[it.item],it.x,it.y-16,32); } });
+    for(const b of s.tb) if(b.room===R.id) list.push({ y:b.y, d:()=>{ this._icon(c,'💣',b.x,b.y-18,34); glowText(c,String(Math.ceil(b.t)),b.x,b.y-50,24,NEON.red,{font:HEAD,weight:900}); } });
+    s.pl.forEach((Q,q)=>{ if(Q.room!==R.id || Q.out&&!Q.dead || Q.escaped) return; list.push({ y:Q.y, d:()=>this._agent(c,Q,q,t) }); });
+    list.sort((a,b)=>a.y-b.y).forEach(o=>o.d());
+    for(const f of s.fx){ if(f.room!==R.id) continue; c.save(); c.globalAlpha=Math.max(0,1-f.t/(f.life||1.2));
+      if(f.boom){ const r=40+f.t*300; glowFill(c,NEON.orange,r*1.3,f.x,f.y-60); glowStroke(c,NEON.yellow,6,()=>{ for(let i=0;i<12;i++){ const a=i*TAU/12; c.moveTo(f.x+Math.cos(a)*r*.4,f.y-60+Math.sin(a)*r*.4); c.lineTo(f.x+Math.cos(a)*r,f.y-60+Math.sin(a)*r); } }); }
+      if(f.star) glowText(c,'✶',f.x,f.y-f.t*40,40,NEON.yellow,{font:BODY});
+      c.restore(); }
+  },
+  _icon(c,em,x,y,sz){ c.save(); c.font=`${sz}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`; c.textAlign='center'; c.textBaseline='middle'; c.fillText(em,x,y); c.restore(); },
+  _fur(c,F,p,t){
+    const sh = F.shake>0 ? Math.sin(t*60)*4 : 0; c.save(); c.translate(F.x+sh, F.y);
+    const st=(f,col)=>{ c.fillStyle=f; c.fill(); glowStroke(c,col,3,()=>{}); };
+    const box=(x,y,w,h,fill,col)=>{ c.fillStyle=fill; c.fillRect(x,y,w,h); c.strokeStyle=col; c.lineWidth=3; c.strokeRect(x,y,w,h); };
+    const N=NEON, side=F.side>=2;
+    switch(F.k){
+      case 'desk': box(-80,-50,160,18,'#2a1a10',N.orange); box(-74,-32,22,46,'#1a0f08',N.orange); box(52,-32,22,46,'#1a0f08',N.orange); box(-30,-34,60,12,'#1a0f08',N.orange); break;
+      case 'shelf': box(-55,-150,110,160,'#1a1020',N.violet); for(let i=0;i<4;i++){ c.fillStyle=N.violet; c.fillRect(-55,-150+i*40+36,110,3); for(let j=0;j<5;j++){ c.fillStyle=['#ff2bd6','#00f0ff','#ffe600','#39ff14'][(i+j)%4]; c.fillRect(-48+j*20,-150+i*40+8,12,28); } } break;
+      case 'cabinet': box(-40,-110,80,120,'#141824',N.cyan); for(let i=0;i<3;i++){ c.strokeStyle=N.cyan; c.strokeRect(-34,-104+i*38,68,32); c.fillStyle=N.cyan; c.fillRect(-10,-92+i*38,20,4); } break;
+      case 'sofa': box(-80,-56,160,30,'#3a0f2a',N.pink); box(-80,-30,160,36,'#4a1236',N.pink); box(-92,-44,16,50,'#3a0f2a',N.pink); box(76,-44,16,50,'#3a0f2a',N.pink); break;
+      case 'plant': box(-24,-30,48,38,'#3a1a0a',N.orange); glowStroke(c,N.green,4,()=>{ for(let i=-2;i<=2;i++){ c.moveTo(0,-30); c.quadraticCurveTo(i*20,-80,i*34,-100-Math.abs(i)*6); } }); break;
+      case 'safe': box(-46,-90,92,100,'#20242c',N.white); c.beginPath(); c.arc(0,-40,20,0,TAU); c.strokeStyle=N.yellow; c.lineWidth=4; c.stroke(); c.fillStyle=N.yellow; c.fillRect(-2,-62,4,12); break;
+      case 'tv': box(-50,-34,100,44,'#1a1a22',N.white); box(-44,-110,88,70,'#05050a',N.cyan); c.fillStyle=`rgba(0,240,255,${.25+.15*Math.sin(t*9)})`; c.fillRect(-40,-106,80,62); break;
+      case 'lamp': box(-20,-6,40,14,'#222',N.yellow); c.fillStyle=N.yellow; c.fillRect(-3,-120,6,116); c.beginPath(); c.moveTo(-36,-110); c.lineTo(36,-110); c.lineTo(20,-150); c.lineTo(-20,-150); c.closePath(); c.fillStyle='#3a3300'; c.fill(); glowStroke(c,N.yellow,3,()=>{ c.moveTo(-36,-110); c.lineTo(36,-110); c.lineTo(20,-150); c.lineTo(-20,-150); c.closePath(); }); glowFill(c,N.yellow,60,0,-100); break;
+      case 'firebox': box(-36,-130,72,90,'#3a0808',N.red); this._icon(c,'🪣',0,-86,40); break;
+      case 'toolbox': box(-56,-40,112,48,'#e8e8f0','#c0c0d0'); c.strokeStyle='#666'; c.lineWidth=5; c.beginPath(); c.arc(0,-40,22,Math.PI,TAU); c.stroke(); this._icon(c,'🔧',0,-16,30); break;
+      case 'coatrack': c.fillStyle=N.orange; c.fillRect(-4,-170,8,170); for(const a of [-1,1]){ c.fillRect(a>0?0:-34,-166,34,5); } c.fillStyle='#5a2a10'; c.beginPath(); c.ellipse(0,0,36,10,0,0,TAU); c.fill(); this._icon(c,'☂️',-26,-130,36); break;
+      case 'firstaid': box(-40,-130,80,70,'#f0f0f0','#d0d0d0'); c.fillStyle='#e01030'; c.fillRect(-8,-118,16,46); c.fillRect(-23,-103,46,16); break;
+    }
+    if(F.trap && F.trap.owner===p) this._icon(c,DA.ICON[F.trap.type],side?0:60,side?-140:-70,26);
+    c.restore();
+  },
+  _agent(c,Q,q,t){
+    const col=PC[q], sc=.8+.45*(Q.y-240)/360; c.save(); c.translate(Q.x,Q.y); c.scale(sc,sc);
+    // shadow
+    c.fillStyle='rgba(0,0,0,.45)'; c.beginPath(); c.ellipse(0,0,34,9,0,0,TAU); c.fill();
+    if(Q.dead){ this._death(c,Q,col,t); c.restore(); return; }
+    c.scale(Q.face||1,1);
+    const a=Q.act, wk=Math.sin(Q.walk)*(Math.hypot(Q.vx||0,Q.vy||0)>10?1:0);
+    let kneel = a&&a.k==='set' ? 1 : 0, reach = a&&a.k==='search' ? Math.sin(a.t*30)*.5+.5 : 0;
+    // legs
+    const hip=kneel?-54:-70;
+    glowStroke(c,col,6,()=>{ if(kneel){ c.moveTo(-8,hip); c.lineTo(-20,-30); c.lineTo(-30,0); c.moveTo(8,hip); c.lineTo(26,-20); c.lineTo(20,0); } else { c.moveTo(-8,hip); c.lineTo(-10+wk*14,0); c.moveTo(8,hip); c.lineTo(10-wk*14,0); } });
+    c.fillStyle='#111'; c.fillRect(-18+(kneel?-12:wk*14),-6,16,7); c.fillRect(2+(kneel?14:-wk*14),-6,16,7);
+    // trench coat
+    const top=hip-70; c.fillStyle='#120c1c'; c.beginPath(); c.moveTo(-22,top); c.lineTo(22,top); c.lineTo(28,hip+14); c.lineTo(-28,hip+14); c.closePath(); c.fill();
+    glowStroke(c,col,4,()=>{ c.moveTo(-22,top); c.lineTo(22,top); c.lineTo(28,hip+14); c.lineTo(-28,hip+14); c.closePath(); c.moveTo(0,top+4); c.lineTo(0,hip+12); c.moveTo(-26,hip-8); c.lineTo(26,hip-8); });
+    glowStroke(c,col,3,()=>{ c.moveTo(-14,top); c.lineTo(0,top+22); c.lineTo(14,top); });   // lapels
+    // arm (club swing / search reach / normal)
+    let ang = .35 + wk*.4; if(reach) ang=-.9-reach*.5; if(kneel) ang=-1.3;
+    let club=false; if(a&&a.k==='swing'){ const u=a.t/.38; ang = u<.4 ? lerp(.2,-2.6,u/.4) : lerp(-2.6,1.1,(u-.4)/.6); club=true; }
+    const ax=Math.cos(ang)*44, ay=Math.sin(ang)*44;
+    glowStroke(c,col,6,()=>{ c.moveTo(4,top+10); c.lineTo(4+ax,top+10+ay); });
+    if(club){ glowStroke(c,NEON.orange,7,()=>{ c.moveTo(4+ax,top+10+ay); c.lineTo(4+ax*2.1,top+10+ay*2.1); }); }
+    // back arm
+    glowStroke(c,col,5,()=>{ c.moveTo(-6,top+10); c.lineTo(-6-Math.cos(.4-wk*.4)*30,top+10+Math.sin(.6)*36); });
+    // head: rounded with slick hair and wraparound shades
+    const hy=top-28; c.fillStyle='#e8c8a8'; c.beginPath(); c.ellipse(0,hy,20,24,0,0,TAU); c.fill();
+    c.fillStyle=col; c.beginPath(); c.ellipse(-2,hy-14,22,13,-.15,Math.PI,TAU); c.fill(); c.beginPath(); c.moveTo(-22,hy-14); c.quadraticCurveTo(-10,hy-34,22,hy-20); c.lineTo(20,hy-12); c.closePath(); c.fill();
+    c.fillStyle='#05040a'; c.fillRect(-16,hy-6,38,10); glowStroke(c,col,2,()=>{ c.moveTo(-16,hy-6); c.lineTo(22,hy-6); });
+    c.fillStyle='#7a3a2a'; c.fillRect(6,hy+10,10,3);
+    // what you're holding
+    if(Q.hand){ this._icon(c,DA.ICON[Q.hand],-30,hip-6,30); }
+    if(a&&a.k==='set'){ this._icon(c,'🛠️',40,-20,26); }
+    // health bar when hurt
+    if(Q.hp<100){ c.scale(Q.face||1,1); c.fillStyle='#300'; c.fillRect(-30,hy-50,60,7); c.fillStyle=NEON.green; c.fillRect(-30,hy-50,60*Q.hp/100,7); }
+    c.restore();
+  },
+  _death(c,Q,col,t){
+    const k=Q.deathKind, u=Q.dead, anim=k==='ko'?3:2.2;
+    if(u>anim){ // ghost floats up
+      const g=u-anim; c.globalAlpha=Math.max(0,.8-g*.5); const y=-90-g*120;
+      c.fillStyle='rgba(234,252,255,.6)'; c.beginPath(); c.arc(0,y,20,Math.PI,TAU); c.lineTo(20,y+40); for(let i=0;i<4;i++) c.lineTo(20-i*13-6, y+(i%2?40:30)); c.lineTo(-20,y+40); c.closePath(); c.fill();
+      glowStroke(c,NEON.yellow,3,()=>c.ellipse(0,y-30,16,5,0,0,TAU)); return; }
+    const flat=(rot,dy)=>{ c.save(); c.translate(0,dy); c.rotate(rot); c.fillStyle='#120c1c'; c.fillRect(-60,-30,90,26); glowStroke(c,col,4,()=>c.rect(-60,-30,90,26)); c.fillStyle='#e8c8a8'; c.beginPath(); c.arc(42,-18,16,0,TAU); c.fill(); c.restore(); };
+    if(k==='bomb'||k==='blast'){ // soot-black, smoking, then topple
+      if(u<.35){ glowFill(c,NEON.orange,160*(1-u/.35)+40,0,-80); }
+      const fall=clamp((u-.7)/.5,0,1); c.save(); c.rotate(-fall*1.4); c.fillStyle='#0a0a0a'; c.fillRect(-22,-150,44,150); c.beginPath(); c.arc(0,-170,22,0,TAU); c.fill(); c.fillStyle='#fff'; c.fillRect(-10,-176,6,6); c.fillRect(4,-176,6,6); c.restore();
+      for(let i=0;i<4;i++){ const p=(u*1.3+i*.25)%1; c.fillStyle=`rgba(120,120,130,${.5*(1-p)})`; c.beginPath(); c.arc(Math.sin(i*2+u*3)*20,-160-p*120,14+p*24,0,TAU); c.fill(); } }
+    else if(k==='spring'){ // launched off the top, crashes back down flat
+      const up=u<1 ? -Math.sin(u*Math.PI)*600 : 0; c.save(); c.translate(0,up); c.rotate(u*12);
+      c.fillStyle='#120c1c'; c.fillRect(-20,-140,40,120); glowStroke(c,col,4,()=>c.rect(-20,-140,40,120)); c.fillStyle='#e8c8a8'; c.beginPath(); c.arc(0,-160,20,0,TAU); c.fill(); c.restore();
+      glowStroke(c,NEON.white,4,()=>{ for(let i=0;i<7;i++){ c.moveTo(-18,-i*10-4); c.lineTo(18,-i*10-9); } });
+      if(u>=1) flat(0,0); }
+    else if(k==='paint'){ // drenched in a bucket of neon paint, drips, slumps
+      const slump=clamp(u/2,0,1); c.save(); c.scale(1,1-slump*.45); c.fillStyle=NEON.pink; c.fillRect(-24,-160,48,160); c.beginPath(); c.arc(0,-178,24,0,TAU); c.fill();
+      for(let i=0;i<5;i++){ c.fillRect(-22+i*11, -20, 6, 10+((u*80+i*13)%30)); } c.restore();
+      c.save(); c.translate(0,-210+Math.min(1,u*4)*20); c.rotate(Math.PI*.9); this._icon(c,'🪣',0,0,44); c.restore();
+      c.fillStyle='rgba(255,43,214,.5)'; c.beginPath(); c.ellipse(0,2,60*slump+20,12,0,0,TAU); c.fill(); }
+    else if(k==='zap'){ // electric skeleton flicker, then collapse
+      const on=Math.floor(u*16)%2===0 && u<1.4; if(on){ glowFill(c,NEON.cyan,140,0,-90); glowStroke(c,NEON.white,5,()=>{ c.arc(0,-170,20,0,TAU); c.moveTo(0,-150); c.lineTo(0,-70); for(let i=0;i<4;i++){ c.moveTo(-18,-140+i*16); c.lineTo(18,-140+i*16); } c.moveTo(0,-70); c.lineTo(-14,0); c.moveTo(0,-70); c.lineTo(14,0); c.moveTo(0,-140); c.lineTo(-30,-100); c.moveTo(0,-140); c.lineTo(30,-100); }); }
+      else if(u<1.4){ c.fillStyle='#120c1c'; c.fillRect(-20,-150,40,150); c.fillStyle='#e8c8a8'; c.beginPath(); c.arc(0,-170,20,0,TAU); c.fill(); }
+      else flat(0,0);
+      if(u<1.4) glowStroke(c,NEON.cyan,3,()=>{ for(let i=0;i<4;i++){ let x=-60+i*40, y=-220; c.moveTo(x,y); for(let j=0;j<4;j++){ x+=(Math.random()-.5)*30; y+=40; c.lineTo(x,y); } } }); }
+    else { // knocked out with a club: spins, falls, stars circle
+      const fall=clamp(u/.6,0,1); flat(-fall*.15, 0); for(let i=0;i<3;i++){ const a=t*5+i*TAU/3; glowText(c,'✶',40+Math.cos(a)*30,-60+Math.sin(a)*10,26,NEON.yellow,{font:BODY}); } }
+  },
+  _hud(c,s,P,p,V,hud,t){
+    const fs=clamp(hud*.34,15,26), y0=V.y+6;
+    c.save(); c.fillStyle='rgba(12,8,30,.95)'; c.fillRect(V.x,V.y,V.w,hud); glowStroke(c,PC[p],2,()=>{ c.moveTo(V.x,V.y+hud); c.lineTo(V.x+V.w,V.y+hud); });
+    const tm=`${Math.floor(P.time/60)}:${String(Math.floor(P.time%60)).padStart(2,'0')}`;
+    c.font=`900 ${fs*1.25}px ${HEAD}`; c.textBaseline='top'; c.textAlign='left'; c.fillStyle= P.time<30 && Math.floor(t*2)%2 ? NEON.red : PC[p]; c.fillText(tm, V.x+10, y0);
+    // items: dim until you have them
+    let x=V.x+10; const iy=y0+fs*1.55, isz=fs*1.05; const have=it=> P.bag.includes(it) || P.hand===it;
+    for(const it of [...DA.ITEMS,'brief']){ c.globalAlpha = (it==='brief'?P.hand==='brief':have(it)) ? 1 : .22; this._icon(c,DA.ICON[it],x+isz/2,iy+isz/2,isz); x+=isz*1.15; }
+    c.globalAlpha=1; x+=isz*.3; c.fillStyle='#9fb3c8'; c.font=`700 ${fs*.75}px ${BODY}`; c.fillText('tool',x,iy+isz*.25); this._icon(c, P.tool?DA.ICON[P.tool]:'—', x+fs*2.6, iy+isz/2, isz);
+    // traps left
+    const tx=V.x+V.w-10; c.textAlign='right'; c.font=`700 ${fs*.8}px ${BODY}`; c.fillStyle='#fff';
+    c.fillText(`💣${P.traps.bomb} 🌀${P.traps.spring} 🎨${P.traps.paint} ⚡${P.traps.zap} ⏱️${P.traps.time}`, tx, y0+2);
+    // mini map: rooms you've seen, both agents
+    const ms=Math.min(hud*.13, 14), mw=ms*DA.GW, mx=tx-mw-4, my=y0+fs*1.25;
+    for(let r=0;r<DA.GW*DA.GH;r++){ const gx=r%DA.GW, gy=Math.floor(r/DA.GW); c.fillStyle = P.seen.includes(r) ? 'rgba(157,77,255,.55)' : 'rgba(255,255,255,.08)'; c.fillRect(mx+gx*ms+1,my+gy*ms+1,ms-2,ms-2);
+      if(r===s.exit.room && P.seen.includes(r)){ c.fillStyle=NEON.green; c.fillRect(mx+gx*ms+ms/2-2,my+gy*ms+ms/2-2,4,4); } }
+    s.pl.forEach((Q,q)=>{ if(Q.out||Q.escaped) return; const gx=Q.room%DA.GW, gy=Math.floor(Q.room/DA.GW); c.fillStyle=PC[q]; c.beginPath(); c.arc(mx+gx*ms+ms/2+(q?3:-3), my+gy*ms+ms/2, Math.max(2.5,ms*.22), 0, TAU); c.fill(); });
+    c.restore();
+  },
+  _menu(c,s,P,V){
+    const opts=this._menuOpts(s,P), n=opts.length, bw=Math.min(110, (V.w-30)/n), bh=bw*1.05, x0=V.x+V.w/2-bw*n/2, y0=V.y+V.h-bh-14;
+    c.save(); c.fillStyle='rgba(4,3,10,.9)'; c.fillRect(x0-8,y0-38,bw*n+16,bh+46); glowStroke(c,NEON.yellow,2,()=>c.rect(x0-8,y0-38,bw*n+16,bh+46));
+    c.font=`700 ${clamp(bw*.17,14,19)}px ${BODY}`; c.textAlign='center'; c.textBaseline='middle'; c.fillStyle=NEON.yellow; c.fillText('TRAP MENU · ← → choose · ACT to set', x0+bw*n/2, y0-20, bw*n);
+    opts.forEach((o,i)=>{ const x=x0+i*bw, sel=i===P.msel; c.globalAlpha=o.ok?1:.35; c.fillStyle=sel?'#2a2400':'#0c0a20'; c.fillRect(x+3,y0,bw-6,bh); c.strokeStyle=sel?NEON.yellow:'#3a3f6e'; c.lineWidth=sel?3:2; c.strokeRect(x+3,y0,bw-6,bh);
+      this._icon(c,DA.ICON[o.id],x+bw/2,y0+bh*.38,bw*.38); c.fillStyle='#fff'; c.font=`700 ${clamp(bw*.14,12,16)}px ${BODY}`; c.fillText(o.name,x+bw/2,y0+bh*.74,bw-8); if(o.n!=='') { c.fillStyle=NEON.yellow; c.fillText('×'+o.n,x+bw-16,y0+12); } });
+    c.globalAlpha=1; c.restore();
+  },
+  stop(){},
+  attract(c,w,h,t){ c.fillStyle='#04030a'; c.fillRect(0,0,w,h); c.save(); const k=Math.min(w/1000,h/640); c.translate((w-1000*k)/2,(h-640*k)/2); c.scale(k,k);
+    const s={ rooms:[{id:4,fur:[{k:'desk',x:230,y:232,side:0,shake:0},{k:'safe',x:770,y:232,side:1,shake:Math.sin(t*2)>.7?1:0},{k:'plant',x:140,y:520,side:2},{k:'firebox',x:860,y:520,side:3}],wall:'#2a0f3d'}], dt:{}, exit:{room:-1}, floor:[], tb:[{room:4,x:500,y:470,t:9-(t%9)}], fx:[], pl:[] };
+    const a={room:4,x:300+Math.sin(t)*150,y:420,face:Math.cos(t)>0?1:-1,walk:t*7,vx:Math.cos(t)*100,vy:0,hp:100,act:null};
+    const b={room:4,x:700,y:450,face:-1,walk:0,vx:0,vy:0,hp:100,act:(t%3)<.38?{k:'swing',t:t%3}:null};
+    s.pl=[a,b]; this._room(c,s,s.rooms[0],0,t); c.restore(); }
+});
+
 /* =====================================================================
    3D WORLD — lobby + arcade room (same walking interface as the gallery)
    ===================================================================== */
@@ -3043,7 +3457,7 @@ function paintScreen(cab, t){
 }
 function addHit(cab, w,h,d, x,y,z, parent){ const m=box(w,h,d,x,y,z,new THREE.MeshBasicMaterial({visible:false}),parent); m.userData.cab=cab; hitList.push(m); return m; }
 function uprightCab(def, x, z, facing){ // facing: +1 = faces +x, -1 = faces -x
-  const g=new THREE.Group(); g.position.set(x,0,z); g.rotation.y = facing>0 ? Math.PI/2 : -Math.PI/2; scene.add(g);
+  const g=new THREE.Group(); g.position.set(x,0,z); g.rotation.y = facing===0 ? 0 : facing>0 ? Math.PI/2 : -Math.PI/2; scene.add(g);
   const col=def.color, W=.86, D=.82, H=1.95;
   const body=new THREE.MeshStandardMaterial({ color:'#0b0a1c', roughness:.55, metalness:.2 });
   // side panels with neon front edge
@@ -3071,9 +3485,9 @@ function uprightCab(def, x, z, facing){ // facing: +1 = faces +x, -1 = faces -x
   const mq=new THREE.Mesh(new THREE.PlaneGeometry(W-.04,.25), new THREE.MeshBasicMaterial({map:marqueeTex(def)})); mq.material.color.setScalar(1.5);
   mq.position.set(0,1.82,D/2-.12); mq.rotation.x=-.08; g.add(mq);
   box(W-.04,.3,.2,0,1.82,D/2-.24,body,g);
-  const cab={ def, x, z, nx:facing, nz:0, sc, tex, phase:Math.random()*10, kind:'upright', sy:1.42, group:g };
+  const cab={ def, x, z, nx:facing, nz:facing===0?1:0, sc, tex, phase:Math.random()*10, kind:'upright', sy:1.42, group:g };
   addHit(cab, W+.1,H,D+.1, 0,H/2,0, g);
-  collide(x-D/2,x+D/2,z-W/2-.05,z+W/2+.05);
+  if(facing===0) collide(x-W/2-.05,x+W/2+.05,z-D/2,z+D/2); else collide(x-D/2,x+D/2,z-W/2-.05,z+W/2+.05);
   CABS.push(cab); return cab;
 }
 function hockeyTable(def, x, z){
@@ -3123,11 +3537,12 @@ function buildArcade(){
   uprightCab(G('eights'), 6.4, -8, -1);
   cocktailTable(G('dots'), 5.95, -12.2);
   uprightCab(G('bumpers'), -6.4, -1.5, 1);
+  { const ac=uprightCab(G('agents'), -1.6, ROOM.z0+.45, 0); }
   uprightCab(G('lancers'), 6.4, -1.6, -1);
   { const gc=uprightCab(G('girder'), 6.4, -16.6, -1); const wh=new THREE.Mesh(new THREE.TorusGeometry(.09,.016,10,28), neonMat(NEON.orange,1.8)); wh.position.set(0,1.06,.44); wh.rotation.x=-1.25; gc.group.add(wh); }
   hockeyTable(G('hockey'), 0, -11);
   // back wall sign + series board
-  signPlane(signTex([{t:'TWO PLAYER', c:NEON.cyan, size:120},{t:'ARCADE', c:NEON.pink, size:150}],1024,400), 5.2, 2.03, 0, 2.15, ROOM.z0+.12, 0, 1.7);
+  signPlane(signTex([{t:'TWO PLAYER', c:NEON.cyan, size:120},{t:'ARCADE', c:NEON.pink, size:150}],1024,400), 3.4, 1.33, .9, 2.55, ROOM.z0+.12, 0, 1.7);
   // change machine
   const cm=new THREE.Group(); cm.position.set(-3.05,0,ROOM.z0+.35); cm.rotation.y=0; scene.add(cm);
   box(.9,1.7,.6,0,.85,0,darkMat,cm); box(.5,.3,.02,0,1.35,.31,neonMat(NEON.yellow,1.4),cm); box(.2,.06,.02,0,1.05,.31,neonMat(NEON.orange,2),cm);
@@ -4772,6 +5187,8 @@ const KEYSET=[
   { up:['ArrowUp'], down:['ArrowDown'], left:['ArrowLeft'], right:['ArrowRight'], a:['Enter','NumpadEnter','Numpad0','KeyL','Slash'], b:['ShiftRight','KeyK','Period'] }
 ];
 const kd = codes => codes.some(c=>keys.has(c));
+const keyPressN = {};   // every key press is counted, so a quick tap is never missed between frames
+const kn = codes => codes.reduce((n,c)=>n+(keyPressN[c]||0),0);
 function pads(){ return [...(navigator.getGamepads?navigator.getGamepads():[])].filter(g=>g&&g.connected); }
 function fieldView(def, viewer){
   const w=S.w, h=S.h, portrait = h > w*1.05;
@@ -4795,23 +5212,25 @@ function fireSpot(p, V){
   const q=V.toS(L.x,L.y); return { x:q.x, y:q.y, r:56 };
 }
 function vcFor(p, V){
-  const v={ x:0, y:0, a:false, b:false, abs:false, ptr:null, click:false, hold:false, rt:0, lt:0, boost:false, touchFire:false };
+  const v={ x:0, y:0, a:false, b:false, abs:false, ptr:null, click:false, hold:false, rt:0, lt:0, boost:false, touchFire:false, touchB:false, padA:false, padB:false, sx:0, sy:0, aN:0, bN:0, upN:0, lN:0, rN:0 };
   const sets = S.local.length>1 ? [KEYSET[p]] : KEYSET;
-  for(const k of sets){ if(kd(k.left)) v.x-=1; if(kd(k.right)) v.x+=1; if(kd(k.up)) v.y-=1; if(kd(k.down)) v.y+=1; if(kd(k.a)){ v.a=true; v.boost=true; } if(kd(k.b)) v.b=true; }
+  for(const k of sets){ v.aN+=kn(k.a); v.bN+=kn(k.b); v.upN+=kn(k.up); v.lN+=kn(k.left); v.rN+=kn(k.right); if(kd(k.left)) v.x-=1; if(kd(k.right)) v.x+=1; if(kd(k.up)) v.y-=1; if(kd(k.down)) v.y+=1; if(kd(k.a)){ v.a=true; v.boost=true; } if(kd(k.b)) v.b=true; }
   v.x=clamp(v.x,-1,1); v.y=clamp(v.y,-1,1);
   // controllers
   const P=pads(); let mine=[];
   if(S.local.length>1){ if(P.length>=2) mine=[P[p]]; else if(P.length===1 && p===1) mine=[P[0]]; } else mine=P;
   for(const g of mine){ if(!g) continue; const b=i=>!!(g.buttons[i]&&g.buttons[i].pressed), ax=g.axes;
     const sx=Math.abs(ax[0]||0)>.18?ax[0]:0, sy=Math.abs(ax[1]||0)>.18?ax[1]:0;
-    if(sx||sy){ v.x=sx; v.y=sy; v.abs=true; }
+    if(sx||sy){ v.x=sx; v.y=sy; v.abs=true; v.sx=sx; v.sy=sy; }
+    if(b(14)) v.sx=-1; if(b(15)) v.sx=1; if(b(12)) v.sy=-1; if(b(13)) v.sy=1; if(b(0)||b(5)) v.padA=true; if(b(1)) v.padB=true;
     if(b(14)) v.x=-1; if(b(15)) v.x=1; if(b(12)) v.y=-1; if(b(13)) v.y=1;
     if(b(0)||b(7)||b(5)) v.a=true; if(b(1)||b(6)||b(4)) v.b=true;
     const tv=i=>g.buttons[i]?Math.max(g.buttons[i].value||0, g.buttons[i].pressed?1:0):0; v.rt=Math.max(v.rt,tv(7)); v.lt=Math.max(v.lt,tv(6)); if(b(0)||b(5)) v.boost=true; }
   // touch / mouse on the game canvas
   for(const t of touches.values()){ if(t.p!==p) continue;
-    if(t.kind==='stick'){ let dx=t.x-t.ox, dy=t.y-t.oy; const L=Math.hypot(dx,dy), M=62; if(L>M){ dx*=M/L; dy*=M/L; } if(L>6){ v.x=dx/M; v.y=dy/M; v.abs=true; } }
+    if(t.kind==='stick'){ let dx=t.x-t.ox, dy=t.y-t.oy; const L=Math.hypot(dx,dy), M=62; if(L>M){ dx*=M/L; dy*=M/L; } if(L>6){ v.x=dx/M; v.y=dy/M; v.abs=true; v.sx=v.x; v.sy=v.y; } }
     if(t.kind==='fire'){ v.a=true; v.touchFire=true; }
+    if(t.kind==='fire2'){ v.b=true; v.touchB=true; }
     if(t.kind==='drag'){ v.ptr=V.toL(t.x,t.y); }
   }
   const mp = S.local.length>1 ? 0 : S.local[0];
@@ -4859,6 +5278,7 @@ gc.addEventListener('pointerdown', e=>{
   if(S.def.touch==='drag'){ touches.set(e.pointerId,{kind:'drag',p,x,y}); return; }
   const f=fireSpot(p,V);
   if(Math.hypot(x-f.x,y-f.y)<f.r+16){ touches.set(e.pointerId,{kind:'fire',p,x,y}); return; }
+  if(S.def.pad2){ const f2=fireSpot2(f); if(Math.hypot(x-f2.x,y-f2.y)<f2.r+12){ touches.set(e.pointerId,{kind:'fire2',p,x,y}); return; } }
   for(const t of touches.values()) if(t.kind==='stick' && t.p===p) return;
   touches.set(e.pointerId,{kind:'stick',p,ox:x,oy:y,x,y});
 });
@@ -5040,7 +5460,11 @@ function gameFrame(dt, t){
 }
 function ui_reset(ui){ ui.btns=[]; }
 function boardTop(){ return S.w<600 ? 48 : 0; }
+function fireSpot2(f){ const r=f.r*.8; return { x:f.x-f.r-r-14, y:f.y+f.r*.25, r }; }
 function drawPads(c,V){
+  if(S.def.pad2) for(const p of S.local){ const f2=fireSpot2(fireSpot(p,V)); const held=[...touches.values()].some(t=>t.p===p&&t.kind==='fire2');
+    c.save(); c.globalAlpha=held?.9:.55; c.fillStyle=held?'rgba(255,230,0,.3)':'rgba(0,0,0,.35)'; c.beginPath(); c.arc(f2.x,f2.y,f2.r,0,TAU); c.fill();
+    glowStroke(c,NEON.yellow,3,()=>c.arc(f2.x,f2.y,f2.r,0,TAU)); c.fillStyle='#fff'; c.font=`700 ${Math.round(f2.r*.42)}px ${BODY}`; c.textAlign='center'; c.textBaseline='middle'; c.fillText(S.def.pad2, f2.x, f2.y); c.restore(); }
   for(const p of S.local){ const f=fireSpot(p,V); const held=[...touches.values()].some(t=>t.p===p&&t.kind==='fire');
     c.save(); c.globalAlpha=held?.9:.55; c.fillStyle=held?PCD[p]+'.35)':'rgba(0,0,0,.35)'; c.beginPath(); c.arc(f.x,f.y,f.r,0,TAU); c.fill();
     glowStroke(c,PC[p],3,()=>c.arc(f.x,f.y,f.r,0,TAU)); c.fillStyle='#fff'; c.font=`700 ${Math.round(f.r*.42)}px ${BODY}`; c.textAlign='center'; c.textBaseline='middle';
@@ -5048,7 +5472,7 @@ function drawPads(c,V){
   for(const t of touches.values()){ if(t.kind!=='stick') continue; let dx=t.x-t.ox, dy=t.y-t.oy; const L=Math.hypot(dx,dy); if(L>62){ dx*=62/L; dy*=62/L; }
     c.save(); c.globalAlpha=.7; glowStroke(c,PC[t.p],3,()=>c.arc(t.ox,t.oy,64,0,TAU)); c.fillStyle=PCD[t.p]+'.5)'; c.beginPath(); c.arc(t.ox+dx,t.oy+dy,28,0,TAU); c.fill(); c.restore(); }
   if(S.local.length===1 && ![...touches.values()].some(t=>t.kind==='stick')){
-    c.save(); c.globalAlpha=.55; c.fillStyle='#eafcff'; c.font=`700 17px ${BODY}`; c.textAlign='left'; c.textBaseline='middle'; c.fillText('Drag anywhere to steer', 16, S.h-30); c.restore(); }
+    c.save(); c.globalAlpha=.55; c.fillStyle='#eafcff'; c.font=`700 17px ${BODY}`; c.textAlign='left'; c.textBaseline='middle'; c.fillText(S.def.pad2?'Drag anywhere to walk':'Drag anywhere to steer', 16, S.h-30); c.restore(); }
 }
 $('#gExit').onclick=()=>{ sfx('blip'); if(S.waiting){ netSend('cancel'); leaveGame(false); } else openMenu(); };
 $('#gHelp').onclick=()=>{ sfx('blip'); openMenu(); };
@@ -5123,7 +5547,7 @@ addEventListener('keydown', e=>{
   const c=e.code, k=e.key;
   if(k==='Tab'){ setKb(true); return; }
   const typing = document.activeElement && document.activeElement.tagName==='INPUT';
-  if(S.open){ keys.add(c); gameKey(e); return; }
+  if(S.open){ keys.add(c); if(!e.repeat) keyPressN[c]=(keyPressN[c]||0)+1; gameKey(e); return; }
   if(BLD.open){ if(k==='Escape'){ e.preventDefault(); if(!$('#bSex').hidden && !BLD.first) $('#bSex').hidden=true; else closeBuilder(true); } return; }
   if(!$('#jukebox').hidden){ if(k==='Escape'){ e.preventDefault(); closeJuke(); } return; }
   if(!$('#shop').hidden){ if(k==='Escape'){ e.preventDefault(); closeShop(); } return; }
