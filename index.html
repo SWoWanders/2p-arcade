@@ -522,7 +522,9 @@ function glowFill(ctx, color, r, x, y){
   const A=ctx.globalAlpha; ctx.globalAlpha=.55*A; ctx.drawImage(glowSprite(color), x-r, y-r, r*2, r*2); ctx.globalAlpha=A;
 }
 function glowText(ctx, txt, x, y, size, color, opts={}){
-  ctx.save(); ctx.font=`${opts.weight||900} ${size}px ${opts.font||HEAD}`; ctx.textAlign=opts.align||'center'; ctx.textBaseline=opts.base||'middle';
+  ctx.save(); ctx.font=`${opts.weight||900} ${size}px ${opts.font||HEAD}`;
+  if(opts.maxW){ const m=ctx.measureText(txt).width+size*.7; if(m>opts.maxW){ size*=opts.maxW/m; ctx.font=`${opts.weight||900} ${size}px ${opts.font||HEAD}`; } }   // shrink to fit (glow included)
+  ctx.textAlign=opts.align||'center'; ctx.textBaseline=opts.base||'middle';
   ctx.fillStyle=color; ctx.shadowColor=color; ctx.shadowBlur=size*.35*(opts.glow??1); ctx.fillText(txt,x,y);
   ctx.shadowBlur=0; ctx.fillStyle=opts.core||'#ffffff'; ctx.globalAlpha=opts.coreAlpha??.55; ctx.fillText(txt,x,y); ctx.restore();
 }
@@ -3559,7 +3561,7 @@ function signTex(lines, w=1024, h=256, opts={}){
   if(opts.bg){ c.fillStyle=opts.bg; c.fillRect(0,0,w,h); }
   if(opts.frame){ glowStroke(c, opts.frame, 8, ()=>rrect(c,14,14,w-28,h-28,26)); }
   const n=lines.length;
-  lines.forEach((L,i)=>{ const y = h*(i+.5)/n + (L.dy||0); glowText(c, L.t, w/2, y, L.size||h*.5/n, L.c||NEON.pink, { font:L.font||MONO, weight:L.weight||400, glow:1.2, coreAlpha:L.core??.65 }); });
+  lines.forEach((L,i)=>{ const y = h*(i+.5)/n + (L.dy||0); glowText(c, L.t, w/2, y, L.size||h*.5/n, L.c||NEON.pink, { font:L.font||MONO, weight:L.weight||400, glow:1.2, coreAlpha:L.core??.65, maxW:w*(opts.frame?.86:.94) }); });
   return canvasTex(cv);
 }
 function signPlane(tex, w, h, x, y, z, ry=0, k=1.6, parent=scene){
