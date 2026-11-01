@@ -3480,6 +3480,15 @@ try{ if(bloomOn) makeComposer(); }catch(e){ bloomOn=false; console.warn('[arcade
 const EYE=1.65, RAD=.35;
 const SHELF_SUPER=[];
 const LOBBY={x0:-8,x1:8,z0:0,z1:12,h:3.6}, ROOM={x0:-7,x1:7,z0:-20,z1:0,h:3.3}, DOOR=2.2;
+const ROOM2={x0:-21,x1:-7.2,z0:-19,z1:-1,h:3.6}, DOOR2={z:-6,hw:1.3};   // second arcade room (Glow Roll), through the arcade's left wall
+function walkable(x,z,m){
+  return inRect(x,z,LOBBY.x0+m,LOBBY.x1-m,LOBBY.z0+m,LOBBY.z1-m) || inRect(x,z,ROOM.x0+m,ROOM.x1-m,ROOM.z0+m,ROOM.z1-m)
+      || inRect(x,z,ROOM2.x0+m,ROOM2.x1-m,ROOM2.z0+m,ROOM2.z1-m)
+      || (Math.abs(x)<DOOR-m && z>-m-.2 && z<m+.2)
+      || (Math.abs(z-DOOR2.z)<DOOR2.hw-m && x>ROOM2.x1-m-.2 && x<ROOM.x0+m+.2);
+}
+const roomOf=(x,z)=> z>0 ? 'lobby' : x<ROOM.x0-.1 ? 'room2' : 'arcade';
+const ceilAt=(x,z)=>({lobby:LOBBY.h, arcade:ROOM.h, room2:ROOM2.h})[roomOf(x,z)];
 const player = { x:0, z:10.4, yaw:0, pitch:-.04, vx:0, vz:0 };
 const colliders=[];   // {x0,x1,z0,z1}
 const hitList=[];     // meshes that open a machine
@@ -3487,9 +3496,7 @@ const CABS=[];
 const inRect=(x,z,x0,x1,z0,z1)=>x>x0&&x<x1&&z>z0&&z<z1;
 function blocked(x,z){
   const m=RAD+.12;
-  let ok = inRect(x,z,LOBBY.x0+m,LOBBY.x1-m,LOBBY.z0+m,LOBBY.z1-m) || inRect(x,z,ROOM.x0+m,ROOM.x1-m,ROOM.z0+m,ROOM.z1-m)
-        || (Math.abs(x)<DOOR-m && z>-m-.2 && z<m+.2);
-  if(!ok) return true;
+  if(!walkable(x,z,m)) return true;
   for(const c of colliders) if(x>c.x0-RAD && x<c.x1+RAD && z>c.z0-RAD && z<c.z1+RAD) return true;
   return false;
 }
@@ -3591,9 +3598,11 @@ function poster(i, x, y, z, ry){
 /* ---------- rooms ---------- */
 let lobbyFloor, roomFloor;
 function buildRooms(){
-  const lt=carpet('lobby'), at=carpet('arcade');
+  const lt=carpet('lobby'), at=carpet('arcade'), at2=carpet('arcade2');
   lobbyFloor = floorMesh(lt, LOBBY.x0, LOBBY.x1, LOBBY.z0, LOBBY.z1, 3.2, .22);
   roomFloor = floorMesh(at, ROOM.x0, ROOM.x1, ROOM.z0, ROOM.z1, 3.2, .3);
+  floorMesh(at2, ROOM2.x0, ROOM2.x1, ROOM2.z0, ROOM2.z1, 3.2, .3);
+  { const th=box(.24, .02, DOOR2.hw*2, (ROOM.x0+ROOM2.x1)/2, .005, DOOR2.z, new THREE.MeshStandardMaterial({color:'#1a1630', roughness:.6})); }
   box(DOOR*2, .02, .4, 0, .005, 0, new THREE.MeshStandardMaterial({color:'#1a1630', roughness:.6}));
   const T=.2;
   // lobby walls
@@ -3607,8 +3616,17 @@ function buildRooms(){
   box(DOOR*2, LOBBY.h-2.8, T, 0, 2.8+(LOBBY.h-2.8)/2, -T/2, wallMat);
   // arcade walls
   box(14+T*2, ROOM.h, T, 0, ROOM.h/2, ROOM.z0-T/2, wallMat);
-  box(T, ROOM.h, 20, ROOM.x0-T/2, ROOM.h/2, -10, wallMat);
+  { // left wall, shared with arcade 2, with its doorway (built to arcade 2's taller height)
+    const dz0=DOOR2.z-DOOR2.hw, dz1=DOOR2.z+DOOR2.hw, H2=ROOM2.h, wx=ROOM.x0-T/2;
+    box(T, H2, dz0-ROOM.z0, wx, H2/2, (ROOM.z0+dz0)/2, wallMat);
+    box(T, H2, -dz1, wx, H2/2, dz1/2, wallMat);
+    box(T, H2-2.8, dz1-dz0, wx, 2.8+(H2-2.8)/2, DOOR2.z, wallMat); }
   box(T, ROOM.h, 20, ROOM.x1+T/2, ROOM.h/2, -10, wallMat);
+  // arcade 2 walls
+  { const w=ROOM2.x1-ROOM2.x0, d=ROOM2.z1-ROOM2.z0, H2=ROOM2.h, cx=(ROOM2.x0+ROOM2.x1)/2, cz=(ROOM2.z0+ROOM2.z1)/2;
+    box(w+T*2, H2, T, cx, H2/2, ROOM2.z0-T/2, wallMat); box(w+T*2, H2, T, cx, H2/2, ROOM2.z1+T/2, wallMat);
+    box(T, H2, d, ROOM2.x0-T/2, H2/2, cz, wallMat);
+    const c2=new THREE.Mesh(new THREE.PlaneGeometry(w,d), ceilMat); c2.rotation.x=Math.PI/2; c2.position.set(cx,H2,cz); scene.add(c2); }
   // ceilings
   const lc=new THREE.Mesh(new THREE.PlaneGeometry(16,12), ceilMat); lc.rotation.x=Math.PI/2; lc.position.set(0,LOBBY.h,6); scene.add(lc);
   const ac=new THREE.Mesh(new THREE.PlaneGeometry(14,20), ceilMat); ac.rotation.x=Math.PI/2; ac.position.set(0,ROOM.h,-10); scene.add(ac);
@@ -3620,12 +3638,25 @@ function buildRooms(){
   tubeX(LOBBY.x0,-DOOR,3.45,.03,NEON.pink); tubeX(DOOR,LOBBY.x1,3.45,.03,NEON.pink);
   tubeX(LOBBY.x0,LOBBY.x1,.06,LOBBY.z1-.03,NEON.violet,.03); tubeZ(0,12,.06,LOBBY.x0+.03,NEON.violet,.03); tubeZ(0,12,.06,LOBBY.x1-.03,NEON.violet,.03);
   // arcade trim: cyan/pink stripes + zigzag up high
-  for(const x of [ROOM.x0+.03, ROOM.x1-.03]){ tubeZ(-20,0,3.15,x,NEON.cyan); tubeZ(-20,0,.06,x,NEON.pink,.03); tubeZ(-20,0,2.35,x,NEON.violet,.025); }
+  const dz0=DOOR2.z-DOOR2.hw, dz1=DOOR2.z+DOOR2.hw;
+  for(const x of [ROOM.x0+.03, ROOM.x1-.03]){ tubeZ(-20,0,3.15,x,NEON.cyan);
+    if(x<0){ for(const [a,b] of [[-20,dz0],[dz1,0]]){ tubeZ(a,b,.06,x,NEON.pink,.03); tubeZ(a,b,2.35,x,NEON.violet,.025); } }
+    else { tubeZ(-20,0,.06,x,NEON.pink,.03); tubeZ(-20,0,2.35,x,NEON.violet,.025); } }
   tubeX(ROOM.x0,ROOM.x1,3.15,ROOM.z0+.03,NEON.cyan); tubeX(ROOM.x0,ROOM.x1,.06,ROOM.z0+.03,NEON.pink,.03);
   tubeX(ROOM.x0,-DOOR,3.15,-.23,NEON.cyan); tubeX(DOOR,ROOM.x1,3.15,-.23,NEON.cyan);
   for(const side of [-1,1]){ const x=side*(ROOM.x1-.04); const pts=[]; for(let z=-19.5;z<=-.5;z+=1.25) pts.push(z);
-    for(let i=0;i<pts.length-1;i++){ const z0=pts[i], z1=pts[i+1], y0=i%2?2.55:2.95, y1=i%2?2.95:2.55;
+    for(let i=0;i<pts.length-1;i++){ const z0=pts[i], z1=pts[i+1], y0=i%2?2.55:2.95, y1=i%2?2.95:2.55; if(side<0 && z1>dz0-.1 && z0<dz1+.1) continue;
       const len=Math.hypot(z1-z0,y1-y0); const m=box(.03,.03,len,x,(y0+y1)/2,(z0+z1)/2,neonMat(i%4<2?NEON.yellow:NEON.pink)); m.rotation.x=-Math.atan2(y1-y0,z1-z0); } }
+  // doorway to arcade 2: neon frames on both sides
+  for(const [x,c] of [[ROOM.x0+.06,NEON.yellow],[ROOM2.x1-.06,NEON.pink]]){ tubeY(0,2.8,x,dz0,c,.05); tubeY(0,2.8,x,dz1,c,.05); tubeZ(dz0,dz1,2.8,x,c,.05); }
+  // arcade 2 trim: pink cove, green baseboard, violet stripe; east wall split for the doorway
+  { const R=ROOM2, y=R.h-.15;
+    tubeX(R.x0,R.x1,y,R.z0+.03,NEON.pink); tubeX(R.x0,R.x1,y,R.z1-.03,NEON.pink); tubeZ(R.z0,R.z1,y,R.x0+.03,NEON.pink); tubeZ(R.z0,R.z1,y,R.x1-.03,NEON.pink);
+    tubeX(R.x0,R.x1,.06,R.z0+.03,NEON.green,.03); tubeX(R.x0,R.x1,.06,R.z1-.03,NEON.green,.03); tubeZ(R.z0,R.z1,.06,R.x0+.03,NEON.green,.03);
+    tubeX(R.x0,R.x1,2.95,R.z1-.03,NEON.violet,.025); tubeZ(R.z0,R.z1,2.95,R.x0+.03,NEON.violet,.025);
+    for(const [a,b] of [[R.z0,dz0],[dz1,R.z1]]){ tubeZ(a,b,.06,R.x1-.03,NEON.green,.03); tubeZ(a,b,2.95,R.x1-.03,NEON.violet,.025); }
+    for(let x=R.x0+1.9;x<R.x1-.5;x+=2.3) tubeZ(R.z0+.4,R.z1-.4,R.h-.03,x,'#5a1f6e',.025);
+    for(let z=R.z0+2;z<R.z1-.5;z+=4) tubeX(R.x0+.4,R.x1-.4,R.h-.03,z,'#5a1f6e',.025); }
   // arcade ceiling grid
   for(let x=-6;x<=6;x+=3) tubeZ(-19.6,-.4,ROOM.h-.03,x,'#3d2a8a',.025);
   for(let z=-18;z<=-2;z+=4) tubeX(-6.6,6.6,ROOM.h-.03,z,'#3d2a8a',.025);
@@ -3635,6 +3666,7 @@ function buildRooms(){
   const pl=(c,i,x,y,z,d=11)=>{ const l=new THREE.PointLight(c,i,d,1.4); l.position.set(x,y,z); scene.add(l); };
   pl('#ff2bd6',10,0,3,2.4,11); pl('#00e5ff',7,-5.5,2.9,7,10); pl('#ffaa33',7,5.5,2.9,7,10);
   pl('#00e5ff',8,-3,3,-5,13); pl('#ff2bd6',8,3,3,-5,13); pl('#9d4dff',8,-3,3,-15,13); pl('#00e5ff',8,3,3,-15,13);
+  pl('#ff2bd6',9,-14.1,3.3,-13.5,14); pl('#00e5ff',7,-14.1,3.3,-5,13);
 }
 
 /* ---------- lobby props ---------- */
@@ -3814,7 +3846,23 @@ function buildArcade(){
   const sb=new THREE.Mesh(new THREE.PlaneGeometry(1.9,1.43), sm); sb.position.set(-4.6,1.85,ROOM.z0+.12); scene.add(sb);
   box(2.0,1.53,.06,-4.6,1.85,ROOM.z0+.07,blackMat);
   paintScoreboard();
-  buildJukebox(); buildTrash(); addTicketSlots();
+  buildJukebox(); buildTrash(); addTicketSlots(); buildRoom2();
+}
+function buildRoom2(){
+  const R=ROOM2, cx=(R.x0+R.x1)/2;
+  // hanging blade sign in the main arcade, visible from the entrance
+  { const tex=signTex([{t:'ARCADE 2', c:NEON.pink, size:120, font:HEAD, weight:900},{t:'← GLOW ROLL', c:NEON.yellow, size:84, font:HEAD, weight:900}],1024,360,{frame:NEON.cyan});
+    for(const ry of [0,Math.PI]) signPlane(tex, 1.5, .53, ROOM.x0+.9, 2.86, DOOR2.z+(ry?-.01:.01), ry, 1.6);
+    box(1.56,.02,.02,ROOM.x0+.9,3.14,DOOR2.z,chromeMat); }
+  // over the doorway, inside arcade 2
+  signPlane(signTex([{t:'← BACK TO THE ARCADE', c:NEON.cyan, size:70, font:HEAD, weight:900}],1024,128), 2.4,.3, R.x1-.08, 3.15, DOOR2.z, -Math.PI/2, 1.5);
+  // big marquee over the row of alleys
+  signPlane(signTex([{t:'GLOW ROLL', c:NEON.pink, size:170, font:HEAD, weight:900}],1024,256), 4.4,1.1, cx, 3.1, R.z0+.12, 0, 1.9);
+  signPlane(signTex([{t:'ARCADE 2', c:NEON.cyan, size:150, font:HEAD, weight:900},{t:'ROLL · SCORE · WIN TICKETS', c:NEON.yellow, size:62, font:HEAD, weight:900}],1024,330), 3.6,1.16, cx, 2.55, R.z1-.12, Math.PI, 1.7);
+  // posters on the far wall
+  poster(1,R.x0+.13,1.8,-6,Math.PI/2); poster(4,R.x0+.13,1.8,-10.5,Math.PI/2); poster(2,R.x0+.13,1.8,-15,Math.PI/2);
+  // benches facing the alleys
+  for(const x of [cx-2.4,cx+2.4]){ box(2.2,.45,.7,x,.225,-9.6,darkMat); box(2.24,.06,.74,x,.47,-9.6,velvetMat); tubeX(x-1.1,x+1.1,.06,-9.95,NEON.violet,.025); collide(x-1.1,x+1.1,-9.95,-9.25); }
 }
 let scoreCanvas, scoreTex;
 const RESULTS = (()=>{ try{ return JSON.parse(store('results')||'[]'); }catch(e){ return []; } })();
@@ -3890,7 +3938,7 @@ function step(dir){
   goTo(list[(i+dir+list.length)%list.length]);
 }
 function fwd(){ return { x:-Math.sin(player.yaw), z:-Math.cos(player.yaw) }; }
-function updateCounter(cab){ const list=ORDER(); $('#counter').textContent = cab ? `${cab.def.name} · ${list.indexOf(cab)+1} / ${list.length}` : (player.z>0 ? 'Lobby · arcade ahead' : `Arcade · ${CABS.length} machines + ${ALLEYS.length} roll alleys`); }
+function updateCounter(cab){ const list=ORDER(); $('#counter').textContent = cab ? `${cab.def.name} · ${list.indexOf(cab)+1} / ${list.length}` : ({ lobby:'Lobby · arcade ahead', arcade:`Arcade · ${CABS.length} machines · Arcade 2 on the left`, room2:`Arcade 2 · ${ALLEYS.length} Glow Roll alleys` })[roomOf(player.x,player.z)]; }
 
 /* =====================================================================
    AVATARS — 1980s neon people
@@ -4884,7 +4932,7 @@ function spawnWorld(kind, st, x,y,z, vx,vy,vz, thrown){
 }
 const pack=o=>({ id:o.id, kind:o.kind, st:o.st, x:+o.x.toFixed(3), y:+o.y.toFixed(3), z:+o.z.toFixed(3), vx:+o.vx.toFixed(2), vy:+o.vy.toFixed(2), vz:+o.vz.toFixed(2), rest:o.rest, rot:+(o.rot||0).toFixed(2) });
 function removeWorld(id){ const o=WORLD.get(id); if(!o) return; scene.remove(o.mesh); const i=itemHits.indexOf(o.hit); if(i>=0) itemHits.splice(i,1); WORLD.delete(id); saveRoom(); }
-function inRoomXZ(x,z,r){ const m=r+.06; return inRect(x,z,LOBBY.x0+m,LOBBY.x1-m,LOBBY.z0+m,LOBBY.z1-m) || inRect(x,z,ROOM.x0+m,ROOM.x1-m,ROOM.z0+m,ROOM.z1-m) || (Math.abs(x)<DOOR-m && z>-.4 && z<.4); }
+function inRoomXZ(x,z,r){ return walkable(x,z,r+.06); }
 function hitCollider(x,z,y,r){ for(const c of colliders){ if(x>c.x0-r && x<c.x1+r && z>c.z0-r && z<c.z1+r && y<1.1) return true; } return false; }
 function simItem(o, dt){
   const r=RADIUS[o.kind]||.05, isSuper=o.kind==='super', isBall=o.kind==='ball'||isSuper, isPlane=o.kind==='plane';
@@ -4896,7 +4944,7 @@ function simItem(o, dt){
   let nx=o.x+o.vx*dt, nz=o.z+o.vz*dt, ny=o.y+o.vy*dt;
   if(!inRoomXZ(nx,o.z,r) || hitCollider(nx,o.z,ny,r)){ o.vx=-o.vx*(isSuper?.95:isBall?.8:.3); nx=o.x; if(isBall) sfxAt(isSuper?'pock':'wall',o); }
   if(!inRoomXZ(o.x,nz,r) || hitCollider(o.x,nz,ny,r)){ o.vz=-o.vz*(isSuper?.95:isBall?.8:.3); nz=o.z; if(isBall) sfxAt(isSuper?'pock':'wall',o); }
-  const ceil=(o.z>0?LOBBY.h:ROOM.h)-r; if(ny>ceil){ ny=ceil; o.vy=-Math.abs(o.vy)*(isSuper?.92:.5); if(isSuper) sfxAt('pock',o); }
+  const ceil=ceilAt(o.x,o.z)-r; if(ny>ceil){ ny=ceil; o.vy=-Math.abs(o.vy)*(isSuper?.92:.5); if(isSuper) sfxAt('pock',o); }
   if(ny<r){ ny=r; if(o.vy<(isSuper?-.5:-1.2)){ o.vy=-o.vy*(isSuper?.9:isBall?.72:.18); if(isSuper) sfxAt('pock',o); else if(isBall) sfxAt('bounce',o); else if(!isPlane) sfxAt('thud',o); } else o.vy=0;
     const fr=Math.exp(-(isSuper?.25:isBall?.9:isPlane?2.5:6)*dt); o.vx*=fr; o.vz*=fr; }
   o.x=nx; o.y=ny; o.z=nz; if(isBall) o.rot=(o.rot||0)+Math.hypot(o.vx,o.vz)*dt*3;
@@ -5268,7 +5316,7 @@ function alleyPos(b){
 const ALLEYS=[];
 const TIXCABS=()=>CABS.concat(ALLEYS);
 const ALLEY={ open:false, a:null, v:0, ang:0, drag:null, charge:-1, chargeT:0, cool:0, ended:false, padA:false };
-const ALCOL=[NEON.cyan, NEON.pink];
+const ALCOL=[NEON.cyan, NEON.pink, NEON.yellow, NEON.green];
 function makeAlley(x, zf, i){
   const col=ALCOL[i], g=new THREE.Group(); g.position.set(x,0,zf); scene.add(g);
   const P=(u,v,y)=>new THREE.Vector3(v,y,-u);                    // lane-local → group-local
@@ -5340,7 +5388,7 @@ function makeAlley(x, zf, i){
     a.slot=s; a.tix=[]; }
   ledDraw(a); return a;
 }
-function buildAlleys(){ ALLEYS.push(makeAlley(-3.3,-3.3,0), makeAlley(-2.35,-3.3,1)); }
+function buildAlleys(){ const zf=ROOM2.z0+AL.BACK+.25, cx=(ROOM2.x0+ROOM2.x1)/2; for(let i=0;i<4;i++) ALLEYS.push(makeAlley(cx+(i-1.5)*.95, zf, i)); }
 function ledDraw(a){
   const c=a.led.getContext('2d'), w=a.led.width, h=a.led.height; c.fillStyle='#120004'; c.fillRect(0,0,w,h);
   c.fillStyle='rgba(255,40,60,.07)'; for(let x=0;x<w;x+=8) for(let y=0;y<h;y+=8) c.fillRect(x+1,y+1,5,5);
@@ -6281,7 +6329,7 @@ $('#myName').value=store('name')||''; $('#p2Name').value=store('p2')||'';
 
 /* ---------- map ---------- */
 const mapEl=$('#map'), mc=$('#mapc'), mx=mc.getContext('2d');
-const MAPB={ x0:-8.5, x1:8.5, z0:-20.5, z1:12.5 };
+const MAPB={ x0:-21.5, x1:8.5, z0:-20.5, z1:12.5 };
 const mapS=()=>Math.min((mc.width-24)/(MAPB.x1-MAPB.x0), (mc.height-30)/(MAPB.z1-MAPB.z0));
 const toMap=(x,z)=>{ const s=mapS(), ox=(mc.width-(MAPB.x1-MAPB.x0)*s)/2; return [ox+(x-MAPB.x0)*s, 22+(z-MAPB.z0)*s]; };
 const fromMap=(px,py)=>{ const s=mapS(), ox=(mc.width-(MAPB.x1-MAPB.x0)*s)/2; return [MAPB.x0+(px-ox)/s, MAPB.z0+(py-22)/s]; };
@@ -6289,9 +6337,10 @@ function toggleMap(){ mapEl.hidden=!mapEl.hidden; $('#mapBtn').setAttribute('ari
 function drawMap(){
   if(mapEl.hidden) return; const c=mx; c.clearRect(0,0,mc.width,mc.height);
   const R=(x0,z0,x1,z1,col,fill)=>{ const [a,b]=toMap(x0,z0), [d,e]=toMap(x1,z1); if(fill){ c.fillStyle=fill; c.fillRect(a,b,d-a,e-b); } c.strokeStyle=col; c.lineWidth=3; c.strokeRect(a,b,d-a,e-b); };
-  R(LOBBY.x0,LOBBY.z0,LOBBY.x1,LOBBY.z1,NEON.violet,'rgba(60,20,120,.35)'); R(ROOM.x0,ROOM.z0,ROOM.x1,ROOM.z1,NEON.cyan,'rgba(0,40,60,.35)');
+  R(LOBBY.x0,LOBBY.z0,LOBBY.x1,LOBBY.z1,NEON.violet,'rgba(60,20,120,.35)'); R(ROOM.x0,ROOM.z0,ROOM.x1,ROOM.z1,NEON.cyan,'rgba(0,40,60,.35)'); R(ROOM2.x0,ROOM2.z0,ROOM2.x1,ROOM2.z1,NEON.pink,'rgba(60,0,50,.35)');
+  { const [a,b]=toMap(ROOM2.x1-.3,DOOR2.z-DOOR2.hw), [d,e]=toMap(ROOM.x0+.3,DOOR2.z+DOOR2.hw); c.fillStyle='#000'; c.fillRect(a,b,d-a,e-b); }
   { const [a,b]=toMap(-DOOR,0), [d]=toMap(DOOR,0); c.fillStyle='#000'; c.fillRect(a,b-3,d-a,6); }
-  c.font=`700 15px ${BODY}`; c.textAlign='center'; c.fillStyle='#c7d4ff'; { const [a,b]=toMap(0,9); c.fillText('LOBBY',a,b); }
+  c.font=`700 15px ${BODY}`; c.textAlign='center'; c.fillStyle='#c7d4ff'; { const [a,b]=toMap(0,9); c.fillText('LOBBY',a,b); } { const [a,b]=toMap((ROOM2.x0+ROOM2.x1)/2,-5); c.fillText('ARCADE 2',a,b); }
   for(const al of ALLEYS){ const [a,b]=toMap(al.x-.4,al.zf), [d,e]=toMap(al.x+.4,al.zf-AL.BACK); c.fillStyle=al.col; c.globalAlpha=.7; c.fillRect(a,e,d-a,b-e); c.globalAlpha=1; }
   for(const cab of CABS){ const [a,b]=toMap(cab.x,cab.z); c.fillStyle=cab.def.color; c.shadowColor=cab.def.color; c.shadowBlur=8; c.fillRect(a-7,b-7,14,14); c.shadowBlur=0; }
   if(partner && partner.g.visible){ const [a,b]=toMap(partner.x,partner.z); c.fillStyle=PC[Net.role==='host'?1:0]; c.beginPath(); c.arc(a,b,8,0,TAU); c.fill(); }
@@ -6299,6 +6348,7 @@ function drawMap(){
 }
 mc.addEventListener('pointerup', e=>{ const r=mc.getBoundingClientRect(); const px=(e.clientX-r.left)*mc.width/r.width, py=(e.clientY-r.top)*mc.height/r.height; const [x,z]=fromMap(px,py);
   let best=null, bd=1.4; for(const cab of CABS){ const d=Math.hypot(cab.x-x,cab.z-z); if(d<bd){ bd=d; best=cab; } } if(best){ goTo(best); return; }
+  for(const al of ALLEYS){ if(Math.abs(al.x-x)<.48 && z<al.zf+.4 && z>al.zf-AL.BACK){ travel(al.x, al.zf+.62, 0, -.32); return; } }
   if(blocked(x,z)){ toast("Can't stand there."); return; } travel(x,z,null,null,true); });
 $('#mapBtn').onclick=toggleMap;
 if(store('map')==='1'){ mapEl.hidden=false; $('#mapBtn').setAttribute('aria-pressed','true'); }
@@ -6400,7 +6450,7 @@ function frame(){
   window.__arcadeReady=true;
   requestAnimationFrame(frame);
 })();
-window.__arcade = { ALLEY, ALLEYS, openAlley, closeAlley, rollBall, hitList, camera, BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
+window.__arcade = { blocked, ALLEY, ALLEYS, openAlley, closeAlley, rollBall, hitList, camera, BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
 addEventListener('pagehide', ()=>{ if(Net.connected) leaveRoom(); });
 </script>
 </body>
