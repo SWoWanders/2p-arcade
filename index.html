@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Neon Two-Player Arcade</title>
-<meta name="description" content="A 3D neon arcade with 14 two-player games, Glow Roll alleys and an old-west shooting gallery.">
+<meta name="description" content="A 3D neon arcade with 15 two-player games, Glow Roll alleys and an old-west shooting gallery.">
 <meta name="theme-color" content="#05040a">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -353,9 +353,9 @@ body.gal-on .hud.bottom, body.gal-on .stick-hint, body.gal-on #side, body.gal-on
 <!-- intro -->
 <div class="overlay" id="intro" role="dialog" aria-modal="true" aria-labelledby="introTitle">
   <div class="panel">
-    <span class="kicker">Two players · 14 machines · 2 arcade rooms</span>
+    <span class="kicker">Two players · 15 machines · 2 arcade rooms</span>
     <h1 id="introTitle">Neon <span class="p">Arcade</span></h1>
-    <p>Walk through the lobby into the arcade, step up to a machine and play. Through the door on the left is Arcade 2, with the Glow Roll alleys, the Shootin' Gallery and the Pop Pals machine. Play on one device, against the computer, or online from two devices with a room code.</p>
+    <p>Walk through the lobby into the arcade, step up to a machine and play. Through the door on the left is Arcade 2, with the Glow Roll alleys, the Shootin' Gallery, Pop Pals and Track Meet. Play on one device, against the computer, or online from two devices with a room code.</p>
     <div class="ctl">
       <div><h3>Touch</h3>Drag bottom-left to walk<br>Drag anywhere else to look<br>Tap a machine to play<br>Tap the floor to walk there</div>
       <div><h3>Mouse &amp; keyboard</h3><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows to move<br>Drag to look · click a machine<br><kbd>Q</kbd> <kbd>E</kbd> previous / next machine<br><kbd>Enter</kbd> play · <kbd>M</kbd> map · <kbd>O</kbd> online</div>
@@ -3908,6 +3908,291 @@ game({
     c.restore(); }
 });
 
+/* ---------------- TRACK MEET (2-player button-mashing athletics) ----------------
+   Original neon athletics game: alternate the run keys as fast as you can, then
+   time the action button to jump, throw or clear hurdles. Four events, real
+   decathlon points tables, highest total wins. */
+const TM = { G:9.8, HUD:92, PPM:40 };
+const TM_EV = [
+  { id:'dash', name:'100 M DASH', kind:'race', len:100, q:12.0, unit:'s', tip:'Alternate the run keys as fast as you can!' },
+  { id:'long', name:'LONG JUMP', kind:'jump', line:38, q:6.6, unit:'m', tip:'Run fast, press JUMP on the board, hold to raise the angle, let go at about 40°.' },
+  { id:'jav', name:'JAVELIN', kind:'throw', line:30, q:55, unit:'m', tip:'Run fast, hold THROW to raise the angle, let go before the line.' },
+  { id:'hurdles', name:'110 M HURDLES', kind:'race', len:110, hurdles:Array.from({length:10},(_,i)=>13.72+9.14*i), q:15.5, unit:'s', tip:'Run fast and tap the action button to jump each hurdle.' },
+];
+// decathlon points tables (track: A·(B−T)^C, field: A·(M−B)^C)
+const TM_PTS = { dash:t=>Math.round(25.4347*Math.pow(Math.max(0,18-t),1.81)), long:m=>Math.round(.14354*Math.pow(Math.max(0,m*100-220),1.4)),
+  jav:m=>Math.round(10.14*Math.pow(Math.max(0,m-7),1.08)), hurdles:t=>Math.round(5.74352*Math.pow(Math.max(0,28.5-t),1.92)) };
+const tmFmt = (ev,v)=> v==null ? '—' : ev.unit==='s' ? v.toFixed(2)+' s' : v.toFixed(2)+' m';
+SFX.pistol=()=>{ noise(.35,.5,3200); tone(140,.15,'square',.1,.4); };
+SFX.step=()=>noise(.03,.05,1800);
+SFX.whistle=()=>{ for(let k=0;k<6;k++) tone(k%2?2600:2900,.05,'square',.06,1,k*.05); };
+SFX.cheer=()=>{ noise(1.4,.13,900); noise(1.1,.08,2400,.1); };
+SFX.whoosh=()=>noise(.35,.12,1400);
+SFX.clatter=()=>{ noise(.18,.25,1400); tone(220,.1,'square',.08,.5); tone(160,.12,'square',.06,.6,.07); };
+SFX.thud2=()=>{ noise(.12,.25,500); tone(90,.12,'sine',.2,.6); };
+SFX.beep=()=>tone(880,.12,'square',.09);
+
+game({
+  id:'track', name:'Track Meet', color:NEON.orange, color2:NEON.cyan, kind:'field', noRotate:true, touch:'pad', solo:true, W:1600, H:900,
+  padLabel:'RUN',
+  get pad2(){ const s=typeof S!=='undefined'&&S.state; const ev=s&&TM_EV[s.ev]; return !ev ? 'JUMP' : ev.kind==='throw' ? 'THROW' : 'JUMP'; },
+  cpuText:'🤖 Race the computer<small>Practice meet</small>', soloText:'🏅 Solo meet<small>Make every qualifying mark — beat your high score</small>',
+  blurb:'Four events: 100 m dash, long jump, javelin and 110 m hurdles. Alternate the run buttons as fast as you can, then time the jump or throw. Real decathlon points; the higher total wins.',
+  how:{ touch:'Tap RUN fast (or drum two fingers anywhere on your side) to run. Tap or hold JUMP / THROW to jump, aim and throw.',
+    keys:'Run by alternating <b>A</b> <b>D</b> or <b>←</b> <b>→</b>. Action: <b>Space</b>, <b>F</b> or <b>Enter</b> (hold to aim, let go to jump or throw).',
+    keys2:'Same device: left player alternates <b>A D</b>, action <b>F</b>; right player alternates <b>← →</b>, action <b>Enter</b>.',
+    pad:'Mash Ⓐ to run, Ⓑ is the action button (hold to aim).' },
+  init(o){
+    const solo=o.mode==='solo', n=solo?1:2;
+    const s={ ev:0, st:'intro', stT:3, t:0, lanes:[], solo, over:false, winner:-1, banner:'', failed:false, tot:Array(n).fill(0), pts:Array.from({length:n},()=>[]), res:Array.from({length:n},()=>[]), fsN:Array(n).fill(0) };
+    for(let p=0;p<n;p++) s.lanes.push(this._lane(p));
+    this._event(s,0); return s;
+  },
+  _lane(p){ return { p, x:0, v:0, st:'wait', y:0, vy:0, ph:0, att:0, best:null, tries:[], ang:0, time:0, msg:'', msgT:0, hits:[], jav:null, cam:0, ppm:TM.PPM, lean:0, rc:undefined, ac:undefined, ah:0, _taps:[], stepK:0, fin:false, aimT:0 }; },
+  _event(s,i){
+    s.ev=i; s.st='intro'; s.stT=3.2; s.banner=''; s.go=0; s.cd=0;
+    s.lanes.forEach(L=>{ Object.assign(L,{ x:0, v:0, st:'wait', y:0, vy:0, att:0, best:null, tries:[], ang:0, time:0, msg:'', msgT:0, hits:[], jav:null, cam:0, ppm:TM.PPM, fin:false, lean:0 }); L._taps=[]; });
+    s.fsN=s.fsN.map(()=>0);
+  },
+  _ev(s){ return TM_EV[s.ev]; },
+  _msg(L,txt,t=1.6){ L.msg=txt; L.msgT=t; },
+  // taps in the last 0.6 s set the target speed
+  _rate(s,L){ L._taps=L._taps.filter(t=>s.t-t<.6); return L._taps.length/.6; },
+  tick(s,dt,inp){
+    if(s.over) return; dt=Math.min(dt,.05); s.t+=dt; const E=this._ev(s);
+    // new button presses from each player
+    const press=s.lanes.map((L,p)=>{ const ci=inp[p]||{}; let runs=0, acts=0;
+      if(ci.rc!=null){ if(L.rc!=null) runs=Math.max(0,Math.min(6,ci.rc-L.rc)); L.rc=ci.rc; }
+      if(ci.ac!=null){ if(L.ac!=null) acts=Math.max(0,ci.ac-L.ac); L.ac=ci.ac; }
+      L.ah=ci.ah?1:0; return { runs, acts }; });
+    for(const L of s.lanes) if(L.msgT>0){ L.msgT-=dt; if(L.msgT<=0) L.msg=''; }
+    if(s.st==='intro'){ s.stT-=dt; if(s.stT<=0) this._start(s); return; }
+    if(s.st==='result'){ s.stT-=dt; if(s.stT<=0){ if(s.failed || s.ev>=TM_EV.length-1) this._finish(s); else this._event(s,s.ev+1); } return; }
+    if(E.kind==='race') this._race(s,E,dt,press); else this._field(s,E,dt,press);
+  },
+  _start(s){ const E=this._ev(s); s.st='play';
+    if(E.kind==='race'){ s.cd=0; s.go=1.6+Math.random()*1.2; s.call='ON YOUR MARKS'; emit('beep'); s.lanes.forEach(L=>{ L.st='set'; L.x=0; L.v=0; L.time=0; L.hits=[]; }); }
+    else s.lanes.forEach(L=>this._attempt(s,L)); },
+  // ---------- races ----------
+  _race(s,E,dt,press){
+    if(s.go>0){ s.cd+=dt; if(s.cd>1 && s.call==='ON YOUR MARKS'){ s.call='SET'; emit('beep'); }
+      for(let p=0;p<s.lanes.length;p++){ if(press[p].runs>0 && s.cd>.4){ // false start
+        s.fsN[p]++; emit('whistle'); this._msg(s.lanes[p], s.fsN[p]>=3?'DISQUALIFIED':'FALSE START', 2);
+        if(s.fsN[p]>=3){ const L=s.lanes[p]; L.st='fin'; L.fin=true; L.time=null; L.dq=1; }
+        s.cd=0; s.go=2.2+Math.random()*1.2; s.call='ON YOUR MARKS'; return; } }
+      if(s.cd>=s.go){ s.go=0; s.call='GO!'; s.goT=.8; emit('pistol'); s.lanes.forEach(L=>{ if(!L.dq){ L.st='run'; L._taps=[]; } }); }
+      return; }
+    if(s.goT>0){ s.goT-=dt; if(s.goT<=0) s.call=''; }
+    let allDone=true;
+    s.lanes.forEach((L,p)=>{ if(L.st==='fin'){ L.v=Math.max(0,L.v-6*dt); L.x+=L.v*dt; L.ph+=L.v*dt*.55; return; } allDone=false;
+      L.time+=dt; for(let k=0;k<press[p].runs;k++) L._taps.push(s.t);
+      const air=L.y>0||L.vy>0, tgt=Math.min(11.8, this._rate(s,L)*1.05);
+      if(!air){ L.v += clamp(tgt-L.v, -4*dt, 6*dt); }
+      if(E.hurdles && press[p].acts>0 && !air){ L.vy=5.2; emit('whoosh'); }
+      if(air){ L.vy-=20*dt; L.y=Math.max(0,L.y+L.vy*dt); if(L.y<=0 && L.vy<0){ L.vy=0; emit('step'); } }
+      const ox=L.x; L.x+=L.v*dt; L.ph+=L.v*dt*.55; this._steps(L);
+      if(E.hurdles) E.hurdles.forEach((hx,i)=>{ if(ox<hx && L.x>=hx && !L.hits[i]){ if(L.y<.35){ L.hits[i]=1; L.v*=.55; emit('clatter'); this._msg(L,'CLANG!',.7); } else L.hits[i]=2; } });
+      if(L.x>=E.len){ L.time-= (L.x-E.len)/Math.max(.1,L.v); L.st='fin'; L.fin=true; this._msg(L, tmFmt(E,L.time), 3); emit('cheer'); } });
+    if(allDone || s.lanes.every(L=>L.fin) ){ if(!s.doneT) s.doneT=1.4; s.doneT-=dt; if(s.doneT<=0){ s.doneT=0; this._score(s,E,s.lanes.map(L=>L.dq?null:L.time)); } }
+    else if(s.lanes.some(L=>!L.fin && L.time>(s.lanes.some(Q=>Q.fin)?30:45))){ s.lanes.forEach(L=>{ if(!L.fin){ L.fin=true; L.st='fin'; L.time=null; } }); }
+  },
+  _steps(L){ const k=Math.floor(L.ph/Math.PI); if(k!==L.stepK){ L.stepK=k; if(L.y<=0 && L.v>1) emit('step'); } },
+  // ---------- jumps and throws: 3 attempts each, in parallel lanes ----------
+  _attempt(s,L){ L.att++; L.st='ready'; L.aimT=1.2; L.x=0; L.v=0; L.y=0; L.vy=0; L.ang=0; L.jav=null; L.ppm=TM.PPM; L._taps=[]; this._msg(L,`ATTEMPT ${L.att} OF 3`,1.2); },
+  _field(s,E,dt,press){
+    s.lanes.forEach((L,p)=>{ const pr=press[p];
+      if(L.st==='ready'){ L.aimT-=dt; if(L.aimT<=0) L.st='run'; return; }
+      if(L.st==='run'){ for(let k=0;k<pr.runs;k++) L._taps.push(s.t);
+        const tgt=Math.min(11.8,this._rate(s,L)*1.05); L.v+=clamp(tgt-L.v,-4*dt,6*dt); L.x+=L.v*dt; L.ph+=L.v*dt*.55; this._steps(L);
+        if(pr.acts>0 && L.x>3){ if(E.kind==='jump' && L.x>E.line){ this._foul(s,L,E); return; } L.st='aim'; L.ang=0; L.tx=L.x; emit('tick'); }
+        else if(L.x>E.line+(E.kind==='throw'?0:.4)){ this._foul(s,L,E); }
+        return; }
+      if(L.st==='aim'){ L.ang=Math.min(75, L.ang+75*dt);
+        if(E.kind==='throw'){ L.v=Math.max(0,L.v-2*dt); L.x+=L.v*dt; L.ph+=L.v*dt*.55; this._steps(L); }   // the jumper is planted on the board while you set the angle
+        if(!L.ah || L.ang>=75) this._release(s,L,E);
+        return; }
+      if(L.st==='air'){   // long jumper in flight
+        L.vy-=TM.G*dt; L.x+=L.jvx*dt; L.y+=L.vy*dt; if(L.y<=0){ L.y=0; L.st='land'; L.stT=1.8; const d=+(L.x-E.line).toFixed(2); this._mark(s,L,E,d); emit('thud2'); } return; }
+      if(L.st==='throw'){   // javelin in flight, thrower slides to a stop
+        L.v=Math.max(0,L.v-24*dt); L.x+=L.v*dt; L.ph+=L.v*dt*.3; if(L.x>E.line && !L.fouled){ L.fouled=1; }
+        const J=L.jav; J.vy-=TM.G*dt; J.x+=J.vx*dt; J.y+=J.vy*dt; L.ppm=lerp(L.ppm,clamp(260/(J.y+4),9,TM.PPM),Math.min(1,dt*4));
+        if(J.y<=0){ J.y=0; L.st='land'; L.stT=2; if(L.fouled){ L.fouled=0; this._foul(s,L,E,true); } else { const d=+(J.x-E.line).toFixed(2); this._mark(s,L,E,d); } emit('thud2'); } return; }
+      if(L.st==='land'||L.st==='foul'){ L.stT-=dt; if(L.stT<=0){ if(L.att>=3){ L.st='done'; L.fin=true; } else this._attempt(s,L); } return; }
+    });
+    if(s.lanes.every(L=>L.st==='done')){ this._score(s,E,s.lanes.map(L=>L.best)); }
+  },
+  _release(s,L,E){ const th=L.ang*Math.PI/180;
+    if(E.kind==='jump'){ L.x=L.tx; L.st='air'; L.jvx=L.v*Math.cos(th); L.vy=L.v*Math.sin(th)*.5+1.2; L.y=0; emit('whoosh'); }
+    else { const V=L.v*3.0; L.st='throw'; L.fouled=L.x>E.line?1:0; L.jav={ x:L.x+.3, y:2, vx:V*Math.cos(th), vy:V*Math.sin(th) }; emit('whoosh'); } },
+  _foul(s,L,E,already){ L.st='foul'; L.stT=1.8; L.tries.push(null); this._msg(L,'FOUL!',1.6); emit('whistle'); if(E.kind==='jump'){ L.v=0; } },
+  _mark(s,L,E,d){ L.tries.push(d); if(L.best==null||d>L.best) L.best=d; this._msg(L, tmFmt(E,d)+(L.best===d&&L.tries.filter(x=>x!=null).length>1?'  BEST!':''), 1.8); if(d>=E.q) emit('cheer'); },
+  _score(s,E,vals){
+    if(s.st==='result') return; s.st='result'; s.stT=5; s.banner='';
+    vals.forEach((v,p)=>{ const pts = v==null ? 0 : TM_PTS[E.id](v); s.res[p][s.ev]=v; s.pts[p][s.ev]=pts; s.tot[p]+=pts; });
+    if(s.solo){ const v=vals[0]; const ok = v!=null && (E.unit==='s' ? v<=E.q : v>=E.q); s.qual=ok; if(!ok) s.failed=true; emit(ok?'goal':'lose'); }
+    else { const [a,b]=vals; s.evWin = a==null&&b==null ? -1 : a==null ? 1 : b==null ? 0 : (E.unit==='s' ? (a<b?0:a>b?1:-1) : (a>b?0:a<b?1:-1)); emit('goal'); }
+  },
+  _finish(s){ s.over=true; s.st='done';
+    if(s.solo){ s.winner=s.failed?-1:0; const b=+(store('tm-best')||0); s.best=Math.max(b,s.tot[0]); s.newBest=s.tot[0]>b; store('tm-best',String(s.best)); }
+    else s.winner = s.tot[0]===s.tot[1] ? -1 : (s.tot[0]>s.tot[1]?0:1); },
+  // ---------- controls ----------
+  cont(vc,p){ this._tp=this._tp||[{},{}]; const T=this._tp[p];
+    const edge=(k,on)=>{ T[k]=T[k]||0; if(on && !T['_'+k]) T[k]++; T['_'+k]=on; return T[k]; };
+    // keyboard: count alternations of left/right
+    T.rc=T.rc||0; const dl=vc.lN-(T.lN??vc.lN), dr=vc.rN-(T.rN??vc.rN); T.lN=vc.lN; T.rN=vc.rN;
+    if(dl>0 && dr>0){ T.rc+=2; } else if(dl>0){ if(T.last!=='L') T.rc++; T.last='L'; } else if(dr>0){ if(T.last!=='R') T.rc++; T.last='R'; }
+    // touch: every new finger on your side (outside the buttons) is a stride too
+    T.seen=T.seen||new Set(); for(const [id,t] of touches){ if(t.p===p && t.kind==='stick' && !T.seen.has(id)){ T.seen.add(id); T.rc++; } } if(T.seen.size>40) T.seen=new Set([...T.seen].slice(-10));
+    const rc=T.rc+edge('r', !!(vc.padA||vc.touchFire));
+    const ac=edge('a', !!(vc.padB||vc.touchB)) + vc.aN;
+    const ah=((vc.a && !vc.padA && vc.rt<.5) || vc.padB || vc.touchB) ? 1 : 0;
+    return { rc, ac, ah }; },
+  // ---------- computer athlete ----------
+  cpu(s,p,dt,mem){ const L=s.lanes[p], E=this._ev(s); mem.rc=mem.rc||0; mem.ac=mem.ac||0; mem.acc=(mem.acc||0);
+    if(!L) return {};
+    const running = (s.st==='play') && (E.kind==='race' ? (s.go<=0 && L.st==='run') : L.st==='run');
+    if(running){ mem.rate=mem.rate||(9+Math.random()*1.4); mem.acc+=dt*mem.rate*(.9+Math.random()*.2); while(mem.acc>=1){ mem.acc--; mem.rc++; } } else { mem.acc=0; mem.rate=0; }
+    let ah=mem.hold?1:0;
+    if(E.kind==='race' && E.hurdles && L.st==='run'){ const next=E.hurdles.find((h,i)=>!L.hits[i] && h>L.x); if(next!=null && L.y<=0 && next-L.x < L.v*.26+(Math.random()-.5)*.25 && next-L.x>0.3 && (mem.lastJ||0)<s.t-.3){ mem.ac++; mem.lastJ=s.t; } }
+    if(E.kind!=='race'){
+      if(L.st==='run'){ mem.tgt=mem.tgt||(E.kind==='jump'?36+Math.random()*9:38+Math.random()*9); mem.early=mem.early??Math.random()*.5;
+        const aimDist = E.kind==='jump' ? L.v/60*2+.15+mem.early : L.v*(mem.tgt/75)+3.2+mem.early;
+        if(E.line-L.x<=aimDist){ mem.ac++; mem.hold=1; ah=1; } }
+      else if(L.st==='aim'){ ah = L.ang<mem.tgt ? 1 : 0; mem.hold=ah; }
+      else { mem.hold=0; ah=0; mem.tgt=0; mem.early=null; } }
+    return { rc:mem.rc, ac:mem.ac, ah }; },
+  lerp(a,b,t){ const o=JSON.parse(JSON.stringify(b)); o.lanes.forEach((L,i)=>{ const A=a.lanes&&a.lanes[i]; if(!A) return; if(Math.abs(A.x-L.x)<6){ L.x=lerp(A.x,L.x,t); L.y=lerp(A.y,L.y,t); L.ph=lerp(A.ph,L.ph,t); } if(A.jav&&L.jav){ L.jav.x=lerp(A.jav.x,L.jav.x,t); L.jav.y=lerp(A.jav.y,L.jav.y,t); } }); return o; },
+  status(s){ const E=this._ev(s); return { l:s.tot[0], r:s.tot.length>1?s.tot[1]:'', c:`${E.name} · event ${s.ev+1} of ${TM_EV.length}` }; },
+  endHead(s,names){
+    const rows=TM_EV.map((E,i)=>`${E.name.toLowerCase().replace(/(^|\s)\S/g,m=>m.toUpperCase())}: ${s.lanes.map((L,p)=>tmFmt(E,s.res[p][i])).join(' vs ')}`).filter((r,i)=>s.res[0][i]!==undefined).join(' · ');
+    if(s.solo){ return { kick:'solo meet', again:'Compete again', big:`${s.tot[0]} pts`, col:s.failed?NEON.red:NEON.yellow, sub:`${s.failed?`Missed the qualifying mark in the ${TM_EV[s.ev].name.toLowerCase()}. `:'All four events qualified! '}${s.newBest?'🏆 New high score!':`High score ${s.best}`} · ${rows}` }; }
+    const w=s.winner; return { kick:'track meet', again:'Compete again', big: w<0?"It's a tie!":`${esc(names[w]||'')} wins!`, col: w<0?NEON.yellow:PC[w], sub:`${s.tot[0]} – ${s.tot[1]} points · ${rows}` }; },
+  // ---------- drawing ----------
+  draw(g,s){
+    const c=g.ctx, W=1600, H=900, E=this._ev(s), n=s.lanes.length, lh=(H-TM.HUD)/n;
+    c.fillStyle='#03030b'; c.fillRect(0,0,W,H);
+    s.lanes.forEach((L,p)=>{ c.save(); c.beginPath(); c.rect(0,TM.HUD+p*lh,W,lh); c.clip(); this._drawLane(c,s,E,L,p,TM.HUD+p*lh,lh); c.restore(); });
+    if(n>1){ c.fillStyle='#000'; c.fillRect(0,TM.HUD+lh-3,W,6); glowStroke(c,'#3a3a6a',2,()=>{ c.moveTo(0,TM.HUD+lh); c.lineTo(W,TM.HUD+lh); }); }
+    this._hud(c,s,E,g.names);
+    if(s.st==='intro') this._card(c,s,E);
+    if(s.st==='result') this._results(c,s,E,g.names);
+  },
+  _hud(c,s,E,names){
+    c.fillStyle='#07061a'; c.fillRect(0,0,1600,TM.HUD); glowStroke(c,NEON.orange,2,()=>{ c.moveTo(0,TM.HUD); c.lineTo(1600,TM.HUD); });
+    glowText(c,E.name,800,32,34,NEON.yellow,{font:HEAD,weight:900,glow:.7});
+    c.save(); c.font=`700 22px ${BODY}`; c.textAlign='center'; c.fillStyle='#c7d4ff'; c.fillText(`EVENT ${s.ev+1} OF ${TM_EV.length}  ·  ${s.solo?'QUALIFY: '+(E.unit==='s'?'under ':'')+tmFmt(E,E.q):'decathlon points'}`,800,70); c.restore();
+    s.lanes.forEach((L,p)=>{ const x=p?1576:24, al=p?'right':'left';
+      glowText(c,`${s.tot[p]} pts`,x,32,30,PC[p],{font:BODY,weight:700,align:al,glow:.7});
+      c.save(); c.font=`700 21px ${BODY}`; c.textAlign=al; c.fillStyle=PC[p]; c.fillText(names[p]||'',x,70); c.restore(); });
+  },
+  _drawLane(c,s,E,L,p,y0,h){
+    const col=PC[p], W=1600, gy=y0+h*.8, ppm=L.ppm*(h/404);
+    // camera: athlete about a third of the way in; follow the javelin in flight
+    let focus = L.x; if(L.jav && L.st!=='ready') focus = Math.max(L.x, L.jav.x-18);
+    const camX = focus - (W*(L.jav?.45:.3))/ppm; const X=m=>(m-camX)*ppm;
+    // sky, stands and floodlights
+    const sky=c.createLinearGradient(0,y0,0,gy); sky.addColorStop(0,'#060418'); sky.addColorStop(1,'#1a0d33'); c.fillStyle=sky; c.fillRect(0,y0,W,gy-y0);
+    const sh=h*.32, sy=gy-h*.18-sh, par=camX*ppm*.35;
+    c.fillStyle='#0c0a22'; c.fillRect(0,sy,W,sh);
+    for(let r=0;r<5;r++) for(let k=-1;k<44;k++){ const xx=((k*40-par+r*17)%(W+80)+W+80)%(W+80)-40, yy=sy+10+r*sh/5.4, hue=(k*7+r*13)%5;
+      c.fillStyle=['#ff2bd655','#00f0ff44','#ffe60044','#39ff1433','#9d4dff55'][hue]; c.beginPath(); c.arc(xx,yy+Math.sin(s.t*6+k+r)*(L.msgT>0&&/BEST|\.|s$/.test(L.msg)?3:1),6,0,TAU); c.fill(); }
+    for(const fx of [200,800,1400]){ const xx=((fx-par*.5)%(W+400)+W+400)%(W+400)-200; c.strokeStyle='#2a2a4a'; c.lineWidth=4; c.beginPath(); c.moveTo(xx,sy); c.lineTo(xx,y0+h*.06); c.stroke(); glowFill(c,'#fff6c0',60,xx,y0+h*.06); }
+    // ground
+    c.fillStyle= E.kind==='throw' ? '#071a10' : '#14081c'; c.fillRect(0,gy-h*.18,W,h*.18+h*.2);
+    const tr0=gy-h*.13, tr1=gy+h*.06;
+    if(E.kind!=='throw' || true){ c.fillStyle='#2a0f22'; c.fillRect(0,tr0,W,tr1-tr0); glowStroke(c,col,2,()=>{ c.moveTo(0,tr0); c.lineTo(W,tr0); c.moveTo(0,tr1); c.lineTo(W,tr1); }); }
+    // distance marks
+    c.save(); c.font=`700 ${Math.round(h*.05)}px ${BODY}`; c.textAlign='center'; c.fillStyle='rgba(255,255,255,.5)';
+    const step = ppm<20 ? 10 : 10, m0=Math.floor(camX/step)*step;
+    for(let m=m0;m<camX+W/ppm+step;m+=step){ const xx=X(m); c.fillStyle='rgba(255,255,255,.18)'; c.fillRect(xx-1,tr0,2,tr1-tr0); }
+    c.restore();
+    if(E.kind==='race'){
+      glowStroke(c,'#ffffff',4,()=>{ c.moveTo(X(0),tr0); c.lineTo(X(0),tr1); });
+      const fx=X(E.len); for(let k=0;k<8;k++){ c.fillStyle=k%2?'#fff':'#111'; c.fillRect(fx-6,tr0+k*(tr1-tr0)/8,12,(tr1-tr0)/8); } glowStroke(c,NEON.yellow,3,()=>{ c.moveTo(fx,tr0-h*.3); c.lineTo(fx,tr0); });
+      c.save(); c.font=`700 ${Math.round(h*.045)}px ${BODY}`; c.textAlign='center'; c.fillStyle='#c7d4ff'; for(let m=10;m<E.len;m+=10) c.fillText(`${m}`,X(m),tr1+h*.07); c.restore();
+      if(E.hurdles) E.hurdles.forEach((hx,i)=>{ const xx=X(hx); if(xx<-50||xx>W+50) return; const hh=h*.13, down=L.hits[i]===1;
+        c.save(); c.translate(xx,gy-h*.03); if(down) c.rotate(1.3); glowStroke(c,NEON.white,3,()=>{ c.moveTo(-hh*.15,0); c.lineTo(-hh*.15,-hh); c.moveTo(hh*.15,0); c.lineTo(hh*.15,-hh); }); c.fillStyle=down?'#555':NEON.orange; c.fillRect(-hh*.3,-hh-6,hh*.6,10); c.restore(); });
+    } else {
+      const lx=X(E.line);
+      if(E.kind==='jump'){ c.fillStyle='#3a2e10'; c.fillRect(lx+ppm*.4,gy-h*.05,ppm*11,h*.09); c.fillStyle='#e8d090'; c.fillRect(lx+ppm*.4,gy-h*.05,ppm*11,4); c.fillStyle='#fff'; c.fillRect(lx-ppm*.2,tr0,ppm*.2,tr1-tr0); c.fillStyle=NEON.red; c.fillRect(lx,tr0,4,tr1-tr0); }
+      else { glowStroke(c,'#ffffff',4,()=>{ c.moveTo(lx,tr0); c.lineTo(lx,tr1); }); c.fillStyle=NEON.red; c.fillRect(lx-3,tr0,6,tr1-tr0); }
+      // distance flags from the line
+      c.save(); c.font=`700 ${Math.round(h*.045)}px ${BODY}`; c.textAlign='center';
+      const every = E.kind==='throw' ? 10 : 1; for(let d=every;d<=(E.kind==='throw'?100:10);d+=every){ const xx=X(E.line+d); if(xx<-40||xx>W+40) continue; c.fillStyle='rgba(255,255,255,.35)'; c.fillRect(xx-1,gy-h*.05,2,h*.05); if(E.kind==='throw'||d%1===0) { c.fillStyle='#c7d4ff'; c.fillText(`${d}`,xx,tr1+h*.07); } }
+      // qualifying line and best mark
+      const qx=X(E.line+E.q); glowStroke(c,NEON.green,2,()=>{ c.moveTo(qx,gy-h*.08); c.lineTo(qx,gy+h*.02); }); c.fillStyle=NEON.green; c.fillText('Q',qx,gy-h*.1);
+      if(L.best!=null){ const bx=X(E.line+L.best); c.fillStyle=col; c.beginPath(); c.moveTo(bx,gy-h*.02); c.lineTo(bx-8,gy-h*.08); c.lineTo(bx+8,gy-h*.08); c.fill(); }
+      c.restore();
+      if(L.jav){ const J=L.jav, ang=Math.atan2(J.vy,J.vx); const jx=X(J.x), jy=gy-J.y*ppm*1.0-h*.0; c.save(); c.translate(jx,jy); c.rotate(-ang); glowStroke(c,NEON.yellow,3,()=>{ c.moveTo(-ppm*1.3,0); c.lineTo(ppm*1.3,0); }); c.restore(); }
+    }
+    // the athlete
+    this._athlete(c,X(L.x),gy-L.y*ppm,h*.36,col,L,E,s.t);
+    // per-lane readouts
+    const fs=Math.round(clamp(h*.07,18,34));
+    c.save(); c.font=`700 ${fs}px ${BODY}`; c.textAlign='left'; c.textBaseline='top'; c.lineWidth=4; c.strokeStyle='rgba(0,0,0,.7)';
+    const lab=(t,x,y,cl,al='left')=>{ c.textAlign=al; c.strokeText(t,x,y); c.fillStyle=cl; c.fillText(t,x,y); };
+    if(E.kind==='race'){ lab(L.time!=null?L.time.toFixed(2):'—',20,y0+12,'#ffffff'); }
+    else { lab(`ATTEMPT ${Math.min(3,Math.max(1,L.att))}/3`,20,y0+12,'#ffffff'); lab(L.tries.map(t=>t==null?'✗':t.toFixed(2)).join('  ')||'',20,y0+12+fs*1.2,col); }
+    // speed meter
+    const mw=Math.min(300,W*.2), mx=W-mw-24, my=y0+16; c.fillStyle='rgba(0,0,0,.55)'; c.fillRect(mx,my,mw,fs*.7); c.fillStyle= L.v>10.5?NEON.green:L.v>8?NEON.yellow:NEON.orange; c.fillRect(mx,my,mw*clamp(L.v/12.4,0,1),fs*.7); c.strokeStyle='rgba(255,255,255,.5)'; c.lineWidth=1.5; c.strokeRect(mx,my,mw,fs*.7);
+    lab(`${(L.v*3.6).toFixed(0)} km/h`, mx-10, my-fs*.1, '#ffffff', 'right');
+    if(L.st==='aim'||(L.st==='air'||L.st==='throw')&&L.ang){ const ax=W-150, ay=y0+h*.42, R=h*.18; c.strokeStyle='rgba(255,255,255,.35)'; c.lineWidth=3; c.beginPath(); c.moveTo(ax,ay); c.lineTo(ax+R,ay); c.moveTo(ax,ay); c.lineTo(ax,ay-R); c.stroke();
+      const th=L.ang*Math.PI/180; glowStroke(c,L.ang>=35&&L.ang<=48?NEON.green:NEON.yellow,4,()=>{ c.moveTo(ax,ay); c.lineTo(ax+Math.cos(th)*R,ay-Math.sin(th)*R); }); lab(`${L.ang.toFixed(0)}°`, ax+R*.2, ay+8, '#fff'); }
+    if(L.msg){ const big=Math.round(clamp(h*.13,28,70)); c.textAlign='center'; c.textBaseline='middle'; c.font=`900 ${big}px ${HEAD}`; c.lineWidth=6; c.strokeText(L.msg,W/2,y0+h*.4);
+      c.fillStyle= /FOUL|FALSE|DISQ|CLANG/.test(L.msg)?NEON.red:NEON.yellow; c.fillText(L.msg,W/2,y0+h*.4); }
+    if(s.st==='play' && E.kind==='race' && s.call){ c.textAlign='center'; c.textBaseline='middle'; c.font=`900 ${Math.round(clamp(h*.11,26,60))}px ${HEAD}`; c.lineWidth=6; c.strokeText(s.call,W/2,y0+h*.22); c.fillStyle=s.call==='GO!'?NEON.green:'#fff'; c.fillText(s.call,W/2,y0+h*.22); }
+    c.restore();
+  },
+  // neon athlete: stick figure with a headband, running cycle, crouch, jump and throw poses
+  _athlete(c,x,y,H,col,L,E,t){
+    const ph=L.ph||0, run=L.v>.3 || L.st==='run', air=L.y>0.02, u=H/100;
+    c.save(); c.translate(x,y); c.lineCap='round'; c.lineJoin='round';
+    const crouch = (L.st==='set') ? 1 : 0;
+    const hip={x:-6*u*crouch,y:-48*u+crouch*14*u}, sh={x:4*u+L.v*.6*u+crouch*16*u, y:-82*u+crouch*36*u}, head={x:sh.x+4*u, y:sh.y-13*u};
+    const limb=(a,b,len1,len2,ang1,ang2)=>{ const k={x:a.x+Math.sin(ang1)*len1, y:a.y+Math.cos(ang1)*len1}; const e={x:k.x+Math.sin(ang2)*len2, y:k.y+Math.cos(ang2)*len2}; return [a,k,e]; };
+    let legs, arms;
+    if(crouch){ legs=[limb(hip,0,24*u,24*u,1.0,-.4), limb(hip,0,24*u,24*u,-.5,-1.1)]; arms=[limb(sh,0,20*u,18*u,.12,0), limb(sh,0,20*u,18*u,.22,.08)]; }
+    else if(air && E.kind==='jump'){ legs=[limb(hip,0,24*u,24*u,1.3,.2), limb(hip,0,24*u,24*u,1.1,.0)]; arms=[limb(sh,0,20*u,18*u,2.6,2.2), limb(sh,0,20*u,18*u,2.3,1.9)]; }
+    else if(L.st==='throw'||(E.kind==='throw'&&L.st==='aim')){ const a=L.st==='aim'?-2.3:2.0; legs=[limb(hip,0,24*u,24*u,.5,.2), limb(hip,0,24*u,24*u,-.4,-.1)]; arms=[limb(sh,0,20*u,18*u,a,a+.3), limb(sh,0,20*u,18*u,1.2,1.6)]; }
+    else if(run||air){ const sw=Math.sin(ph*1.0), sp=clamp(L.v/10,.4,1.0)*.8;
+      legs=[limb(hip,0,24*u,24*u, sw*.9*sp+.2, sw*.9*sp+.2-Math.max(0,-Math.cos(ph))*1.6*sp), limb(hip,0,24*u,24*u, -sw*.9*sp+.2, -sw*.9*sp+.2-Math.max(0,Math.cos(ph))*1.6*sp)];
+      arms=[limb(sh,0,20*u,18*u,-sw*1.0*sp, -sw*sp+1.4), limb(sh,0,20*u,18*u,sw*1.0*sp, sw*sp+1.4)]; }
+    else { legs=[limb(hip,0,24*u,24*u,.1,0), limb(hip,0,24*u,24*u,-.1,0)]; arms=[limb(sh,0,20*u,18*u,.2,.1), limb(sh,0,20*u,18*u,-.2,-.1)]; }
+    const draw=(seg,w,cl)=>glowStroke(c,cl,w,()=>{ c.moveTo(seg[0].x,seg[0].y); c.lineTo(seg[1].x,seg[1].y); c.lineTo(seg[2].x,seg[2].y); });
+    draw(legs[1],5*u,col+'99'); draw(arms[1],4*u,col+'99');
+    glowStroke(c,col,7*u,()=>{ c.moveTo(hip.x,hip.y); c.lineTo(sh.x,sh.y); });
+    draw(legs[0],5*u,col); draw(arms[0],4*u,col);
+    c.fillStyle='#ffd9b0'; c.beginPath(); c.arc(head.x,head.y,9*u,0,TAU); c.fill();
+    c.fillStyle=col; c.fillRect(head.x-9*u,head.y-5*u,18*u,4*u); c.beginPath(); c.moveTo(head.x-9*u,head.y-4*u); c.lineTo(head.x-17*u,head.y-2*u+Math.sin(t*14)*2*u); c.lineTo(head.x-9*u,head.y-1*u); c.fill();
+    c.fillStyle='#fff'; c.beginPath(); c.arc(sh.x-1*u,sh.y+14*u,5*u,0,TAU); c.fill(); c.fillStyle='#000'; c.font=`900 ${7*u}px ${BODY}`; c.textAlign='center'; c.textBaseline='middle'; c.fillText(L.p+1,sh.x-1*u,sh.y+14*u);
+    if(E.kind==='throw' && !L.jav && L.st!=='foul'){ const hand=arms[0][2]; glowStroke(c,NEON.yellow,2.5*u,()=>{ c.moveTo(hand.x-26*u,hand.y+6*u); c.lineTo(hand.x+26*u,hand.y-6*u); }); }
+    c.restore();
+  },
+  _card(c,s,E){
+    c.save(); c.fillStyle='rgba(3,3,11,.82)'; c.fillRect(250,250,1100,400); glowStroke(c,NEON.orange,4,()=>c.rect(250,250,1100,400));
+    glowText(c,`EVENT ${s.ev+1}`,800,320,40,NEON.cyan,{font:HEAD,weight:900}); glowText(c,E.name,800,410,90,NEON.yellow,{font:HEAD,weight:900});
+    c.font=`700 30px ${BODY}`; c.textAlign='center'; c.fillStyle='#eafcff'; c.fillText(E.tip,800,500);
+    if(s.solo){ c.fillStyle=NEON.green; c.fillText(`Qualifying mark: ${E.unit==='s'?'under ':''}${tmFmt(E,E.q)}`,800,560); }
+    else { c.fillStyle='#c7d4ff'; c.fillText(E.kind==='race'?'Best time scores the most points':'Best of 3 attempts counts',800,560); }
+    c.restore(); },
+  _results(c,s,E,names){
+    c.save(); c.fillStyle='rgba(3,3,11,.95)'; c.fillRect(220,190,1160,520); glowStroke(c,NEON.yellow,4,()=>c.rect(220,190,1160,520));
+    glowText(c,`${E.name} — RESULTS`,800,250,48,NEON.yellow,{font:HEAD,weight:900});
+    s.lanes.forEach((L,p)=>{ const y=350+p*110, v=s.res[p][s.ev];
+      c.font=`700 40px ${BODY}`; c.textAlign='left'; c.fillStyle=PC[p]; c.fillText((s.evWin===p?'🥇 ':'')+(names[p]||''),280,y);
+      c.textAlign='center'; c.fillStyle='#fff'; c.fillText(L.dq?'DQ':tmFmt(E,v),830,y);
+      c.textAlign='right'; c.fillStyle=NEON.yellow; c.fillText(`+${s.pts[p][s.ev]} pts`,1330,y); });
+    c.font=`700 32px ${BODY}`; c.textAlign='center';
+    if(s.solo){ c.fillStyle=s.qual?NEON.green:NEON.red; c.fillText(s.qual?'QUALIFIED! On to the next event.':`Missed the mark (${E.unit==='s'?'under ':''}${tmFmt(E,E.q)}). Meet over.`,800,560); }
+    else c.fillStyle='#c7d4ff', c.fillText(`Totals: ${s.tot.join(' – ')}`,800,590);
+    c.restore(); },
+  attract(c,w,h,t){
+    c.fillStyle='#03030b'; c.fillRect(0,0,w,h); c.save(); c.scale(w/1600,h/900);
+    const L={ p:0, x:20+(t*10)%60, v:10.5, ph:t*10*.55*1.6, y:0, st:'run', tries:[], hits:[], ppm:TM.PPM, msg:'' }, M={ ...L, p:1, x:L.x-2.5, ph:t*9.6*.55*1.6+1 };
+    const E=TM_EV[3]; this._drawLane(c,{t,st:'play',go:0,lanes:[L]},E,L,0,0,450); this._drawLane(c,{t,st:'play',go:0,lanes:[M]},E,M,1,450,450);
+    c.restore(); }
+});
+
 /* =====================================================================
    3D WORLD — lobby + arcade room (same walking interface as the gallery)
    ===================================================================== */
@@ -4130,7 +4415,7 @@ function buildRooms(){
 function buildLobby(){
   // big ARCADE sign over the doorway
   signPlane(signTex([{t:'ARCADE', c:NEON.pink, size:170}], 1024, 256), 3.2, .8, 0, 3.2, .14, 0, 1.9);
-  signPlane(signTex([{t:'14 GAMES + ARCADE 2', c:NEON.cyan, size:62, font:HEAD, weight:900}], 1024, 128), 2.6, .33, -5.6, 2.95, .14, 0, 1.6);
+  signPlane(signTex([{t:'15 GAMES + ARCADE 2', c:NEON.cyan, size:62, font:HEAD, weight:900}], 1024, 128), 2.6, .33, -5.6, 2.95, .14, 0, 1.6);
   signPlane(signTex([{t:'NOW PLAYING', c:NEON.yellow, size:74, font:HEAD, weight:900}], 1024, 128), 2.6, .33, 5.6, 2.95, .14, 0, 1.6);
   // posters on the lobby walls
   poster(0,-5.4,1.75,.13,0); poster(1,-3.6,1.75,.13,0); poster(2,3.6,1.75,.13,0); poster(3,5.4,1.75,.13,0);
@@ -4320,6 +4605,7 @@ function buildRoom2(){
   poster(1,R.x0+.13,1.8,-3.3,Math.PI/2); poster(2,R.x0+.13,1.8,-15.2,Math.PI/2);
   // Pop Pals cabinet against the wall by the door
   uprightCab(GAMES.find(g=>g.id==='pop'), R.x1-.45, -13.2, -1);
+  uprightCab(GAMES.find(g=>g.id==='track'), R.x1-.45, -14.4, -1);
   // benches facing the alleys
   for(const x of [cx-2.4,cx+2.4]){ box(2.2,.45,.7,x,.225,-9.6,darkMat); box(2.24,.06,.74,x,.47,-9.6,velvetMat); tubeX(x-1.1,x+1.1,.06,-9.95,NEON.violet,.025); collide(x-1.1,x+1.1,-9.95,-9.25); }
 }
@@ -4397,7 +4683,7 @@ function step(dir){
   goTo(list[(i+dir+list.length)%list.length]);
 }
 function fwd(){ return { x:-Math.sin(player.yaw), z:-Math.cos(player.yaw) }; }
-function updateCounter(cab){ const list=ORDER(); $('#counter').textContent = cab ? `${cab.def.name} · ${list.indexOf(cab)+1} / ${list.length}` : ({ lobby:'Lobby · arcade ahead', arcade:`Arcade · ${CABS.filter(c=>roomOf(c.x,c.z)==='arcade').length} machines · Arcade 2 on the left`, room2:`Arcade 2 · ${ALLEYS.length} Glow Roll alleys · Pop Pals · Shootin' Gallery` })[roomOf(player.x,player.z)]; }
+function updateCounter(cab){ const list=ORDER(); $('#counter').textContent = cab ? `${cab.def.name} · ${list.indexOf(cab)+1} / ${list.length}` : ({ lobby:'Lobby · arcade ahead', arcade:`Arcade · ${CABS.filter(c=>roomOf(c.x,c.z)==='arcade').length} machines · Arcade 2 on the left`, room2:`Arcade 2 · ${ALLEYS.length} Glow Roll alleys · Pop Pals · Track Meet · Shootin' Gallery` })[roomOf(player.x,player.z)]; }
 
 /* =====================================================================
    AVATARS — 1980s neon people
