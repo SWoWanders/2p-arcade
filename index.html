@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Neon Two-Player Arcade</title>
-<meta name="description" content="A 3D neon arcade with 13 two-player games, Glow Roll alleys and an old-west shooting gallery.">
+<meta name="description" content="A 3D neon arcade with 14 two-player games, Glow Roll alleys and an old-west shooting gallery.">
 <meta name="theme-color" content="#05040a">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -353,9 +353,9 @@ body.gal-on .hud.bottom, body.gal-on .stick-hint, body.gal-on #side, body.gal-on
 <!-- intro -->
 <div class="overlay" id="intro" role="dialog" aria-modal="true" aria-labelledby="introTitle">
   <div class="panel">
-    <span class="kicker">Two players · 13 machines · 2 arcade rooms</span>
+    <span class="kicker">Two players · 14 machines · 2 arcade rooms</span>
     <h1 id="introTitle">Neon <span class="p">Arcade</span></h1>
-    <p>Walk through the lobby into the arcade, step up to a machine and play. Through the door on the left is Arcade 2, with the Glow Roll alleys and the Shootin' Gallery. Play on one device, against the computer, or online from two devices with a room code.</p>
+    <p>Walk through the lobby into the arcade, step up to a machine and play. Through the door on the left is Arcade 2, with the Glow Roll alleys, the Shootin' Gallery and the Pop Pals machine. Play on one device, against the computer, or online from two devices with a room code.</p>
     <div class="ctl">
       <div><h3>Touch</h3>Drag bottom-left to walk<br>Drag anywhere else to look<br>Tap a machine to play<br>Tap the floor to walk there</div>
       <div><h3>Mouse &amp; keyboard</h3><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows to move<br>Drag to look · click a machine<br><kbd>Q</kbd> <kbd>E</kbd> previous / next machine<br><kbd>Enter</kbd> play · <kbd>M</kbd> map · <kbd>O</kbd> online</div>
@@ -3495,6 +3495,419 @@ game({
     for(let i=0;i<6;i++){ const y=(t*900+i*120)%800; c.fillStyle=PC[i%2]; c.fillRect(300+(i%2)*140+Math.sin(t*1.3+(i%2))*90-2,700-y,4,14); } c.restore(); }
 });
 
+/* ---------------- POP PALS (2-player co-op bubble platformer) ----------------
+   Original game: Fizz and Pip blow bubbles to trap wind-up critters, then pop the
+   bubbles to turn the critters into treats. Single-screen levels, one-way ledges,
+   a floor gap that drops you back in at the top. */
+const PP = { W:1600, H:900, T:50, COLS:32, ROWS:18, GAP:[14,17], HW:18, PH:44, GRAV:2000, JUMP:900, RUN:300,
+  BR:28, TR:32, LEVELS:10, SHOT:.38 };
+// each level: platform runs [row, firstCol, lastCol], palette, critters
+const PP_LV = [
+  { name:'Warm Up', col:['#2a0f3a','#ff2bd6'], runs:[[14,2,9],[14,22,29],[11,8,23],[8,2,9],[8,22,29],[5,9,22]], en:['tick','tick','tick','tick'] },
+  { name:'Ladders', col:['#0b2a36','#00f0ff'], runs:[[14,5,10],[14,21,26],[11,2,6],[11,13,18],[11,25,29],[8,5,10],[8,21,26],[5,2,6],[5,13,18],[5,25,29]], en:['tick','tick','tick','boing','boing'] },
+  { name:'Big Cup', col:['#2d2400','#ffe600'], runs:[[14,2,12],[14,19,29],[11,6,12],[11,19,25],[8,2,8],[8,12,19],[8,23,29],[5,6,25]], en:['tick','tick','flit','flit','tick'] },
+  { name:'Stairway', col:['#0d2a12','#39ff14'], runs:[[14,2,6],[14,25,29],[12,7,11],[12,20,24],[10,12,19],[7,7,11],[7,20,24],[5,2,6],[5,25,29]], en:['boing','boing','tick','tick','flit'] },
+  { name:'Islands', col:['#2c1400','#ff8a00'], runs:[[14,4,6],[14,12,14],[14,17,19],[14,25,27],[11,8,10],[11,14,17],[11,21,23],[8,3,6],[8,12,19],[8,25,28],[5,7,10],[5,21,24]], en:['flit','flit','boing','boing','tick','flit'] },
+  { name:'Waffle', col:['#1a1040','#9d4dff'], runs:[[14,2,5],[14,8,11],[14,14,17],[14,20,23],[14,26,29],[11,2,5],[11,8,11],[11,14,17],[11,20,23],[11,26,29],[8,2,5],[8,8,11],[8,14,17],[8,20,23],[8,26,29],[5,8,11],[5,20,23]], en:['tick','tick','boing','boing','flit','flit'] },
+  { name:'Funnel', col:['#300a14','#ff3355'], runs:[[14,2,12],[14,19,29],[12,13,18],[11,2,9],[11,22,29],[8,2,6],[8,25,29],[8,11,20],[5,10,21]], en:['tick','tick','tick','flit','flit','boing','boing'] },
+  { name:'Zigzag', col:['#002a2a','#00ffc8'], runs:[[14,2,20],[11,11,29],[8,2,20],[5,11,29]], en:['boing','boing','boing','tick','tick','flit','flit'] },
+  { name:'Twin Towers', col:['#14143a','#3d7bff'], runs:[[14,5,10],[14,21,26],[12,5,10],[12,21,26],[10,5,10],[10,21,26],[8,5,10],[8,21,26],[6,5,10],[6,21,26],[13,14,17],[9,13,18],[5,14,17]], en:['flit','flit','flit','tick','tick','boing','boing'] },
+  { name:'Grand Finale', col:['#2a0a2a','#ffe600'], runs:[[14,2,13],[14,18,29],[11,4,11],[11,20,27],[8,8,23],[5,2,7],[5,24,29]], en:['tick','tick','tick','boing','boing','flit','flit','flit'] },
+];
+const PP_EN = { tick:{ sp:110, col:NEON.orange }, boing:{ sp:95, col:NEON.green }, flit:{ sp:120, col:NEON.violet } };
+const PP_TREATS = ['cherry','candy','donut','lolly','cake','gem'];
+const ppGrid = (()=>{ const out=[];
+  for(const L of PP_LV){ const g=[]; for(let r=0;r<PP.ROWS;r++){ g.push(new Array(PP.COLS).fill(0)); }
+    for(let r=1;r<PP.ROWS;r++){ for(const c of [0,1,30,31]) g[r][c]=2; }
+    for(let c=2;c<30;c++){ const gap=c>=PP.GAP[0]&&c<=PP.GAP[1]; if(!gap){ g[1][c]=3; g[17][c]=1; } }
+    for(const [r,a,b] of L.runs) for(let c=a;c<=b;c++) g[r][c]=1;
+    out.push(g); }
+  return out; })();
+let ppId=0; const ppNid=()=>(++ppId).toString(36);
+SFX.blow=()=>{ tone(520,.09,'sine',.12,1.8); noise(.06,.05,2600); };
+SFX.trap=()=>{ [660,880,1100].forEach((f,i)=>tone(f,.07,'triangle',.09,1,i*.04)); };
+SFX.pop=()=>{ noise(.05,.16,5000); tone(1400,.06,'sine',.09,.4); };
+SFX.popbig=()=>{ noise(.12,.22,3500); [784,988,1318,1568].forEach((f,i)=>tone(f,.1,'square',.08,1,i*.05)); };
+SFX.treat=()=>{ tone(1046,.05,'square',.08); tone(1568,.14,'square',.08,1,.05); };
+SFX.escape=()=>{ tone(500,.25,'sawtooth',.08,.4); };
+SFX.hurry=()=>{ [880,660,880,660].forEach((f,i)=>tone(f,.1,'square',.09,1,i*.12)); };
+SFX.grump=()=>{ tone(70,.8,'sawtooth',.14,.6); noise(.6,.12,300); };
+SFX.zap=()=>{ noise(.35,.25,6000); tone(1800,.3,'sawtooth',.08,.2); };
+SFX.boing2=()=>tone(300,.12,'triangle',.12,2.4);
+SFX.life=()=>{ [523,659,784,1046,1318].forEach((f,i)=>tone(f,.1,'triangle',.11,1,i*.07)); };
+
+game({
+  id:'pop', name:'Pop Pals', color:NEON.cyan, color2:NEON.pink, kind:'field', noRotate:true, coop:true, padLabel:'JUMP', pad2:'BUBBLE', touch:'pad', solo:true, W:1600, H:900,
+  cpuText:'🤖 Play with the computer<small>A computer pal blows bubbles beside you</small>', soloText:'🫧 Solo<small>Just you — beat your high score</small>', endKick:'team game',
+  blurb:'Fizz and Pip blow bubbles! Trap the wind-up critters in a bubble, then pop it to turn them into treats. Pop several at once for a bigger bonus. Bounce on bubbles by holding jump. Clear all 10 levels together.',
+  how:{ touch:'Drag left or right to run. Tap JUMP to jump and BUBBLE to blow a bubble.',
+    keys:'Run <b>A D</b> / <b>← →</b>, jump <b>W</b> / <b>↑</b>, blow a bubble with <b>Space</b>, <b>F</b> or <b>Enter</b>. Hold jump to bounce on bubbles.',
+    keys2:'Same device: left player <b>A D</b>, <b>W</b> jump, <b>F</b> or <b>Space</b> bubble; right player <b>← →</b>, <b>↑</b> jump, <b>Enter</b> bubble.',
+    pad:'Stick or D-pad to run, Ⓐ to jump, Ⓑ to blow a bubble.' },
+  init(o){
+    const solo=o.mode==='solo';
+    const mk=p=>({ x:p?1450:150, y:850, vx:0, vy:0, face:p?-1:1, ground:true, lives:3, score:0, dead:0, inv:2, jc:undefined, bc:undefined, cool:0, blowT:0, walk:0, out:false, life:25000 });
+    const s={ pl:solo?[mk(0)]:[mk(0),mk(1)], en:[], bub:[], tr:[], fx:[], bolts:[], grump:null, lv:0, st:'intro', stT:2.2, lt:0, hurry:0, sparkT:14, t:0, trans:0,
+      over:false, winner:-1, banner:'', solo, cleared:false };
+    this._level(s,1); return s;
+  },
+  _g(s){ return ppGrid[(s.lv-1)%PP.LEVELS]; },
+  _level(s,n){
+    s.lv=n; s.st='intro'; s.stT=2; s.lt=0; s.hurry=0; s.sparkT=14; s.banner=`LEVEL ${n}`; s.en=[]; s.bub=[]; s.tr=[]; s.bolts=[]; s.grump=null;
+    const L=PP_LV[(n-1)%PP.LEVELS], k=L.en.length;
+    L.en.forEach((type,i)=>{ const x=260+(i+.5)*(1080/k); s.en.push({ id:ppNid(), type, x, y:120, vx:0, vy:0, dir:i%2?-1:1, ground:false, angry:0, st:'wait', t:0, jT:1+i*.4, hopT:.5+i*.3, fy:(i%2?1:-1) }); });
+    s.pl.forEach((P,p)=>{ if(P.out && s.pl.some(Q=>!Q.out)){ P.out=false; P.lives=1; }
+      if(!P.out){ P.x=p?1450:150; P.y=850; P.vx=P.vy=0; P.dead=0; P.inv=2.5; P.face=p?-1:1; P.ground=true; } });
+  },
+  // ---------- tiles ----------
+  _tile(g,c,r){ if(r<0||r>=PP.ROWS||c<0||c>=PP.COLS) return 0; return g[r][c]; },
+  _land(g,x,hw,oy,ny){   // top of the first ledge crossed while falling from oy to ny (feet)
+    const r0=Math.max(2,Math.ceil((oy-1)/PP.T)), r1=Math.min(17,Math.floor(ny/PP.T));
+    for(let r=r0;r<=r1;r++){ const top=r*PP.T; if(oy>top+1||ny<top) continue;
+      for(let c=Math.floor((x-hw+3)/PP.T); c<=Math.floor((x+hw-3)/PP.T); c++){ if(this._tile(g,c,r)===1) return top; } }
+    return null; },
+  _support(g,x,hw,y){ return this._land(g,x,hw,y-1,y+2)!=null; },
+  _inGap(x){ const c=Math.floor(x/PP.T); return c>=PP.GAP[0]&&c<=PP.GAP[1]; },
+  // move a walking body (player or critter); returns true when it lands
+  _body(g,b,dt,hw,h){
+    const oy=b.y; b.vy=Math.min(b.vy+PP.GRAV*dt, 1100); b.x=clamp(b.x+b.vx*dt, 100+hw, 1500-hw); let ny=b.y+b.vy*dt, landed=false;
+    if(b.vy>=0){ const L=this._land(g,b.x,hw,oy,ny); if(L!=null){ ny=L; b.vy=0; landed=true; } }
+    else { const lim = this._inGap(b.x) ? h : PP.T*2+h; if(ny<lim){ ny=lim; b.vy=0; } }
+    b.y=ny; if(b.y>PP.H+40) b.y=60;        // fall through the floor gap, drop back in at the top
+    b.ground = landed || (b.vy>=0 && this._support(g,b.x,hw,b.y));
+    return landed; },
+  // ---------- main loop ----------
+  tick(s, dt, inp){
+    if(s.over) return; dt=Math.min(dt,.05); s.t+=dt;
+    s.fx=s.fx.filter(f=>(f.t+=dt)<1.1);
+    if(s.st==='trans'){ s.trans+=dt/1.8; if(s.trans>=1){ s.trans=0; this._level(s,s.lv+1); } return; }
+    if(s.st==='intro'){ s.stT-=dt; if(s.stT<=0){ s.st='play'; s.banner=''; for(const e of s.en) e.st='go'; } }
+    if(s.st==='clear'){ s.stT-=dt; if(s.stT<=0){ if(s.lv>=PP.LEVELS){ s.cleared=true; this._finish(s); return; } s.st='trans'; s.trans=0; s.banner=''; emit('warp'); return; } }
+    if(s.banner && s.st==='play' && s.bannerT!=null){ s.bannerT-=dt; if(s.bannerT<=0){ s.banner=''; s.bannerT=null; } }
+    const g=this._g(s), steps=2, h=dt/steps;
+    for(let k=0;k<steps;k++){
+      s.pl.forEach((P,p)=>this._player(s,g,P,p,h,inp[p]||{}, k===0));
+      for(const e of s.en) this._enemy(s,g,e,h);
+      this._bubbles(s,g,h);
+    }
+    this._treats(s,g,dt); this._boltsTick(s,dt);
+    s.en=s.en.filter(e=>e.st!=='gone');
+    if(s.st==='play'){
+      s.lt+=dt;
+      if(s.lt>30 && s.hurry===0){ s.hurry=1; s.banner='HURRY UP!'; s.bannerT=1.4; emit('hurry'); for(const e of s.en) if(e.st==='go') e.angry=1; }
+      if(s.lt>42 && s.hurry===1){ s.hurry=2; s.grump={ x:800, y:60, t:0 }; emit('grump'); }
+      if(s.lv>=3){ s.sparkT-=dt; if(s.sparkT<=0){ s.sparkT=16; s.bub.push({ id:ppNid(), x:700+Math.random()*200, y:880, vx:0, vy:-90, age:1, r:PP.BR, own:-1, spark:1, life:14 }); } }
+      if(s.grump) this._grumpTick(s,dt);
+      if(!s.en.length){ s.st='clear'; s.stT=3; s.banner='LEVEL CLEAR!'; s.bannerT=null; s.grump=null; emit('phase'); for(const P of s.pl) if(!P.out) this._pts(s,P,s.pl.indexOf(P),500*s.lv,null); }
+    }
+    if(s.pl.every(P=>P.out)) this._finish(s);
+  },
+  _finish(s){ s.over=true; s.st='done'; s.banner='';
+    const team=s.pl.reduce((n,P)=>n+P.score,0); s.winner = s.pl.length<2 ? 0 : (s.pl[0].score>=s.pl[1].score?0:1);
+    if(s.solo){ const b=+(store('pop-best')||0); s.best=Math.max(b,team); s.newBest=team>b; store('pop-best',String(s.best)); } },
+  _pts(s,P,p,n,at){ P.score+=n; if(at) s.fx.push({ x:at.x, y:at.y, t:0, txt:String(n), p });
+    if(P.score>=P.life){ P.life+=25000; if(P.lives<5){ P.lives++; emit('life'); s.fx.push({ x:P.x, y:P.y-80, t:0, txt:'1UP!', p }); } } },
+  _player(s,g,P,p,h,ci,first){
+    if(P.out) return;
+    if(P.dead){ P.dead+=h; P.vy+=PP.GRAV*h; P.y+=P.vy*h; P.x+=P.vx*h;
+      if(P.dead>2){ if(P.lives<=0){ P.out=true; return; } P.dead=0; P.x=p?1450:150; P.y=850; P.vx=P.vy=0; P.inv=2.5; P.ground=true; } return; }
+    if(P.inv>0) P.inv-=h; if(P.cool>0) P.cool-=h; if(P.blowT>0) P.blowT-=h;
+    if(s.st==='intro' || s.st==='clear' && s.stT<.3){ P.vx=0; }
+    const want=ci.x||0; const acc=P.ground?3000:1800;
+    P.vx += clamp(want*PP.RUN-P.vx, -acc*h, acc*h); if(want) P.face=Math.sign(want);
+    if(first){
+      if(ci.jc!=null && ci.jc!==P.jc){ const fresh=P.jc!=null; P.jc=ci.jc; if(fresh && P.ground){ P.vy=-PP.JUMP; P.ground=false; emit('jump'); } }
+      if(ci.bc!=null && ci.bc!==P.bc){ const fresh=P.bc!=null; P.bc=ci.bc; if(fresh && P.cool<=0 && s.st!=='intro') this._blow(s,P,p); }
+    }
+    const was=P.ground; this._body(g,P,h,PP.HW,PP.PH);
+    if(Math.abs(P.vx)>20 && P.ground) P.walk+=h*Math.abs(P.vx)/40;
+    // bubbles: bounce on top while holding jump, otherwise pop
+    for(const b of s.bub){ if(b.gone || b.age<.22) continue; const dx=b.x-P.x, dy=b.y-(P.y-22), d=Math.hypot(dx,dy);
+      if(d<b.r+20){ if(ci.h && P.vy>0 && P.y-6<b.y){ P.vy=-PP.JUMP*.82; P.ground=false; b.vy+=60; emit('boing2'); continue; } this._popFrom(s,b,P,p); } }
+    // treats
+    for(const T of s.tr){ if(T.gone) continue; if(Math.abs(T.x-P.x)<38 && Math.abs(T.y-14-(P.y-22))<42){ T.gone=1; this._pts(s,P,p,T.val,{x:T.x,y:T.y-30}); emit('treat'); } }
+    // critters
+    if(P.inv<=0) for(const e of s.en){ if(e.st!=='go') continue; if(Math.abs(e.x-P.x)<30 && Math.abs((e.y-18)-(P.y-22))<33){ this._die(s,P); break; } }
+    // the other player: gentle push so you don't overlap
+    const O=s.pl[1-p]; if(O && O!==P && !O.dead && !O.out){ const dx=O.x-P.x; if(Math.abs(dx)<PP.HW*2 && Math.abs(O.y-P.y)<PP.PH-8){ const push=(PP.HW*2-Math.abs(dx))/4; P.x=clamp(P.x-Math.sign(dx||1)*push,100+PP.HW,1500-PP.HW); } }
+  },
+  _die(s,P){ if(P.dead||P.inv>0) return; P.dead=.01; P.vy=-800; P.vx=-P.face*120; P.lives--; emit('die');
+    if(s.grump){ s.grump=null; } if(s.hurry===2){ s.hurry=1; s.lt=30; } },
+  _blow(s,P,p){
+    P.cool=.3; P.blowT=.18; emit('blow');
+    const mine=s.bub.filter(b=>b.own===p && !b.en && !b.spark); if(mine.length>=7){ mine[0].gone=1; }
+    const x=clamp(P.x+P.face*30, 100+PP.BR, 1500-PP.BR);
+    s.bub.push({ id:ppNid(), x, y:P.y-24, vx:P.face*950, vy:0, age:0, r:PP.BR, own:p, en:null, life:9 });
+  },
+  _bubbles(s,g,h){
+    for(const b of s.bub){ if(b.gone) continue; b.age+=h; b.life-=h;
+      if(b.life<=0){ if(b.en){ this._escape(s,b); } else { b.gone=1; s.fx.push({x:b.x,y:b.y,t:0,puff:1,p:Math.max(0,b.own)}); } continue; }
+      const shooting = b.age<PP.SHOT && !b.en && !b.spark;
+      if(shooting){ b.x+=b.vx*h; b.vx*=Math.exp(-6*h);
+        if(b.x<100+b.r){ b.x=100+b.r; b.age=PP.SHOT; } if(b.x>1500-b.r){ b.x=1500-b.r; b.age=PP.SHOT; }
+        for(const e of s.en){ if(e.st!=='go') continue; if(Math.hypot(e.x-b.x,(e.y-18)-b.y)<b.r+18){ this._trap(s,b,e); break; } }
+        continue; }
+      // float upward; slide along the underside of ledges and the ceiling
+      const topY=b.y-b.r, rowAbove=Math.floor((topY-3)/PP.T), c=Math.floor(b.x/PP.T);
+      const blocked = topY<=PP.T*2+1 || [-.55,0,.55].some(k=>{ const t=this._tile(g,Math.floor((b.x+k*b.r)/PP.T),rowAbove); return t===1||t===3; }) && topY-3 < (rowAbove+1)*PP.T;
+      if(blocked){ b.vy=0; if(topY<PP.T*2) b.y=PP.T*2+b.r;
+        if(b.drift==null || b.driftRow!==rowAbove){ b.driftRow=rowAbove;
+          if(rowAbove<=1) b.drift=Math.sign(800-b.x)||1;
+          else { let l=c, r=c; while(l>2 && this._tile(g,l-1,rowAbove)===1) l--; while(r<29 && this._tile(g,r+1,rowAbove)===1) r++; b.drift = (b.x-l*PP.T) < ((r+1)*PP.T-b.x) ? -1 : 1; } }
+        const sp = rowAbove<=1 ? clamp(Math.abs(800-b.x)*.5,0,60) : 70; b.x+=b.drift*sp*h; }
+      else { b.drift=null; b.vy += (-75-b.vy)*Math.min(1,h*3); b.y+=b.vy*h; b.x+=Math.sin(s.t*2+b.age*1.3)*8*h; }
+      b.x=clamp(b.x, 100+b.r, 1500-b.r); if(b.y>PP.H+b.r) b.y=PP.H+b.r;
+    }
+    // bubbles nudge each other apart
+    const L=s.bub.filter(b=>!b.gone && (b.age>=PP.SHOT || b.en));
+    for(let i=0;i<L.length;i++) for(let j=i+1;j<L.length;j++){ const a=L[i], b=L[j]; const dx=b.x-a.x, dy=b.y-a.y, d=Math.hypot(dx,dy)||.01, m=(a.r+b.r)*.92;
+      if(d<m){ const p=(m-d)/2*Math.min(1,h*8); a.x-=dx/d*p; a.y-=dy/d*p*.6; b.x+=dx/d*p; b.y+=dy/d*p*.6; } }
+    s.bub=s.bub.filter(b=>!b.gone);
+  },
+  _trap(s,b,e){ e.st='trap'; b.en={ type:e.type, angry:e.angry, id:e.id }; b.r=PP.TR; b.vx=0; b.age=PP.SHOT; b.life=Math.max(4.5, 8-s.lv*.3); b.trapLife=b.life; e.bub=b.id; emit('trap'); },
+  _escape(s,b){ const e=s.en.find(e=>e.id===b.en.id); b.gone=1; emit('escape');
+    if(e){ e.st='go'; e.x=clamp(b.x,120,1480); e.y=b.y+18; e.vy=-200; e.angry=Math.min(2,(e.angry||0)+1); e.ground=false; } },
+  // popping: touching bubbles go too, and every critter in the chain becomes a bigger treat
+  _popFrom(s,b0,P,p){
+    const chain=[b0]; b0.gone=1; for(let i=0;i<chain.length;i++){ const a=chain[i]; for(const b of s.bub){ if(b.gone || b.age<PP.SHOT && !b.en) continue; if(Math.hypot(b.x-a.x,b.y-a.y)<a.r+b.r+14){ b.gone=1; chain.push(b); } } }
+    let n=0;
+    for(const b of chain){
+      s.fx.push({ x:b.x, y:b.y, t:0, puff:1, p });
+      if(b.spark){ s.bolts.push({ id:ppNid(), x:b.x, y:b.y, dir:P.face||1, t:0, p }); emit('zap'); continue; }
+      if(b.en){ const e=s.en.find(e=>e.id===b.en.id); if(e){ n++; this._kill(s,e,b.x,b.y,p,n); } }
+      else this._pts(s,P,p,10,null);
+    }
+    if(n>1){ emit('popbig'); s.fx.push({ x:b0.x, y:b0.y-60, t:0, txt:`${n}× COMBO!`, p, big:1 }); } else emit('pop');
+  },
+  _kill(s,e,x,y,p,n){
+    e.st='die'; e.x=x; e.y=y+18; e.vx=(Math.random()<.5?-1:1)*(160+Math.random()*160); e.vy=-750; e.t=0; e.p=p;
+    e.val=Math.min(16000, 1000*Math.pow(2,n-1)); e.treat=PP_TREATS[Math.min(PP_TREATS.length-1, n-1+(s.lv>5?1:0))];
+    this._pts(s,s.pl[p],p,100*n,null);
+  },
+  _enemy(s,g,e,h){
+    if(e.st==='wait' || e.st==='trap'){ if(e.st==='trap'){ const b=s.bub.find(b=>b.id===e.bub); if(b){ e.x=b.x; e.y=b.y+18; } } return; }
+    if(e.st==='die'){ e.t+=h; e.vy+=PP.GRAV*h; e.x+=e.vx*h; if(e.x<120||e.x>1480){ e.vx=-e.vx; e.x=clamp(e.x,120,1480); }
+      const oy=e.y; e.y+=e.vy*h; if(e.y>PP.H+40) e.y=60;
+      if(e.vy>0 && e.t>.35){ const L=this._land(g,e.x,14,oy,e.y); if(L!=null){ e.st='gone'; s.tr.push({ id:ppNid(), x:e.x, y:L, vy:0, kind:e.treat, val:e.val, t:0 }); } }
+      return; }
+    const T=PP_EN[e.type], sp=T.sp*(1+s.lv*.04)*(e.angry?1.45:1)*(s.hurry?1.15:1);
+    e.t+=h;
+    if(e.type==='flit'){   // flies on diagonals, bouncing off ledges and walls
+      e.vx=e.dir*sp; e.vy=e.fy*sp*.8; let nx=e.x+e.vx*h, ny=e.y+e.vy*h;
+      if(nx<120||nx>1480){ e.dir=-e.dir; nx=clamp(nx,120,1480); }
+      if(ny<PP.T*2+40 || ny>850){ e.fy=-e.fy; ny=clamp(ny,PP.T*2+40,850); }
+      const r=Math.floor((ny-18+e.fy*22)/PP.T), c=Math.floor(nx/PP.T); if(r>1 && r<17 && this._tile(g,c,r)===1){ e.fy=-e.fy; ny=e.y; }
+      e.x=nx; e.y=ny; return; }
+    if(e.type==='boing'){ e.vx = e.ground ? 0 : e.dir*sp; if(e.ground){ e.hopT-=h; if(e.hopT<=0){ e.vy=-(560+Math.random()*260); e.ground=false; e.hopT=.35+Math.random()*.4;
+        const tgt=this._nearest(s,e); if(tgt && Math.random()<.6) e.dir=Math.sign(tgt.x-e.x)||e.dir; } } }
+    else {   // wind-up walker: turns or steps off at ledge ends, hops up toward players
+      if(e.ground){ e.vx=e.dir*sp;
+        const ahead=e.x+e.dir*(18+6); if(!this._support(g,ahead,4,e.y)){ if(e.edge==null) e.edge=Math.random()<.55; if(e.edge){ e.dir=-e.dir; e.vx=e.dir*sp; } }
+        else e.edge=null;
+        e.jT-=h; const tgt=this._nearest(s,e); if(e.jT<=0){ e.jT=1.4+Math.random()*1.6; if(tgt && tgt.y<e.y-60 && Math.random()<.75){ e.vy=-PP.JUMP; e.ground=false; } else if(tgt && Math.random()<.5) e.dir=Math.sign(tgt.x-e.x)||e.dir; } } }
+    const ox=e.x; this._body(g,e,h,16,36);
+    if(e.ground && Math.abs(e.x-ox)<.01 && e.type==='tick' && e.vx!==0) e.dir=-e.dir;   // hit a wall
+    if(e.type==='boing' && (e.x<=100+17 || e.x>=1500-17)) e.dir=e.x<800?1:-1;
+  },
+  _nearest(s,e){ let best=null, bd=1e9; for(const P of s.pl){ if(P.out||P.dead) continue; const d=Math.hypot(P.x-e.x,P.y-e.y); if(d<bd){ bd=d; best=P; } } return best; },
+  _treats(s,g,dt){
+    for(const T of s.tr){ T.t+=dt; if(T.t>10){ T.gone=1; continue; } if(!this._support(g,T.x,10,T.y)){ T.vy=Math.min(T.vy+PP.GRAV*dt,900); const oy=T.y; T.y+=T.vy*dt; const L=this._land(g,T.x,10,oy,T.y); if(L!=null){ T.y=L; T.vy=0; } if(T.y>PP.H+30) T.y=60; } }
+    s.tr=s.tr.filter(T=>!T.gone);
+  },
+  _boltsTick(s,dt){
+    for(const B of s.bolts){ B.t+=dt; B.x+=B.dir*1500*dt;
+      for(const e of s.en){ if(e.st!=='go' && e.st!=='trap') continue; if(Math.abs(e.x-B.x)<40 && Math.abs((e.y-18)-B.y)<44){
+        if(e.st==='trap'){ const b=s.bub.find(b=>b.id===e.bub); if(b) b.gone=1; } this._kill(s,e,e.x,e.y-18,B.p,2); } }
+      if(B.x<90||B.x>1510) B.gone=1; }
+    s.bolts=s.bolts.filter(B=>!B.gone);
+  },
+  _grumpTick(s,dt){ const G=s.grump; G.t+=dt; const tgt=this._nearest(s,G); if(!tgt) return; const sp=110+s.lv*7;
+    const dx=tgt.x-G.x, dy=(tgt.y-22)-G.y, d=Math.hypot(dx,dy)||1; G.x+=dx/d*sp*dt; G.y+=dy/d*sp*dt;
+    for(const P of s.pl){ if(P.out||P.dead||P.inv>0) continue; if(Math.hypot(P.x-G.x,(P.y-22)-G.y)<46){ this._die(s,P); break; } } },
+  // ---------- controls ----------
+  cont(vc,p){ this._tp=this._tp||[{},{}]; const T=this._tp[p];
+    const edge=(k,on)=>{ T[k]=T[k]||0; if(on && !T['_'+k]) T[k]++; T['_'+k]=on; return T[k]; };
+    const jc=edge('j', !!(vc.padA||vc.touchFire||vc.sy<-.6)) + vc.upN;
+    const bc=edge('b', !!(vc.padB||vc.touchB)) + vc.aN + vc.bN;
+    return { x:+(Math.abs(vc.x)<.15?0:clamp(vc.x,-1,1)).toFixed(2), jc, bc, h:(vc.padA||vc.touchFire||vc.y<-.55)?1:0 }; },
+  // ---------- computer pal ----------
+  cpu(s,p,dt,mem){
+    const P=s.pl[p]; mem.jc=mem.jc||0; mem.bc=mem.bc||0; mem.jcool=(mem.jcool||0)-dt; mem.bcool=(mem.bcool||0)-dt; mem.think=(mem.think||0)-dt;
+    if(!P||P.dead||P.out||s.st==='trans') return { x:0, jc:mem.jc, bc:mem.bc };
+    const g=this._g(s), py=P.y-22; let x=0, jump=false, blow=false, hold=0;
+    const live=s.en.filter(e=>e.st==='go'), trapped=s.bub.filter(b=>b.en), sparks=s.bub.filter(b=>b.spark);
+    // goal: trapped bubbles first (pop them), then the nearest critter, then treats
+    let goal=null;
+    const near=(arr,f)=>arr.map(o=>({o,d:Math.abs(f(o).x-P.x)+Math.abs(f(o).y-py)*1.6})).sort((a,b)=>a.d-b.d)[0];
+    const tb=near(trapped.concat(sparks),b=>b), te=near(live,e=>({x:e.x,y:e.y-18})), tt=near(s.tr,T=>({x:T.x,y:T.y-14}));
+    if(tb && (!te || tb.d<te.d*1.6)) goal={ x:tb.o.x, y:tb.o.y, kind:'pop' };
+    else if(te) goal={ x:te.o.x, y:te.o.y-18, kind:'hunt', e:te.o };
+    else if(tt) goal={ x:tt.o.x, y:tt.o.y-14, kind:'treat' };
+    if(goal){ const dx=goal.x-P.x, dy=goal.y-py;
+      if(goal.kind==='hunt' && Math.abs(dy)<40 && Math.abs(dx)<360){ // line up and blow
+        if(Math.sign(dx)!==P.face && Math.abs(dx)>10) x=Math.sign(dx); else if(Math.abs(dx)<70) x=-Math.sign(dx); else blow=true; }
+      else { x=Math.abs(dx)<14?0:Math.sign(dx);
+        if(dy<-60 && Math.abs(dx)<120) jump=true;
+        else if(dy>60 && P.ground){ // step off the end of this ledge toward the goal
+          let l=Math.floor(P.x/PP.T), r=l; const row=Math.round(P.y/PP.T); while(l>2 && this._tile(g,l-1,row)===1) l--; while(r<29 && this._tile(g,r+1,row)===1) r++;
+          if(row<17){ const toL=P.x-l*PP.T, toR=(r+1)*PP.T-P.x; x = (l<=2) ? 1 : (r>=29) ? -1 : (toL<toR?-1:1); if(Math.abs(dx)>200 && Math.sign(dx)!==x && (x<0?l>2:r<29)) x=Math.sign(dx); } }
+        if(goal.kind==='pop' && Math.abs(dx)<60 && dy<0 && dy>-200) jump=true; } }
+    else { const dx=800-P.x; x=Math.abs(dx)<30?0:Math.sign(dx); }
+    // dodge a critter coming at me on my level
+    for(const e of live){ const dx=e.x-P.x, dy=(e.y-18)-py; if(Math.abs(dy)<40 && Math.abs(dx)<120){ if(Math.sign(dx)===P.face && Math.abs(dx)>40) blow=true; else { jump=true; x=-Math.sign(dx)||1; } } }
+    // any critter level with me and in front: blow
+    for(const e of live){ const dx=e.x-P.x, dy=(e.y-18)-py; if(Math.abs(dy)<34 && Math.abs(dx)<300 && Math.sign(dx)===P.face) blow=true; }
+    if(s.grump){ const dx=s.grump.x-P.x, dy=s.grump.y-py; if(Math.hypot(dx,dy)<260){ x=-Math.sign(dx)||1; if(dy>0) jump=true; } }
+    // never jump up into a critter on the ledge above, and steer away from one I'm rising or falling into
+    const above=live.filter(e=>{ const dy=py-(e.y-18); return dy>20 && dy<230 && Math.abs(e.x+e.vx*.3-P.x)<95; });
+    if(above.length){ jump=false; if(!P.ground && P.vy<0) x=-Math.sign(above[0].x-P.x)||1; }
+    for(const e of live){ const dx=e.x-P.x, dy=py-(e.y-18); if(e.vy>0 && !e.ground && dy>0 && dy<220 && Math.abs(dx)<90){ x=-Math.sign(dx)||(P.x<800?1:-1); jump=false; } }
+    if(!P.ground && P.vy>0){ const below=live.find(e=>{ const dy=(e.y-18)-py; return dy>0 && dy<140 && Math.abs(e.x-P.x)<70; }); if(below) x=-Math.sign(below.x-P.x)||1; }
+    if(jump && P.ground && mem.jcool<=0){ mem.jc++; mem.jcool=.35; }
+    if(blow && mem.bcool<=0){ mem.bc++; mem.bcool=.32; }
+    if(!P.ground && P.vy>0 && s.bub.some(b=>!b.en && !b.spark && Math.abs(b.x-P.x)<40 && b.y>P.y-10 && b.y<P.y+50) && py>300) hold=1;
+    return { x, jc:mem.jc, bc:mem.bc, h:hold };
+  },
+  lerp(a,b,t){ const o=JSON.parse(JSON.stringify(b)); const L=(A,B)=>{ if(!A||!B) return; if(Math.abs(A.x-B.x)<200 && Math.abs(A.y-B.y)<200){ B.x=lerp(A.x,B.x,t); B.y=lerp(A.y,B.y,t); } };
+    o.pl.forEach((P,i)=>L(a.pl&&a.pl[i],P));
+    for(const k of ['en','bub','tr','bolts']){ const m=new Map((a[k]||[]).map(x=>[x.id,x])); for(const x of o[k]||[]) L(m.get(x.id),x); }
+    if(a.grump&&o.grump) L(a.grump,o.grump); return o; },
+  status(s){ const team=s.pl.reduce((n,P)=>n+P.score,0); return { l:s.pl[0].score, r:s.pl[1]?s.pl[1].score:'', c:`Level ${s.lv} of ${PP.LEVELS} · team ${team}` }; },
+  endHead(s,names){ const team=s.pl.reduce((n,P)=>n+P.score,0), how=s.cleared?`All ${PP.LEVELS} levels cleared! `:`Reached level ${s.lv}. `;
+    if(s.solo) return { kick:'solo', again:'Play again', big:String(team), col:NEON.yellow, sub:how+(s.newBest?'🏆 New high score!':`High score ${s.best}`) };
+    const mvp=s.pl[0].score>=s.pl[1].score?0:1;
+    return { kick:'team game', again:'Play again', big:`Team ${team}`, col:NEON.yellow, sub:`${how}Top scorer: ${esc(names[mvp]||'')} (${s.pl[mvp].score})` }; },
+  // ---------- drawing ----------
+  draw(g,s){
+    const c=g.ctx, W=PP.W, H=PP.H;
+    c.fillStyle='#04030c'; c.fillRect(0,0,W,H);
+    if(s.st==='trans'){ const k=s.trans<.5?2*s.trans*s.trans:1-Math.pow(-2*s.trans+2,2)/2;
+      c.save(); c.beginPath(); c.rect(0,0,W,H); c.clip();
+      c.save(); c.translate(0,-k*H); this._map(c,s.lv,s.t); c.restore();
+      c.save(); c.translate(0,(1-k)*H); this._map(c,Math.min(PP.LEVELS,s.lv+1),s.t); c.restore();
+      // the pals ride bubbles to their start spots
+      s.pl.forEach((P,p)=>{ if(P.out) return; const sx=P.x, sy=P.y, tx=p?1450:150, ty=850; const x=lerp(sx,tx,k), y=lerp(sy,ty,k)-30;
+        this._pal(c,x,y+22,p,1,s.t,{float:1}); this._bubbleShape(c,x,y-2,40,PC[p],s.t); });
+      c.restore(); pfHUD(c,s,W,g.names,`LEVEL ${s.lv+1}`); return; }
+    this._map(c,s.lv,s.t);
+    // treats
+    for(const T of s.tr){ if(T.t>7 && Math.floor(s.t*10)%2) continue; this._treat(c,T.kind,T.x,T.y-16,s.t); }
+    // critters
+    for(const e of s.en){ if(e.st==='trap') continue; if(e.st==='wait'){ c.save(); c.globalAlpha=.4+.4*Math.sin(s.t*12); this._critter(c,e,s.t); c.restore(); continue; } this._critter(c,e,s.t); }
+    // bubbles
+    for(const b of s.bub){ this._bubble(c,b,s); }
+    // lightning bolts
+    for(const B of s.bolts){ glowStroke(c,NEON.yellow,5,()=>{ let x=B.x-B.dir*120; c.moveTo(x,B.y); for(let k=1;k<=6;k++){ x+=B.dir*20; c.lineTo(x,B.y+(k%2?-14:14)); } }); }
+    // pals
+    s.pl.forEach((P,p)=>{ if(P.out) return; if(P.inv>0 && !P.dead && Math.floor(s.t*12)%2) return; this._pal(c,P.x,P.y,p,P.face,s.t,P); });
+    if(s.grump) this._grump(c,s.grump.x,s.grump.y,s.t);
+    for(const f of s.fx){ const a=1-f.t/1.1; if(f.puff){ c.save(); c.globalAlpha=a; glowStroke(c,'#cfefff',3,()=>{ for(let k=0;k<8;k++){ const an=k*TAU/8, r1=20+f.t*70, r2=r1+10; c.moveTo(f.x+Math.cos(an)*r1,f.y+Math.sin(an)*r1); c.lineTo(f.x+Math.cos(an)*r2,f.y+Math.sin(an)*r2); } }); c.restore(); continue; }
+      c.save(); c.globalAlpha=a; glowText(c,f.txt,f.x,f.y-f.t*60,f.big?44:28,f.big?NEON.yellow:PC[f.p],{font:f.big?HEAD:BODY,weight:f.big?900:700}); c.restore(); }
+    pfHUD(c,s,W,g.names,`LEVEL ${s.lv}`);
+    if(s.hurry && s.st==='play' && Math.floor(s.t*3)%2) glowText(c,'HURRY!',W/2,72,24,NEON.red,{font:HEAD,weight:900,glow:.6});
+  },
+  _map(c,lv,t){
+    const L=PP_LV[(lv-1)%PP.LEVELS], g=ppGrid[(lv-1)%PP.LEVELS], [fill,edge]=L.col, T=PP.T;
+    const bg=c.createLinearGradient(0,0,0,PP.H); bg.addColorStop(0,'#05040f'); bg.addColorStop(1,fill+'66'); c.fillStyle=bg; c.fillRect(0,PP.T,PP.W,PP.H-PP.T);
+    c.fillStyle='rgba(255,255,255,.035)'; for(let y=T*2+25;y<PP.H-T;y+=T) for(let x=125;x<1500;x+=T) c.fillRect(x-1.5,y-1.5,3,3);
+    // walls, ceiling and ledges: blocky tiles with a glowing top edge on every run
+    for(let r=1;r<PP.ROWS;r++) for(let col=0;col<PP.COLS;col++){ const v=g[r][col]; if(!v) continue; const x=col*T, y=r*T;
+      c.fillStyle = v===1 ? fill : '#0a0818'; c.fillRect(x+1,y+1,T-2,T-2);
+      c.strokeStyle = v===1 ? edge+'aa' : edge+'44'; c.lineWidth=2; c.strokeRect(x+3,y+3,T-6,T-6);
+      if(v===1){ c.fillStyle=edge+'33'; c.fillRect(x+10,y+10,T-20,T-20); } }
+    for(let r=2;r<PP.ROWS;r++){ let a=-1; for(let col=0;col<=PP.COLS;col++){ const on=col<PP.COLS && g[r][col]===1; if(on && a<0) a=col; if(!on && a>=0){ const x0=a*T, x1=col*T; glowStroke(c,edge,3,()=>{ c.moveTo(x0,r*T); c.lineTo(x1,r*T); }); a=-1; } } }
+    glowStroke(c,edge,3,()=>{ c.moveTo(100,T*2); c.lineTo(100,PP.H); c.moveTo(1500,T*2); c.lineTo(1500,PP.H); });
+    c.save(); c.globalAlpha=.5; glowText(c,`${lv}`,50,PP.T*3,30,edge,{font:HEAD,weight:900,glow:.6}); glowText(c,`${lv}`,1550,PP.T*3,30,edge,{font:HEAD,weight:900,glow:.6}); c.restore();
+  },
+  _bubbleShape(c,x,y,r,col,t,alpha=1){
+    c.save(); c.globalAlpha=alpha; c.fillStyle='rgba(160,220,255,.10)'; c.beginPath(); c.arc(x,y,r,0,TAU); c.fill();
+    glowStroke(c,col,3,()=>c.arc(x,y,r,0,TAU));
+    c.strokeStyle='rgba(255,255,255,.75)'; c.lineWidth=3; c.lineCap='round'; c.beginPath(); c.arc(x,y,r*.68,Math.PI*1.1,Math.PI*1.45); c.stroke();
+    c.fillStyle='rgba(255,255,255,.8)'; c.beginPath(); c.arc(x+r*.38,y-r*.42,r*.09,0,TAU); c.fill(); c.restore(); },
+  _bubble(c,b,s){
+    const wob=1+Math.sin(s.t*7+b.age*3)*.04, r=b.r*wob;
+    if(b.spark){ glowFill(c,NEON.yellow,r*1.8,b.x,b.y); this._bubbleShape(c,b.x,b.y,r,NEON.yellow,s.t); glowText(c,'⚡',b.x,b.y+2,r*.95,NEON.yellow,{font:BODY,glow:.6}); return; }
+    if(b.en){ const left=b.life/(b.trapLife||8), warn=left<.3, col=warn ? (Math.floor(s.t*10)%2?NEON.red:'#ffffff') : PP_EN[b.en.type].col;
+      c.save(); c.translate(b.x,b.y); c.scale(.72,.72); this._critter(c,{type:b.en.type,x:Math.sin(s.t*20)*(warn?4:1.5),y:22,dir:1,angry:b.en.angry,st:'trap',t:s.t},s.t); c.restore();
+      this._bubbleShape(c,b.x,b.y,r,col,s.t); return; }
+    const col=b.own>=0?PC[b.own]:'#cfefff'; const fade=b.life<1.5?(Math.floor(s.t*8)%2?.45:1):1;
+    if(b.age<PP.SHOT){ const k=b.age/PP.SHOT; this._bubbleShape(c,b.x,b.y,r*(.45+k*.55),col,s.t,fade); } else this._bubbleShape(c,b.x,b.y,r,col,s.t,fade);
+  },
+  _pal(c,x,y,p,face,t,P){
+    const col=PC[p], dead=P&&P.dead, ground=P&&P.ground, step=ground?Math.sin((P.walk||0)*2.2):0, blow=P&&P.blowT>0;
+    c.save(); c.translate(x,y); if(dead) c.rotate(Math.min(Math.PI*3, dead*8)); c.scale(face||1,1);
+    const bob=ground?Math.abs(step)*-2:0, by=-24+bob;
+    // feet
+    c.fillStyle=col; for(const [fx,ph] of [[-9,step],[9,-step]]){ c.beginPath(); c.ellipse(fx+ph*5,-4,8,5,0,0,TAU); c.fill(); }
+    // tail fin
+    glowStroke(c,col,3,()=>{ c.moveTo(-20,by+6); c.quadraticCurveTo(-34,by+2,-30,by-10); c.quadraticCurveTo(-26,by-2,-20,by-2); });
+    // round body
+    c.fillStyle='#071018'; c.beginPath(); c.arc(0,by,22,0,TAU); c.fill(); glowStroke(c,col,4,()=>c.arc(0,by,22,0,TAU));
+    c.fillStyle=col+'33'; c.beginPath(); c.ellipse(2,by+8,13,9,0,0,TAU); c.fill();   // belly
+    // antenna with a glowing tip
+    glowStroke(c,col,3,()=>{ c.moveTo(-4,by-21); c.quadraticCurveTo(-10,by-36,-2,by-42); }); glowFill(c,NEON.yellow,14,-2,by-42); c.fillStyle='#fff8c0'; c.beginPath(); c.arc(-2,by-42,4,0,TAU); c.fill();
+    // big eyes
+    for(const ex of [5,15]){ c.fillStyle='#ffffff'; c.beginPath(); c.ellipse(ex,by-7,5.5,7.5,0,0,TAU); c.fill(); c.fillStyle='#000'; c.beginPath(); c.arc(ex+2,by-6,2.8,0,TAU); c.fill(); }
+    // little trumpet snout that blows the bubbles
+    const sw=blow?9:6; c.fillStyle=col; c.beginPath(); c.moveTo(18,by+3); c.lineTo(28,by+5-sw*.3); c.lineTo(28+sw*.5,by+5-sw); c.lineTo(28+sw*.5,by+9+sw*.4); c.lineTo(28,by+9); c.lineTo(18,by+11); c.closePath(); c.fill();
+    if(blow){ c.fillStyle='#ffb0d0'; c.beginPath(); c.arc(10,by+6,5,0,TAU); c.fill(); }
+    c.restore();
+  },
+  _critter(c,e,t){
+    const T=PP_EN[e.type], col = e.angry ? NEON.red : T.col, dir=e.dir||1;
+    c.save(); c.translate(e.x,e.y); if(e.st==='die') c.rotate((e.t||0)*14); c.scale(dir,1);
+    if(e.type==='tick'){   // clockwork box with a turning key
+      const leg=Math.sin(t*16+e.x*.05)*4;
+      c.fillStyle=col; c.fillRect(-12+leg,-8,7,8); c.fillRect(5-leg,-8,7,8);
+      c.fillStyle='#160a00'; c.beginPath(); rrect(c,-18,-36,36,30,7); c.fill(); glowStroke(c,col,4,()=>rrect(c,-18,-36,36,30,7));
+      const k=Math.cos(t*(e.angry?14:7)); glowStroke(c,'#e8e8f0',3,()=>{ c.moveTo(0,-36); c.lineTo(0,-44); c.moveTo(-10*k,-48); c.lineTo(10*k,-48); }); c.fillStyle='#e8e8f0'; c.beginPath(); c.ellipse(-10*k,-48,3,5,0,0,TAU); c.ellipse(10*k,-48,3,5,0,0,TAU); c.fill();
+      c.fillStyle='#fff'; c.fillRect(2,-28,9,9); c.fillStyle='#000'; c.fillRect(7,-25,4,4);
+      c.strokeStyle=col; c.lineWidth=2; c.beginPath(); c.moveTo(-10,-14); c.lineTo(-4,-17); c.lineTo(2,-14); c.lineTo(8,-17); c.stroke(); }
+    else if(e.type==='boing'){   // a one-eyed head on a spring
+      const sq=e.ground===false ? -6 : 3*Math.sin(t*10);
+      glowStroke(c,col,3,()=>{ c.moveTo(-8,0); for(let k=1;k<=5;k++) c.lineTo(k%2?8:-8, -k*(4+sq*.15)); });
+      const hy=-24-sq; c.fillStyle='#061a06'; c.beginPath(); c.arc(0,hy-6,15,0,TAU); c.fill(); glowStroke(c,col,4,()=>c.arc(0,hy-6,15,0,TAU));
+      c.fillStyle='#fff'; c.beginPath(); c.arc(4,hy-8,7,0,TAU); c.fill(); c.fillStyle='#000'; c.beginPath(); c.arc(6,hy-8,3.2,0,TAU); c.fill();
+      if(e.angry){ c.strokeStyle=NEON.red; c.lineWidth=3; c.beginPath(); c.moveTo(-3,hy-17); c.lineTo(10,hy-14); c.stroke(); } }
+    else {   // fluttering moth
+      const fl=Math.sin(t*26+e.x)*.9;
+      c.fillStyle=col+'55'; for(const s of [-1,1]){ c.save(); c.translate(0,-22); c.scale(1,s*(.35+.65*Math.abs(fl))); c.beginPath(); c.ellipse(-4,-14,16,13,-.4,0,TAU); c.fill(); c.restore(); }
+      glowStroke(c,col,3,()=>{ c.ellipse(0,-22,13,9,0,0,TAU); });
+      c.fillStyle='#14062a'; c.beginPath(); c.ellipse(0,-22,12,8,0,0,TAU); c.fill();
+      glowStroke(c,col,2,()=>{ c.moveTo(8,-28); c.lineTo(16,-40); c.moveTo(4,-29); c.lineTo(8,-42); });
+      c.fillStyle='#fff'; c.beginPath(); c.arc(6,-24,3.5,0,TAU); c.fill(); }
+    c.restore();
+  },
+  _treat(c,kind,x,y,t){
+    const b=Math.sin(t*4+x)*2; c.save(); c.translate(x,y+b);
+    if(kind==='cherry'){ glowStroke(c,NEON.green,3,()=>{ c.moveTo(-7,-2); c.quadraticCurveTo(-2,-20,6,-22); c.moveTo(7,0); c.quadraticCurveTo(6,-14,6,-22); }); for(const cx of [-8,8]){ glowFill(c,NEON.red,22,cx,4); c.fillStyle=NEON.red; c.beginPath(); c.arc(cx,4,8,0,TAU); c.fill(); } }
+    else if(kind==='candy'){ glowFill(c,NEON.pink,26,0,0); c.fillStyle=NEON.pink; c.beginPath(); c.arc(0,0,11,0,TAU); c.fill(); c.beginPath(); c.moveTo(-10,0); c.lineTo(-22,-9); c.lineTo(-22,9); c.closePath(); c.moveTo(10,0); c.lineTo(22,-9); c.lineTo(22,9); c.closePath(); c.fill(); c.strokeStyle='#fff'; c.lineWidth=2.5; c.beginPath(); c.arc(0,0,6,0,Math.PI*1.2); c.stroke(); }
+    else if(kind==='donut'){ glowFill(c,NEON.orange,28,0,0); c.fillStyle='#e0a050'; c.beginPath(); c.arc(0,0,15,0,TAU); c.arc(0,0,5,0,TAU,true); c.fill('evenodd'); c.fillStyle=NEON.pink; c.beginPath(); c.arc(0,-1,13,Math.PI*1.05,Math.PI*1.95); c.arc(0,-1,6,Math.PI*1.95,Math.PI*1.05,true); c.fill(); }
+    else if(kind==='lolly'){ c.fillStyle='#fff'; c.fillRect(-1.5,0,3,18); glowFill(c,NEON.cyan,28,0,-6); for(let k=0;k<4;k++){ c.fillStyle=k%2?NEON.cyan:'#fff'; c.beginPath(); c.arc(0,-6,13-k*3,0,TAU); c.fill(); } }
+    else if(kind==='cake'){ glowFill(c,NEON.yellow,30,0,0); c.fillStyle='#ffd9a0'; c.fillRect(-14,-6,28,16); c.fillStyle=NEON.pink; c.fillRect(-14,-10,28,6); c.fillStyle='#fff'; c.fillRect(-1.5,-20,3,10); glowFill(c,NEON.yellow,12,0,-22); }
+    else { glowFill(c,NEON.cyan,32,0,0); c.fillStyle=NEON.cyan; c.beginPath(); c.moveTo(0,-15); c.lineTo(14,-3); c.lineTo(0,15); c.lineTo(-14,-3); c.closePath(); c.fill(); c.fillStyle='#fff'; c.beginPath(); c.moveTo(0,-15); c.lineTo(6,-3); c.lineTo(-6,-3); c.closePath(); c.fill(); }
+    c.restore();
+  },
+  _grump(c,x,y,t){
+    c.save(); c.translate(x,y+Math.sin(t*3)*5); glowFill(c,'#7a4dff',110,0,0);
+    c.fillStyle='#1a1030'; for(const [cx,cy,r] of [[-26,4,22],[0,-8,28],[26,4,22],[0,12,22]]){ c.beginPath(); c.arc(cx,cy,r,0,TAU); c.fill(); }
+    glowStroke(c,'#a58cff',3,()=>{ c.arc(-26,4,22,Math.PI*.6,Math.PI*1.5); c.moveTo(-12,-28); c.arc(0,-8,28,Math.PI*1.25,Math.PI*1.75); c.moveTo(42,-10); c.arc(26,4,22,Math.PI*1.5,Math.PI*.4); });
+    c.fillStyle='#ff3355'; for(const ex of [-11,11]){ c.beginPath(); c.ellipse(ex,-2,6,4,0,0,TAU); c.fill(); }
+    c.strokeStyle='#ff3355'; c.lineWidth=3; c.beginPath(); c.moveTo(-18,-12); c.lineTo(-5,-7); c.moveTo(18,-12); c.lineTo(5,-7); c.stroke();
+    glowStroke(c,NEON.yellow,3,()=>{ c.moveTo(-6,34); c.lineTo(2,46); c.lineTo(-3,48); c.lineTo(5,62); });
+    c.restore();
+  },
+  attract(c,w,h,t){   // close-up of the lower half of level 1 so the pals read on a small cabinet screen
+    c.fillStyle='#04030c'; c.fillRect(0,0,w,h); c.save(); c.scale(w/820,h/480); c.translate(-90,-410); this._map(c,1,t);
+    const S={ t, bub:[] };
+    for(let k=0;k<3;k++){ const u=((t*.16+k*.33)%1); this._bubble(c,{ x:250+k*230+Math.sin(t+k)*25, y:880-u*480, r:k!==1?PP.TR:PP.BR, age:1, life:5, trapLife:8, own:k%2, en:k!==1?{type:k?'boing':'tick',angry:0}:null },S); }
+    const px=330+Math.sin(t*.8)*170; this._pal(c,px,850,0,Math.cos(t*.8)>0?1:-1,t,{ground:true,walk:t*4,blowT:(t%1.6)<.25?1:0});
+    this._pal(c,720,700-Math.abs(Math.sin(t*2.4))*120,1,-1,t,{ground:false});
+    this._critter(c,{type:'tick',x:560+Math.sin(t*.6)*90,y:550,dir:Math.cos(t*.6)>0?1:-1},t);
+    this._critter(c,{type:'flit',x:500+Math.sin(t*1.3)*300,y:640+Math.cos(t*1.7)*40,dir:Math.cos(t*1.3)>0?1:-1},t);
+    c.restore(); }
+});
+
 /* =====================================================================
    3D WORLD — lobby + arcade room (same walking interface as the gallery)
    ===================================================================== */
@@ -3717,7 +4130,7 @@ function buildRooms(){
 function buildLobby(){
   // big ARCADE sign over the doorway
   signPlane(signTex([{t:'ARCADE', c:NEON.pink, size:170}], 1024, 256), 3.2, .8, 0, 3.2, .14, 0, 1.9);
-  signPlane(signTex([{t:'13 GAMES + ARCADE 2', c:NEON.cyan, size:62, font:HEAD, weight:900}], 1024, 128), 2.6, .33, -5.6, 2.95, .14, 0, 1.6);
+  signPlane(signTex([{t:'14 GAMES + ARCADE 2', c:NEON.cyan, size:62, font:HEAD, weight:900}], 1024, 128), 2.6, .33, -5.6, 2.95, .14, 0, 1.6);
   signPlane(signTex([{t:'NOW PLAYING', c:NEON.yellow, size:74, font:HEAD, weight:900}], 1024, 128), 2.6, .33, 5.6, 2.95, .14, 0, 1.6);
   // posters on the lobby walls
   poster(0,-5.4,1.75,.13,0); poster(1,-3.6,1.75,.13,0); poster(2,3.6,1.75,.13,0); poster(3,5.4,1.75,.13,0);
@@ -3905,6 +4318,8 @@ function buildRoom2(){
   signPlane(signTex([{t:'ARCADE 2', c:NEON.cyan, size:150, font:HEAD, weight:900},{t:'ROLL · SCORE · WIN TICKETS', c:NEON.yellow, size:62, font:HEAD, weight:900}],1024,330), 3.6,1.16, cx, 2.55, R.z1-.12, Math.PI, 1.7);
   // posters on the far wall (the shooting gallery sits between them)
   poster(1,R.x0+.13,1.8,-3.3,Math.PI/2); poster(2,R.x0+.13,1.8,-15.2,Math.PI/2);
+  // Pop Pals cabinet against the wall by the door
+  uprightCab(GAMES.find(g=>g.id==='pop'), R.x1-.45, -13.2, -1);
   // benches facing the alleys
   for(const x of [cx-2.4,cx+2.4]){ box(2.2,.45,.7,x,.225,-9.6,darkMat); box(2.24,.06,.74,x,.47,-9.6,velvetMat); tubeX(x-1.1,x+1.1,.06,-9.95,NEON.violet,.025); collide(x-1.1,x+1.1,-9.95,-9.25); }
 }
@@ -3982,7 +4397,7 @@ function step(dir){
   goTo(list[(i+dir+list.length)%list.length]);
 }
 function fwd(){ return { x:-Math.sin(player.yaw), z:-Math.cos(player.yaw) }; }
-function updateCounter(cab){ const list=ORDER(); $('#counter').textContent = cab ? `${cab.def.name} · ${list.indexOf(cab)+1} / ${list.length}` : ({ lobby:'Lobby · arcade ahead', arcade:`Arcade · ${CABS.length} machines · Arcade 2 on the left`, room2:`Arcade 2 · ${ALLEYS.length} Glow Roll alleys` })[roomOf(player.x,player.z)]; }
+function updateCounter(cab){ const list=ORDER(); $('#counter').textContent = cab ? `${cab.def.name} · ${list.indexOf(cab)+1} / ${list.length}` : ({ lobby:'Lobby · arcade ahead', arcade:`Arcade · ${CABS.filter(c=>roomOf(c.x,c.z)==='arcade').length} machines · Arcade 2 on the left`, room2:`Arcade 2 · ${ALLEYS.length} Glow Roll alleys · Pop Pals · Shootin' Gallery` })[roomOf(player.x,player.z)]; }
 
 /* =====================================================================
    AVATARS — 1980s neon people
@@ -6585,8 +7000,8 @@ function openLaunch(cab){
   $('#lDesc').textContent=def.blurb; $('#lHow').innerHTML=howHTML(def);
   $('#mLocalSub').textContent = def.hidden ? 'Take turns on one screen — it hides your cards/fleet between turns' : (def.kind==='field' ? 'Share the screen, keyboard, or plug in two controllers' : 'Take turns on one screen');
   $('#mSolo').hidden=!def.solo;
-  $('#mCpu').innerHTML = def.coop ? '🤖 Fly with the computer<small>A computer wingman flies beside you</small>' : '🤖 Play the computer<small>Practice round</small>';
-  $('#mSolo').innerHTML = def.coop ? '🚀 Solo flight<small>Just you — beat your high score</small>' : '⏱️ Solo time run<small>Just you against the clock — beat your best time</small>';
+  $('#mCpu').innerHTML = def.cpuText ? def.cpuText : def.coop ? '🤖 Fly with the computer<small>A computer wingman flies beside you</small>' : '🤖 Play the computer<small>Practice round</small>';
+  $('#mSolo').innerHTML = def.soloText ? def.soloText : def.coop ? '🚀 Solo flight<small>Just you — beat your high score</small>' : '⏱️ Solo time run<small>Just you against the clock — beat your best time</small>';
   const LT=$('#lTracks'); LT.hidden=def.id!=='girder'; LT.innerHTML='';
   if(def.id==='girder'){ const lab=document.createElement('div'); lab.className='lab'; lab.textContent='Track'; LT.appendChild(lab);
     GR.TRACKS.forEach((T,i)=>{ const b=document.createElement('button'); b.className='chip'+(i===girderTrack?' on':''); const best=(grBest[T.id]||{}).race; b.textContent=T.name+(best?` · best ${GR.fmt(best)}`:''); b.onclick=()=>{ girderTrack=i; store('girdertrack',String(i)); sfx('tick'); [...LT.querySelectorAll('.chip')].forEach((x,j)=>x.classList.toggle('on',j===i)); }; LT.appendChild(b); }); }
