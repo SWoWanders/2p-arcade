@@ -4588,7 +4588,7 @@ function buildArcade(){
   const sb=new THREE.Mesh(new THREE.PlaneGeometry(1.9,1.43), sm); sb.position.set(-4.6,1.85,ROOM.z0+.12); scene.add(sb);
   box(2.0,1.53,.06,-4.6,1.85,ROOM.z0+.07,blackMat);
   paintScoreboard();
-  buildJukebox(); buildTrash(); addTicketSlots(); buildRoom2();
+  buildJukebox(); buildTrash(); buildRoom2(); addTicketSlots();
 }
 function buildRoom2(){
   const R=ROOM2, cx=(R.x0+R.x1)/2;
