@@ -5763,6 +5763,136 @@ game({
 });
 
 /* =====================================================================
+   GROUNDHOG DAZE — two side-by-side whack-a-groundhog cabinets in
+   Arcade 2 (3D cabinets, mallets and camera are in 46-mole-booth.js).
+   This file is the game itself: the pop-up schedule, whacks, scoring
+   and the computer player.
+
+   · 30-second rounds after a 3-2-1 countdown. Groundhogs pop up faster
+     and stay up for less time as the clock runs down; later on two can
+     pop at once.
+   · Groundhog +1, golden groundhog +3, skunk −2 (leave the skunks alone).
+   · The mallet needs a moment between swings, and whacking an empty hole
+     costs a little extra recovery, so mashing every key doesn't pay.
+   · In a two-player game both cabinets get the same pop-up pattern, so
+     it's a fair race. Solo: score 25 or more for the bonus tickets.
+   Hole layout (cabinet-local metres, x across, z toward the player):
+   three in the back row, two in the front row between them.
+   ===================================================================== */
+const MO = { T:30, CD:3, RISE:.11, SINK:.15, BONUS:25, GAP:.15, MISSLAG:.5, R:.075, PTS:[1,3,-2],
+  HOLES:[[-.26,-.16],[0,-.16],[.26,-.16],[-.13,.12],[.13,.12]] };
+function moEv(s, k, p=0, h=-1, a=0){ s.evn=(s.evn||0)+1; s.ev.push({ i:s.evn, k, p, h, a }); if(s.ev.length>16) s.ev.shift(); }
+function moSched(seed){
+  const r=prng(seed), out=[]; let t=.4, last=-1;
+  const pick=()=>{ let h; do{ h=Math.floor(r()*5); }while(h===last); last=h; return h; };
+  while(t<MO.T-.5){
+    const f=t/MO.T, up=(1.2-.62*f)*(.85+r()*.3);
+    const kind=()=>{ const x=r(); return t>5 && x<.07 ? 1 : t>6 && x<.2 ? 2 : 0; };
+    out.push([t, pick(), kind(), up]);
+    if(t>11 && r()<.24) out.push([t, pick(), kind(), up*.9]);
+    t += (.82-.42*Math.pow(f,1.1))*(.75+r()*.5);
+  }
+  return out;
+}
+function moPlayer(){ return { sc:0, hits:0, gold:0, sk:0, miss:0, _wn:-1, _cool:0, mh:1, mn:0, mt:1,
+  holes:MO.HOLES.map(()=>({ k:0, h:0, st:0, _t:0, _u:1, id:0 })) }; }
+function moHittable(H){ return H.st>=1 && H.st<=3 && H.h>.4; }
+
+game({
+  id:'mole', name:'Groundhog Daze', color:'#8be03a', color2:'#ff8a1a', kind:'field', screen:true, noRotate:true, booth:true, touch:'drag', solo:true, netDt:1/20, netRound:3,
+  W:1280, H:720,
+  blurb:'Two whack-a-groundhog machines side by side. Bonk every groundhog that pops up before it ducks back down — golden ones are worth 3, but leave the skunks alone! Most bonks in 30 seconds wins.',
+  cpuText:'🤖 Race the computer<small>It plays the machine next to yours</small>',
+  soloText:'🔨 Solo round<small>Just you — score 25 for the bonus tickets</small>',
+  how:{ touch:'<b>Tap a hole</b> to bonk whatever pops out of it. Golden groundhogs are worth 3 — skunks cost you 2.',
+    keys:'<b>Move the mouse and click</b> to swing the mallet — or use the keys laid out like the holes: <b>Q W E</b> for the back row, <b>A S</b> for the front two.',
+    keys2:'Left machine: <b>Q W E / A S</b> (or the mouse). Right machine: <b>I O P / K L</b> (or the number pad: 7 8 9 / 4 6). Two controllers work too.',
+    pad:'<b>Ⓧ Ⓨ Ⓑ</b> bonk the back row, <b>LB / RB</b> (or the triggers) the front two — or point the left stick at a hole and press <b>Ⓐ</b>.' },
+  init(o){
+    const solo=o.mode==='solo', seed=(Math.random()*1e9)|0;
+    const s={ ph:'count', t:0, cd:MO.CD, pt:0, left:MO.T, et:0, solo, n:solo?1:2, P:[moPlayer(), moPlayer()], ev:[], evn:0, pid:0, over:false, winner:-1, _sc:moSched(seed), _si:0 };
+    return s;
+  },
+  tick(s, dt, inp){
+    if(s.over) return;
+    s.t+=dt;
+    if(s.ph==='count'){ const c0=Math.ceil(s.cd); s.cd-=dt; if(Math.ceil(s.cd)!==c0 && s.cd>0) moEv(s,'beep',0,-1,Math.ceil(s.cd));
+      if(s.cd<=0){ s.cd=0; s.ph='play'; s.pt=0; moEv(s,'go'); } }
+    else if(s.ph==='play'){
+      s.pt+=dt; s.left=Math.max(0,MO.T-s.pt);
+      const sc=s._sc||[];
+      while(s._si<sc.length && sc[s._si][0]<=s.pt){ const [,h,k,up]=sc[s._si++]; for(let p=0;p<s.n;p++) this._pop(s,p,h,k,up); }
+      if(s.pt>=MO.T){ s.ph='end'; s.et=0; s.left=0; for(let p=0;p<s.n;p++) for(const H of s.P[p].holes) if(H.st>=1&&H.st<=2){ H.st=3; H._t=0; } moEv(s,'end'); }
+    }
+    else if(s.ph==='end'){ s.et+=dt;
+      if(s.et>1.3){ s.over=true; const a=s.P[0].sc, b=s.P[1].sc;
+        s.winner = s.solo ? (a>=MO.BONUS?0:-1) : a>b?0 : b>a?1 : -1; } }
+    // holes
+    for(let p=0;p<s.n;p++){ const P=s.P[p]; P._cool=Math.max(0,P._cool-dt);
+      for(const H of P.holes){
+        if(H.st===1){ H._t+=dt; H.h=Math.min(1,H._t/MO.RISE); if(H.h>=1){ H.st=2; H._t=0; } }
+        else if(H.st===2){ H._t+=dt; if(H._t>=H._u){ H.st=3; H._t=0; } }
+        else if(H.st===3){ H.h-=dt/MO.SINK; if(H.h<=0){ H.h=0; H.st=0; } }
+        else if(H.st===4){ H._t+=dt; H.h+=(.72-H.h)*Math.min(1,dt*20); if(H._t>.34){ H.st=5; } }
+        else if(H.st===5){ H.h-=dt/.09; if(H.h<=0){ H.h=0; H.st=0; } }
+      } }
+    // whacks: each player sends a short queue of numbered swings, so none get lost
+    for(let p=0;p<s.n;p++){ const P=s.P[p], I=inp[p]||{};
+      if(I.m!=null && I.m>=0 && I.m<5) P.mh=I.m|0;
+      if(Array.isArray(I.q)) for(const w of I.q){ const n=+w[0]; if(!(n>P._wn)) continue; P._wn=n;
+        if(s.ph==='play') this._whack(s,p,w[1]|0); } }
+  },
+  _pop(s, p, h, k, up){
+    const P=s.P[p]; let i=-1; for(let j=0;j<5;j++){ const q=(h+j)%5; if(P.holes[q].st===0){ i=q; break; } } if(i<0) return;
+    const H=P.holes[i]; Object.assign(H,{ k, h:0, st:1, _t:0, _u:up, id:++s.pid }); moEv(s,'pop',p,i,k);
+  },
+  _whack(s, p, h){
+    const P=s.P[p]; if(P._cool>0) return;
+    P.mn++; P.mt=h; if(h>=0 && h<5) P.mh=h;
+    const H = h>=0 && h<5 ? P.holes[h] : null;
+    if(H && moHittable(H)){ const pts=MO.PTS[H.k]; P.sc=Math.max(0,P.sc+pts); H.st=4; H._t=0;
+      if(H.k===2) P.sk++; else { P.hits++; if(H.k===1) P.gold++; }
+      moEv(s,'bonk',p,h,H.k); }
+    else { P._cool=MO.MISSLAG; P.miss++; moEv(s,'miss',p,h); }   // the swing gap itself is kept by each player's own machine
+  },
+  cpu(s, p, dt, m){
+    m.wn=m.wn??0; m.q=m.q||[]; m.at=m.at||{}; m.t=(m.t||0)+dt;
+    if(s.ph!=='play') return { m:m.mh??1, q:m.q.slice() };
+    const P=s.P[p];
+    P.holes.forEach(H=>{ if((H.st===1||H.st===2) && !(H.id in m.at)){
+      const go = H.k===2 ? Math.random()<.18 : Math.random()>.32;          // usually leaves skunks, sometimes dozes off
+      m.at[H.id] = go ? m.t+rnd(.4,.74)-Math.min(.06,s.pt*.002) : -1; } });
+    let best=-1, bt=1e9;
+    P.holes.forEach((H,i)=>{ const a=m.at[H.id]; if(a>0 && a<=m.t && moHittable(H) && a<bt){ bt=a; best=i; } });
+    if(best>=0 && (m.next||0)<=m.t){ m.wn++; m.q.push([m.wn,best]); if(m.q.length>6) m.q.shift(); m.next=m.t+MO.GAP+.08; m.at[P.holes[best].id]=-1; m.mh=best; }
+    else { let soon=-1, st=1e9; P.holes.forEach((H,i)=>{ const a=m.at[H.id]; if(a>0 && moHittable(H) && a<st){ st=a; soon=i; } }); if(soon>=0) m.mh=soon; }
+    return { m:m.mh??1, q:m.q.slice() };
+  },
+  /* ------------------------------------------------------------------ session glue */
+  status(s, names){
+    return { l:`${s.P[0].sc} pts`, r:s.solo?'':`${s.P[1].sc} pts`, c: s.ph==='count' ? 'get ready' : s.over||s.ph==='end' ? 'time!' : `${Math.ceil(s.left)} s` };
+  },
+  endHead(s, names){
+    const P=s.P[0], line=Q=>`${Q.hits} bonked${Q.gold?` · ${Q.gold} golden`:''}${Q.sk?` · ${Q.sk} skunk${Q.sk>1?'s':''}`:''}`;
+    if(s.solo){ const best=+(store('mole-best')||0); let nb=false; if(P.sc>best){ store('mole-best',String(P.sc)); nb=true; }
+      return { kick:"time's up", big:`${P.sc} points`, col: P.sc>=MO.BONUS?NEON.green:NEON.yellow, again:'Play again',
+        sub:`${line(P)} · ${nb ? '🏆 New best!' : best ? `Best: ${best}` : `Bonus at ${MO.BONUS}`}` }; }
+    const w=s.winner, a=s.P[0].sc, b=s.P[1].sc;
+    const head = w<0 ? "It's a tie!" : S.mode==='cpu' ? (w===0?'You win!':'The computer wins') : S.mode==='online' ? (w===S.me?'You win!':`${esc(names[w])} wins`) : `${esc(names[w])} wins!`;
+    return { kick:"time's up", big:head, col: w<0?NEON.yellow:PC[w], again:'Play again', sub:`${a} – ${b} · series ${S.wins[0]}–${S.wins[1]}` };
+  },
+  lerp(a, b, k){
+    if(!a || !b || a===b || !a.P || !b.P) return b;
+    const out=Object.assign({}, b);
+    out.P=b.P.map((B,p)=>{ const A=a.P[p]; if(!A) return B; return Object.assign({}, B, { holes:B.holes.map((H,i)=>{ const G=A.holes[i]; return G && G.id===H.id ? Object.assign({},H,{ h:lerp(G.h,H.h,k) }) : H; }) }); });
+    return out;
+  },
+  stop(){ if(typeof moleStop==='function') moleStop(); },
+  draw(g, s, viewer, ui, t){ moleHud(g, s, t); },
+  attract(c, w, h, t){ moleAttract(c, w, h, t); },
+});
+
+/* =====================================================================
    3D WORLD — lobby + arcade room (same walking interface as the gallery)
    ===================================================================== */
 const canvas = $('#c');
@@ -6185,6 +6315,7 @@ function buildRoom2(){
   uprightCab(GAMES.find(g=>g.id==='track'), R.x1-.45, -14.4, -1);
   buildFishBooth();
   buildPoolTable();
+  buildMoleBooth();
   // benches facing the alleys
   for(const x of [cx-2.4,cx+2.4]) bench(x, -9.6);
 }
@@ -6254,6 +6385,7 @@ function viewSpot(cab){
   if(cab.kind==='cocktail') return { x:cab.x-1.35, z:cab.z, yaw:Math.atan2(-1,0), pitch:-.55 };
   if(cab.kind==='pool') return { x:cab.x, z:cab.z+2.3, yaw:0, pitch:-.55 };
   if(cab.kind==='booth') return { x:cab.x, z:cab.z-4.1, yaw:Math.PI, pitch:-.08 };
+  if(cab.kind==='mole') return { x:cab.x, z:cab.z-1.8, yaw:Math.PI, pitch:-.42 };
   const d=1.45; return { x:cab.x+cab.nx*d, z:cab.z+cab.nz*d, yaw:Math.atan2(cab.nx,cab.nz), pitch:-.12 };
 }
 let cur=-1;
@@ -6265,7 +6397,7 @@ function step(dir){
   goTo(list[(i+dir+list.length)%list.length]);
 }
 function fwd(){ return { x:-Math.sin(player.yaw), z:-Math.cos(player.yaw) }; }
-function updateCounter(cab){ const list=ORDER(); $('#counter').textContent = cab ? `${cab.def.name} · ${list.indexOf(cab)+1} / ${list.length}` : ({ lobby:'Lobby · arcade ahead', arcade:`Arcade · ${CABS.filter(c=>roomOf(c.x,c.z)==='arcade').length} machines · Arcade 2 on the left`, room2:`Arcade 2 · ${ALLEYS.length} Glow Roll alleys · Pop Pals · Track Meet · Lunker Lake · Shootin' Gallery` })[roomOf(player.x,player.z)]; }
+function updateCounter(cab){ const list=ORDER(); $('#counter').textContent = cab ? `${cab.def.name} · ${list.indexOf(cab)+1} / ${list.length}` : ({ lobby:'Lobby · arcade ahead', arcade:`Arcade · ${CABS.filter(c=>roomOf(c.x,c.z)==='arcade').length} machines · Arcade 2 on the left`, room2:`Arcade 2 · ${ALLEYS.length} Glow Roll alleys · Pop Pals · Track Meet · Lunker Lake · 8-Ball · Groundhog Daze · Shootin' Gallery` })[roomOf(player.x,player.z)]; }
 
 /* =====================================================================
    AVATARS — 1980s neon people
@@ -7393,6 +7525,7 @@ function addTicketSlots(){
     if(cab.kind==='upright'){ a.position.set(0,.84,.385); }
     else if(cab.kind==='hockey'){ a.position.set(0,.62,1.27); }
     else if(cab.kind==='booth'){ a.position.set(0,.6,1.8); }
+    else if(cab.kind==='mole'){ a.position.set(0,.66,.31); }
     else if(cab.kind==='pool'){ a.position.set(.6,.62,PL.W/2+.258); }
     else { a.position.set(-.42,.52,0); a.rotation.y=-Math.PI/2; }
     cab.group.add(a);
@@ -8910,7 +9043,7 @@ Object.assign(GAMES.find(g=>g.id==='fish'), {
 /* touch: rod stick, reel crank, flick-to-cast, buttons */
 function fiTouchP(x){ if(S.local.length>1) return x<S.w/2?0:1; return S.local[0]; }
 function fiTouchStart(e){
-  if(!S.open || !S.def || !S.def.booth || !S.state) return;
+  if(!S.open || !S.def || S.def.id!=='fish' || !S.state) return;
   const r=gc.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top, p=fiTouchP(x), two=S.local.length>1;
   if(S.cpu===p) return;
   const L=fiTouchLayout(p,S.w,S.h,two), P=S.state.pl[p]; if(!P) return;
@@ -8945,7 +9078,7 @@ function fiTouchEnd(e){
   }
 }
 function fiInputs(){ gc.addEventListener('pointerdown', fiTouchStart); gc.addEventListener('pointermove', fiTouchMove); gc.addEventListener('pointerup', fiTouchEnd); gc.addEventListener('pointercancel', fiTouchEnd);
-gc.addEventListener('wheel', e=>{ if(!S.open || !S.def || !S.def.booth) return; e.preventDefault(); const p=S.local.length>1?0:S.local[0], lc=FISH_LC[p]; if(lc) lc.wheel=Math.min(1.6, lc.wheel+Math.abs(e.deltaY)/(e.deltaMode?3:120)*.35); }, { passive:false }); }
+gc.addEventListener('wheel', e=>{ if(!S.open || !S.def || S.def.id!=='fish') return; e.preventDefault(); const p=S.local.length>1?0:S.local[0], lc=FISH_LC[p]; if(lc) lc.wheel=Math.min(1.6, lc.wheel+Math.abs(e.deltaY)/(e.deltaMode?3:120)*.35); }, { passive:false }); }
 function fishTouchUI(g, s, t){
   const c=g.ctx; c.clearRect(0,0,g.w,g.h);
   if(!IS_TOUCH) return;
@@ -9338,6 +9471,409 @@ function poolAttract(c, w, h, t){
   const bx=w*.62+Math.sin(t*1.2)*w*.05; pbBallIcon(c,0,bx,cy,r,false);
   glowText(c,'8-BALL', w*.33, h*.36, h*.26, '#3aa0ff', { font:HEAD, weight:900 });
   glowText(c,'POOL', w*.33, h*.62, h*.13, NEON.yellow, { font:HEAD, weight:800, glow:.6 });
+}
+
+/* =====================================================================
+   GROUNDHOG DAZE cabinets — Arcade 2, against the south wall.
+   Two machines side by side with a ticket tower between them. Each has a
+   lime deck with five holes, a padded mallet, and a lit backboard with
+   LED displays (TIME · SCORE · HIGH). While you play, the camera looks
+   down over the decks; the groundhogs, golden groundhogs and skunks are
+   3D and get dizzy stars when you bonk them.
+   Layout: MB.g sits at (cx, cz) turned to face the room (local +z points
+   into the room). Player 1's machine is on the left as you face them.
+   ===================================================================== */
+const MB = { g:null, cab:null, cx:-11.45, cz:-1.5, CABX:[-.56,.56], DECK:.825, cabs:[], cam:false, lastEv:0, partnerVis:false, idle:null, fitKey:'', fit:null, pops:[], seen:[-1,-1], swing:[null,null], mpos:[null,null], puffs:[] };
+const MLC = [0,1].map(()=>({ wn:0, q:[], hov:1, mx:null, mz:null, mt:0, last:0, kc:{}, pb:{}, padHov:false }));
+const MKEYS = [ [['KeyQ'],['KeyW'],['KeyE'],['KeyA'],['KeyS']],
+                [['KeyI','Numpad7'],['KeyO','Numpad8'],['KeyP','Numpad9'],['KeyK','Numpad4'],['KeyL','Numpad6','Numpad5']] ];
+const MKEYL = [['Q','W','E','A','S'],['I','O','P','K','L']];
+const mbV=new THREE.Vector3(), mbV2=new THREE.Vector2(), mbRay=new THREE.Raycaster(), mbPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+const mbW = (p, x, y, z) => new THREE.Vector3(MB.cx-(MB.CABX[p]+x), y, MB.cz-z);     // cabinet-local → world
+
+/* ---------------- art ---------------- */
+function mbStar(c, x, y, r, col, rot=0){ c.save(); c.translate(x,y); c.rotate(rot); c.beginPath(); for(let k=0;k<10;k++){ const rr=k%2?r*.45:r, a=k*Math.PI/5-Math.PI/2; k?c.lineTo(Math.cos(a)*rr,Math.sin(a)*rr):c.moveTo(Math.cos(a)*rr,Math.sin(a)*rr); } c.closePath(); c.fillStyle=col; c.fill(); c.restore(); }
+function mbHogFace(c, x, y, s, dazed){
+  // a cartoon groundhog peeking out of a mound, eyes spinning
+  c.save(); c.translate(x,y); c.scale(s,s);
+  c.fillStyle='#7a4a24'; c.beginPath(); c.arc(-52,-48,17,0,TAU); c.arc(52,-48,17,0,TAU); c.fill();
+  c.fillStyle='#e3a08a'; c.beginPath(); c.arc(-52,-48,8,0,TAU); c.arc(52,-48,8,0,TAU); c.fill();
+  const hg=c.createRadialGradient(-20,-30,10,0,0,80); hg.addColorStop(0,'#b67a46'); hg.addColorStop(1,'#7a4a24'); c.fillStyle=hg;
+  c.beginPath(); c.ellipse(0,0,74,68,0,0,TAU); c.fill();
+  c.fillStyle='#e2bf8e'; c.beginPath(); c.ellipse(0,26,44,32,0,0,TAU); c.fill();
+  for(const sx of [-1,1]){ c.fillStyle='#fff'; c.beginPath(); c.ellipse(sx*27,-12,19,21,0,0,TAU); c.fill(); c.strokeStyle='#2a160a'; c.lineWidth=2.5; c.stroke();
+    if(dazed){ c.strokeStyle='#2a160a'; c.lineWidth=2.6; c.beginPath(); for(let a=0;a<TAU*2.2;a+=.2){ const r=1.5+a*1.9, px=sx*27+Math.cos(a*sx)*r, py=-12+Math.sin(a*sx)*r; a?c.lineTo(px,py):c.moveTo(px,py); } c.stroke(); }
+    else { c.fillStyle='#1a0e06'; c.beginPath(); c.arc(sx*27+3,-9,8,0,TAU); c.fill(); c.fillStyle='#fff'; c.beginPath(); c.arc(sx*27+5,-12,2.5,0,TAU); c.fill(); } }
+  c.fillStyle='#2a160a'; c.beginPath(); c.ellipse(0,12,11,8,0,0,TAU); c.fill();
+  c.strokeStyle='#2a160a'; c.lineWidth=2.5; c.beginPath(); c.moveTo(0,20); c.lineTo(0,28); c.moveTo(-14,30); c.quadraticCurveTo(0,38,14,30); c.stroke();
+  c.fillStyle='#fffaf0'; c.fillRect(-10,31,20,22); c.strokeStyle='#8a7a6a'; c.lineWidth=1.5; c.strokeRect(-10,31,20,22); c.beginPath(); c.moveTo(0,31); c.lineTo(0,53); c.stroke();
+  c.restore();
+}
+function mbArt(p){
+  const W=512, H=640, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d'), r=prng(17+p);
+  c.save(); c.beginPath(); rrect(c,0,0,W,H+40,46); c.clip();
+  const bg=c.createRadialGradient(256,330,20,256,330,420); bg.addColorStop(0,'#eef87a'); bg.addColorStop(.45,'#7ccb34'); bg.addColorStop(1,'#25661a'); c.fillStyle=bg; c.fillRect(0,0,W,H);
+  c.save(); c.translate(256,330); for(let k=0;k<28;k++){ c.rotate(TAU/28); if(k%2) continue; c.fillStyle='rgba(255,236,110,.28)'; c.beginPath(); c.moveTo(0,0); c.lineTo(520,-58); c.lineTo(520,58); c.closePath(); c.fill(); } c.restore();
+  c.strokeStyle='rgba(255,255,255,.14)'; c.lineWidth=7; for(const rr of [150,215,280]){ c.setLineDash([26,18]); c.beginPath(); c.arc(256,330,rr,0,TAU); c.stroke(); } c.setLineDash([]);
+  for(let i=0;i<16;i++) mbStar(c, r()*W, 30+r()*420, 7+r()*12, ['#fff6a0','#ff9a2a','#ffffff','#ff4a3a'][i%4], r()*2);
+  // title
+  c.textAlign='center'; c.textBaseline='middle'; c.lineJoin='round';
+  const word=(t,y,size,fill,edge,shadow)=>{ c.font=`900 ${size}px ${HEAD}`; c.fillStyle=shadow; c.fillText(t,256+5,y+6); c.lineWidth=size*.16; c.strokeStyle=edge; c.strokeText(t,256,y); c.fillStyle=fill; c.fillText(t,256,y);
+    c.save(); c.globalAlpha=.4; c.fillStyle='#fff'; c.fillText(t,256,y-size*.06); c.restore(); c.fillStyle=fill; c.globalAlpha=1; };
+  word('GROUNDHOG', 72, 62, '#ff7a1a', '#3a1600', '#4a2a8a');
+  word('DAZE', 172, 128, '#ffd83a', '#6a2400', '#4a2a8a');
+  // the mound + groundhog
+  c.fillStyle='#5a3418'; c.beginPath(); c.ellipse(256,458,170,52,0,Math.PI,0); c.fill();
+  mbHogFace(c, 256, 380, 1.15, true);
+  c.fillStyle='#6a3e1c'; c.beginPath(); c.ellipse(256,462,176,38,0,0,TAU); c.fill(); c.fillStyle='#3e2410'; for(let i=0;i<14;i++){ c.beginPath(); c.arc(100+r()*312,452+r()*24,3+r()*5,0,TAU); c.fill(); }
+  for(const sx of [-1,1]){ c.fillStyle='#8a5428'; c.beginPath(); c.ellipse(256+sx*62,446,22,14,0,0,TAU); c.fill(); c.strokeStyle='#f4ecd8'; c.lineWidth=2.5; for(let k=-1;k<=1;k++){ c.beginPath(); c.moveTo(256+sx*62+k*8,452); c.lineTo(256+sx*62+k*9,460); c.stroke(); } }
+  for(let k=0;k<3;k++){ const a=k*TAU/3+.4; mbStar(c, 256+Math.cos(a)*92, 282+Math.sin(a)*20, 15, '#fff27a', a); }
+  c.fillStyle='#3a9a2a'; for(let i=0;i<22;i++){ const x=20+r()*472, y=470+r()*10; c.beginPath(); c.moveTo(x-6,y+10); c.lineTo(x,y-10-r()*10); c.lineTo(x+6,y+10); c.fill(); }
+  // LED panel
+  const pg=c.createLinearGradient(0,478,0,H); pg.addColorStop(0,'#16380f'); pg.addColorStop(1,'#0a1e08'); c.fillStyle=pg; c.fillRect(0,478,W,H-478);
+  for(let i=0;i<10;i++) mbStar(c, r()*W, 486+r()*150, 4+r()*6, 'rgba(255,240,140,.5)', r()*2);
+  c.restore();
+  return cv;
+}
+const MB_LED = [{ x:28, lab:'TIME' }, { x:186, lab:'SCORE' }, { x:344, lab:'HIGH' }];
+function mbBoard(cb, vals, labs, name, col){
+  const key=vals.join()+labs.join()+name; if(key===cb.ledKey) return; cb.ledKey=key;
+  const c=cb.cv.getContext('2d'); c.clearRect(0,0,512,640); c.drawImage(cb.art,0,0);
+  MB_LED.forEach((L,i)=>{ const x=L.x, y=508, w=140, h=76;
+    c.font=`900 17px ${HEAD}`; c.textAlign='center'; c.textBaseline='middle'; c.lineWidth=4; c.strokeStyle='#4a0a00'; c.strokeText(labs[i],x+w/2,y-14); c.fillStyle='#ff5a3a'; c.fillText(labs[i],x+w/2,y-14);
+    c.fillStyle='#120404'; c.beginPath(); rrect(c,x,y,w,h,8); c.fill(); c.strokeStyle='#3a0c06'; c.lineWidth=3; c.stroke();
+    c.font=`700 56px ${HEAD}`; c.fillStyle='rgba(255,40,30,.1)'; c.fillText('888',x+w/2,y+h/2+3);
+    c.save(); c.shadowColor='#ff2a1a'; c.shadowBlur=14; c.fillStyle='#ff3a2a'; c.fillText(vals[i],x+w/2,y+h/2+3); c.restore(); });
+  c.font=`800 24px ${BODY}`; c.textAlign='center'; c.fillStyle=col; c.save(); c.shadowColor=col; c.shadowBlur=10; c.fillText(name,256,618); c.restore();
+  cb.tex.needsUpdate=true;
+}
+function mbFrontTex(){
+  const W=256, H=256, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
+  c.fillStyle='#62b52c'; c.fillRect(0,0,W,H);
+  c.fillStyle='#f6c53a'; c.fillRect(0,0,W,70); c.fillStyle='rgba(0,0,0,.22)'; c.fillRect(0,68,W,4);
+  c.fillStyle='#5a3a0a'; for(let y=16;y<58;y+=7) for(let x=76;x<182;x+=7) if(Math.hypot((x-128)/54,(y-37)/22)<1) { c.beginPath(); c.arc(x,y,1.8,0,TAU); c.fill(); }
+  c.fillStyle='#0c0c12'; c.beginPath(); rrect(c,62,96,132,140,8); c.fill(); c.strokeStyle='#2a2a34'; c.lineWidth=3; c.stroke();
+  c.fillStyle='#1d8a3a'; c.beginPath(); c.arc(128,140,15,0,TAU); c.fill(); c.font=`800 8px ${BODY}`; c.fillStyle='#fff'; c.textAlign='center'; c.fillText('BONK',128,142);
+  return canvasTex(cv);
+}
+/* ---------------- 3D models ---------------- */
+function mbStarGeo(r){ const s=new THREE.Shape(); for(let k=0;k<10;k++){ const rr=k%2?r*.45:r, a=k*Math.PI/5+Math.PI/2; k?s.lineTo(Math.cos(a)*rr,Math.sin(a)*rr):s.moveTo(Math.cos(a)*rr,Math.sin(a)*rr); } return new THREE.ShapeGeometry(s); }
+const MB_KIND = [ { fur:'#8a5630', belly:'#d8b080', nose:'#2a160c', met:0, rough:.75, em:'#000000' },
+                  { fur:'#f2c040', belly:'#fff0a0', nose:'#7a4a00', met:.65, rough:.28, em:'#4a3000' },
+                  { fur:'#18161e', belly:'#2a2830', nose:'#0a0a0a', met:0, rough:.7, em:'#000000' } ];
+function mbHog(parent){
+  const g=new THREE.Group(); parent.add(g);
+  const fur=new THREE.MeshStandardMaterial({ color:MB_KIND[0].fur, roughness:.75 }), belly=new THREE.MeshStandardMaterial({ color:MB_KIND[0].belly, roughness:.8 }), nose=new THREE.MeshStandardMaterial({ color:MB_KIND[0].nose, roughness:.4 });
+  const white=new THREE.MeshStandardMaterial({ color:'#fbf8f0', roughness:.4 }), black=new THREE.MeshStandardMaterial({ color:'#0a0806', roughness:.3 }), pink=new THREE.MeshStandardMaterial({ color:'#e8a090', roughness:.7 });
+  const M=(geo,mat,x,y,z,sx=1,sy=1,sz=1)=>{ const m=new THREE.Mesh(geo,mat); m.position.set(x,y,z); m.scale.set(sx,sy,sz); g.add(m); return m; };
+  const body=M(new THREE.CapsuleGeometry(.056,.1,4,14), fur, 0,.11,0);
+  const head=M(new THREE.SphereGeometry(.06,20,14), fur, 0,.2,0, 1,.92,.95);
+  M(new THREE.SphereGeometry(.045,14,10), belly, 0,.11,.032, 1,1.35,.6);
+  M(new THREE.SphereGeometry(.03,14,10), belly, 0,.183,.044, 1.25,.85,.9);
+  M(new THREE.SphereGeometry(.012,10,8), nose, 0,.2,.071);
+  for(const sx of [-1,1]){
+    M(new THREE.SphereGeometry(.017,10,8), fur, sx*.044,.246,-.004, 1,.85,.6); M(new THREE.SphereGeometry(.009,8,6), pink, sx*.044,.246,.004, 1,.85,.4);
+    M(new THREE.SphereGeometry(.014,12,10), white, sx*.024,.222,.048);
+    M(new THREE.SphereGeometry(.016,10,8), fur, sx*.042,.148,.05, 1,.8,1); }
+  const pupils=[-1,1].map(sx=>M(new THREE.SphereGeometry(.0072,8,6), black, sx*.024,.222,.061));
+  M(new THREE.BoxGeometry(.009,.02,.006), white, -.005,.164,.069); M(new THREE.BoxGeometry(.009,.02,.006), white, .005,.164,.069);
+  // skunk bits: a white stripe over the head and down the back, a white blaze, a big tail behind
+  const stripeM=new THREE.MeshStandardMaterial({ color:'#f4f4f4', roughness:.6 });
+  const sk=new THREE.Group(); g.add(sk);
+  { const st=new THREE.Mesh(new THREE.TorusGeometry(.061,.012,6,18,Math.PI), stripeM); st.rotation.y=Math.PI/2; st.position.set(0,.2,0); st.scale.set(1,.93,.96); sk.add(st);
+    const bl=new THREE.Mesh(new THREE.BoxGeometry(.01,.04,.006), stripeM); bl.position.set(0,.235,.058); bl.rotation.x=-.5; sk.add(bl);
+    const tail=new THREE.Mesh(new THREE.SphereGeometry(.05,14,10), fur); tail.position.set(0,.24,-.085); tail.scale.set(.85,1.5,.75); sk.add(tail);
+    const ts=new THREE.Mesh(new THREE.SphereGeometry(.051,14,10,0,TAU,0,.9), stripeM); ts.position.copy(tail.position); ts.scale.copy(tail.scale); ts.rotation.x=-.5; sk.add(ts); }
+  sk.visible=false;
+  // dizzy stars
+  const stars=new THREE.Group(); stars.position.y=.29; g.add(stars); const sg=mbStarGeo(.017);
+  for(let k=0;k<3;k++){ const m=new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color:new THREE.Color('#ffe85a').multiplyScalar(1.8), side:THREE.DoubleSide })); const a=k*TAU/3; m.position.set(Math.cos(a)*.07,0,Math.sin(a)*.07); stars.add(m); }
+  stars.visible=false;
+  g.visible=false;
+  return { g, fur, belly, nose, sk, stars, pupils, head, k:-1 };
+}
+function mbSetKind(h, k){ if(h.k===k) return; h.k=k; const K=MB_KIND[k]; h.fur.color.set(K.fur); h.fur.metalness=K.met; h.fur.roughness=K.rough; h.fur.emissive.set(K.em); h.belly.color.set(K.belly); h.nose.color.set(K.nose); h.sk.visible=k===2; }
+function mbMallet(parent, col){
+  const g=new THREE.Group(); parent.add(g);
+  const foam=new THREE.MeshStandardMaterial({ color:'#1c1a24', roughness:.95 });
+  const head=new THREE.Mesh(new THREE.CylinderGeometry(.066,.066,.16,22), foam); head.rotation.z=Math.PI/2; g.add(head);
+  for(const sx of [-1,1]){ const cap=new THREE.Mesh(new THREE.CylinderGeometry(.062,.066,.012,22), new THREE.MeshStandardMaterial({ color:'#2c2a36', roughness:.8 })); cap.rotation.z=Math.PI/2; cap.position.x=sx*.083; g.add(cap);
+    const band=new THREE.Mesh(new THREE.CylinderGeometry(.0675,.0675,.012,22), neonMat(col,1.8)); band.rotation.z=Math.PI/2; band.position.x=sx*.05; g.add(band); }
+  const a=1.22, dir=new THREE.Vector3(0,Math.cos(a),Math.sin(a));
+  const handle=new THREE.Mesh(new THREE.CylinderGeometry(.013,.015,.34,12), new THREE.MeshStandardMaterial({ color:'#111016', roughness:.5 })); handle.rotation.x=a; handle.position.copy(dir).multiplyScalar(.066+.17); g.add(handle);
+  const grip=new THREE.Mesh(new THREE.CylinderGeometry(.017,.017,.12,12), new THREE.MeshStandardMaterial({ color:'#ff7a1a', roughness:.6 })); grip.rotation.x=a; grip.position.copy(dir).multiplyScalar(.066+.29); g.add(grip);
+  return g;
+}
+function buildMoleBooth(){
+  const def=GAMES.find(g=>g.id==='mole'); if(!def) return;
+  const g=new THREE.Group(); g.position.set(MB.cx,0,MB.cz); g.rotation.y=Math.PI; scene.add(g); MB.g=g;
+  const lime=new THREE.MeshStandardMaterial({ color:'#7cc832', roughness:.5 }), orange=new THREE.MeshStandardMaterial({ color:'#ff6a1a', roughness:.45, metalness:.1 });
+  const holeM=new THREE.MeshStandardMaterial({ color:'#07060a', roughness:.9, side:THREE.DoubleSide }), rimM=new THREE.MeshStandardMaterial({ color:'#1a1a10', roughness:.5 });
+  const front=new THREE.MeshStandardMaterial({ map:mbFrontTex(), roughness:.6 }), side=new THREE.MeshStandardMaterial({ color:'#62b52c', roughness:.6 });
+  const D=MB.DECK;
+  for(let p=0;p<2;p++){
+    const cg=new THREE.Group(); cg.position.x=MB.CABX[p]; g.add(cg);
+    // body: lime cabinet with a yellow speaker band and a black door on the front
+    box(.86,D-.33,.8,0,(D-.33)/2,.02,new THREE.MeshStandardMaterial({ color:'#3e8a1e', roughness:.7 }),cg);   // stops below the hole tubes
+    { const f=new THREE.Mesh(new THREE.PlaneGeometry(.86,D-.03), front); f.position.set(0,(D-.03)/2,.421); cg.add(f); }
+    for(const sx of [-1,1]){ box(.03,D+.02,.84,sx*.445,(D+.02)/2,.02,orange,cg); box(.03,1.2,.07,sx*.445,D+.6,-.4,orange,cg); }
+    // deck with five holes
+    { const sh=new THREE.Shape(); sh.moveTo(-.43,-.44); sh.lineTo(.43,-.44); sh.lineTo(.43,.38); sh.lineTo(-.43,.38); sh.closePath();
+      for(const [x,z] of MO.HOLES){ const hp=new THREE.Path(); hp.absarc(x,-z,MO.R,0,TAU,true); sh.holes.push(hp); }
+      const geo=new THREE.ExtrudeGeometry(sh,{ depth:.025, bevelEnabled:false, curveSegments:24 }); geo.rotateX(-Math.PI/2);
+      const deck=new THREE.Mesh(geo, lime); deck.position.y=D-.025; cg.add(deck); }
+    box(.88,.035,.03,0,D-.012,.43,new THREE.MeshStandardMaterial({ color:'#111', roughness:.5 }),cg);
+    tubeX(-.43,.43,D-.035,.452,'#9cff3a',.018,cg);
+    const hogs=[];
+    MO.HOLES.forEach(([x,z])=>{ const t=new THREE.Mesh(new THREE.CylinderGeometry(MO.R,MO.R,.3,24,1,true), holeM); t.position.set(x,D-.15,z); cg.add(t);
+      const bt=new THREE.Mesh(new THREE.CircleGeometry(MO.R,20), holeM); bt.rotation.x=-Math.PI/2; bt.position.set(x,D-.3,z); cg.add(bt);
+      const rim=new THREE.Mesh(new THREE.TorusGeometry(MO.R+.004,.006,8,28), rimM); rim.rotation.x=Math.PI/2; rim.position.set(x,D+.001,z); cg.add(rim);
+      const hg=new THREE.Group(); hg.position.set(x,D-.27,z); cg.add(hg); hogs.push(mbHog(hg)); });
+    // backboard: orange frame + the art/LED panel
+    box(.92,1.16,.05,0,D+.6,-.43,orange,cg);
+    const art=mbArt(p), cv=document.createElement('canvas'); cv.width=512; cv.height=640; const tex=canvasTex(cv);
+    const bm=new THREE.MeshBasicMaterial({ map:tex, transparent:true, alphaTest:.5 }); bm.color.setScalar(1.05);
+    const bp=new THREE.Mesh(new THREE.PlaneGeometry(.84,1.05), bm); bp.position.set(0,D+.58,-.403); cg.add(bp);
+    tubeX(-.44,.44,D+1.19,-.43,'#ff8a1a',.022,cg);
+    for(const sx of [-1,1]) box(.016,1.1,.016,sx*.462,D+.58,-.4,neonMat(PC[p],1.6),cg);
+    const mallet=mbMallet(cg, PC[p]);
+    MB.cabs.push({ g:cg, hogs, mallet, cv, tex, art, ledKey:'' });
+  }
+  // ticket tower between the two machines
+  box(.23,D,.7,0,D/2,-.05,new THREE.MeshStandardMaterial({ color:'#1a1424', roughness:.6 }),g);
+  tubeZ(-.4,.3,D+.01,0,'#ff8a1a',.02,g); box(.23,1.16,.05,0,D+.6,-.43,new THREE.MeshStandardMaterial({ color:'#1a1424', roughness:.6 }),g);
+  // marquee across the top, with the attract screen
+  const sc=screenCanvas(768,192), stex=canvasTex(sc); const sm=new THREE.MeshBasicMaterial({ map:stex }); sm.color.setScalar(1.25);
+  { const m=new THREE.Mesh(new THREE.PlaneGeometry(1.92,.48), sm); m.position.set(0,2.33,-.44); g.add(m); box(1.98,.54,.03,0,2.33,-.47,blackMat,g);
+    tubeX(-.99,.99,2.6,-.44,'#9cff3a',.02,g); tubeX(-.99,.99,2.06,-.44,'#9cff3a',.02,g); }
+  const lt=new THREE.PointLight('#fff1d0', 1.5, 3.4, 1.6); lt.position.set(0,2.0,.55); g.add(lt);
+  MB.idle=def.init({ mode:'solo' }); MB.idle.n=2; MB.idle.solo=false;
+  const cab={ def, x:MB.cx, z:MB.cz, nx:0, nz:-1, sc, tex:stex, phase:1.1, kind:'mole', sy:D, group:g };
+  addHit(cab, 2.05, 1.1, .95, 0, .55, 0, g);
+  collide(MB.cx-1.0, MB.cx+1.0, MB.cz-.47, MB.cz+.48);
+  CABS.push(cab); MB.cab=cab; paintScreen(cab,0); mbIdleBoards(); mbInputs();
+  for(let p=0;p<2;p++) mbRest(p);
+}
+/* ---------------- poses ---------------- */
+function mbRest(p){ const m=MB.cabs[p].mallet; m.position.set(.31,MB.DECK+.066,.27); m.rotation.set(.33,-.7,0); }
+function mbHolePos(i){ return MO.HOLES[i]; }
+function mbShowHogs(s, dt, t){
+  for(let p=0;p<2;p++){ const cb=MB.cabs[p], P=s.P[p], on=p<s.n;
+    cb.hogs.forEach((hg,i)=>{ const H=on?P.holes[i]:null;
+      if(!H || H.h<=.005){ hg.g.visible=false; return; }
+      hg.g.visible=true; mbSetKind(hg, H.k|0);
+      const bonk=H.st===4||H.st===5, sq=bonk?.84:1;
+      hg.g.position.y=H.h*.17; hg.g.scale.set(bonk?1.08:1, sq, bonk?1.06:1);
+      hg.stars.visible=bonk; if(bonk){ hg.stars.rotation.y=t*9; }
+      const wob=bonk?t*20:0; hg.pupils.forEach((pu,j)=>{ const sx=j?1:-1; pu.position.set(sx*.024+(bonk?Math.cos(wob+j)*.005:Math.sin(t*1.7+i)*.002), .222+(bonk?Math.sin(wob+j)*.005:0), .061); });
+      hg.head.rotation.z = bonk ? Math.sin(t*14)*.15 : 0; }); }
+}
+function mbMalletTo(p, x, z, e, dt, land){
+  // e: 0 = hovering over (x,z), 1 = landed. The head eases toward the spot.
+  const m=MB.cabs[p].mallet, D=MB.DECK, mp=MB.mpos[p]||(MB.mpos[p]={ x, z });
+  const k=1-Math.exp(-dt*30); mp.x+=(x-mp.x)*k; mp.z+=(z-mp.z)*k;
+  const hy=D+.29, ly=land||D+.075;
+  m.position.set(mp.x+.02*(1-e), lerp(hy,ly,e), mp.z+.03*(1-e)); m.rotation.set(lerp(-.12,.1,e), 0, lerp(.08,0,e));
+}
+function mbMallets(s, dt, t){
+  const now=performance.now()/1000;
+  for(let p=0;p<2;p++){
+    if(p>=s.n){ mbRest(p); MB.mpos[p]=null; continue; }
+    const local = S.local.includes(p) && S.cpu!==p, L=MLC[p], P=s.P[p];
+    let tx, tz;
+    if(!local && P.mn!==MB.seen[p]){ if(MB.seen[p]>=0) MB.swing[p]={ t0:now, h:P.mt }; MB.seen[p]=P.mn; }
+    const sw=MB.swing[p];
+    if(local && L.mx!=null && now-L.mt<1.2 && !(sw && now-sw.t0<.26)){ tx=L.mx; tz=L.mz; }
+    else { const h = sw && now-sw.t0<.26 ? sw.h : (local?L.hov:P.mh); const H=MO.HOLES[clamp(h,0,4)|0]; tx=H[0]; tz=H[1]; if(sw && now-sw.t0<.26 && sw.h<0 && sw.x!=null){ tx=sw.x; tz=sw.z; } }
+    let e=0; if(sw){ const k=(now-sw.t0)/.26; if(k<.3) e=k/.3; else if(k<.45) e=1; else if(k<1) e=1-(k-.45)/.55; }
+    // land on the groundhog's head if one is there, otherwise on the deck
+    let land=MB.DECK+.075; if(sw && sw.h>=0 && sw.h<5){ const H=P.holes[sw.h]; if(H && H.st>0 && H.h>.05){ const bonk=H.st===4||H.st===5; land=Math.max(land, MB.DECK-.27+H.h*.17+.255*(bonk?.84:1)+.058); } }
+    mbMalletTo(p, tx, tz, e, sw && now-sw.t0<.08 ? 1 : dt, land);
+  }
+}
+function mbLeds(s){
+  const best=+(store('mole-best')||0), pad=n=>String(Math.max(0,Math.min(999,n|0))).padStart(3,'0');
+  for(let p=0;p<2;p++){ const cb=MB.cabs[p];
+    if(p>=s.n){ mbBoard(cb, ['---','---',pad(best)], ['TIME','SCORE','HIGH'], 'free play', '#9fb3c8'); continue; }
+    const tm = s.ph==='count' ? Math.ceil(s.cd) : Math.ceil(s.left);
+    const name=(s.names||S.names)[p]||`Player ${p+1}`;
+    mbBoard(cb, [pad(tm), pad(s.P[p].sc), pad(s.solo?Math.max(best,MO.BONUS):Math.max(best,s.P[1-p].sc))], ['TIME','SCORE', s.solo?'HIGH':'RIVAL'], name, PC[p]); }
+}
+function mbIdleBoards(){ const best=+(store('mole-best')||0), pad=n=>String(n).padStart(3,'0'); MB.cabs.forEach((cb,p)=>mbBoard(cb, [pad(MO.BONUS),'000',pad(best||30)], ['BONUS','SCORE','HIGH'], `Player ${p+1}`, PC[p])); }
+/* ---------------- per frame ---------------- */
+function moleIdle(dt, t){
+  if(!MB.g) return; MB.g.visible = roomOf(player.x,player.z)!=='lobby'; if(!MB.g.visible || MB.cam) return;
+  if(Math.hypot(player.x-MB.cx, player.z-MB.cz)>11) return;
+  const d=GAMES.find(g=>g.id==='mole'); let s=MB.idle;
+  if(s.over){ s=MB.idle=d.init({ mode:'solo' }); s.n=2; s.solo=false; }
+  d.tick(s, Math.min(dt,.05), [{},{}]);
+  mbShowHogs(s, dt, t);
+  if(MB.cabs[0].ledKey.indexOf('BONUS')<0) mbIdleBoards();
+}
+function moleFrame(dt, t){
+  if(!MB.g) return; MB.g.visible=true;
+  if(!MB.cam){ MB.cam=true; document.body.classList.add('booth'); if(partner){ MB.partnerVis=partner.g.visible; partner.g.visible=false; } if(HELD.view) HELD.view.visible=false;
+    MB.lastEv=0; MB.fitKey=''; MB.seen=[-1,-1]; MB.swing=[null,null]; MB.pops=[]; mbResetInputs(); }
+  let s=S.state; if(!S.host && S.def.lerp && S.snapA && S.snapB){ const k=clamp((performance.now()-S.snapAt)/(S.snapGap||33),0,1); try{ s=S.def.lerp(S.snapA,S.snapB,k); }catch(e){} }
+  mbCamera(s);
+  if(!s || !s.P) return;
+  mbShowHogs(s, dt, t); mbMallets(s, dt, t); mbLeds(s); moleSounds(s); mbPuffs(dt);
+}
+function mbVisible(s){
+  const portrait=innerWidth/innerHeight<.9;
+  if(s && s.solo) return [0];
+  if(portrait && S.local.length===1) return [S.cpu===0?1:S.local[0]];
+  return [0,1];
+}
+function mbCamera(s){
+  const vis=mbVisible(s), asp=innerWidth/innerHeight, portrait=asp<.9, key=`${innerWidth}x${innerHeight}:${vis.join()}`;
+  if(MB.fitKey!==key){ MB.fitKey=key;
+    const fov=portrait?60:46; camera.fov=fov; camera.aspect=asp; camera.updateProjectionMatrix(); camera.up.set(0,1,0);
+    const pts=[]; for(const p of vis){ for(const [x,z] of [[-.44,-.38],[.44,-.38],[-.44,.45],[.44,.45]]) pts.push(mbW(p,x,MB.DECK,z)); pts.push(mbW(p,-.42,MB.DECK+.33,-.42), mbW(p,.42,MB.DECK+.33,-.42)); }
+    const c=new THREE.Vector3(); pts.forEach(q=>c.add(q)); c.multiplyScalar(1/pts.length);
+    const pitch=portrait?1.02:.92, dir=new THREE.Vector3(0,-Math.sin(pitch),Math.cos(pitch));
+    const top=(innerHeight<500?50:64)/innerHeight*2, bot=(IS_TOUCH?14:12)/innerHeight*2, yMax=1-top, yMin=-1+bot;
+    const fits=D=>{ camera.position.copy(c).addScaledVector(dir,-D); camera.lookAt(c); camera.updateMatrixWorld(); let lo=9, hi=-9, ok=true;
+      for(const q of pts){ mbV.copy(q).project(camera); if(Math.abs(mbV.x)>.95 || mbV.z>1) ok=false; lo=Math.min(lo,mbV.y); hi=Math.max(hi,mbV.y); } return { ok: ok && lo>=yMin && hi<=yMax, lo, hi }; };
+    let D=.6; for(; D<8; D+=.03){ if(fits(D).ok) break; }
+    // centre the picture in the space under the top bar
+    for(let it=0;it<2;it++){ const f=fits(D), off=((yMax+yMin)/2-(f.lo+f.hi)/2)*D*Math.tan(fov*Math.PI/360); const up=new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion); c.addScaledVector(up,-off); for(D=Math.max(.6,D-.4); D<8; D+=.02){ if(fits(D).ok) break; } }
+    fits(D); MB.fit={ pos:camera.position.clone(), q:camera.quaternion.clone() };
+  }
+  camera.position.copy(MB.fit.pos); camera.quaternion.copy(MB.fit.q); camera.updateMatrixWorld();
+}
+function moleStop(){
+  if(MB.cam){ MB.cam=false; document.body.classList.remove('booth'); if(partner) partner.g.visible=MB.partnerVis; camera.up.set(0,1,0); resize(); }
+  MB.fitKey=''; MB.lastEv=0; for(let p=0;p<2;p++){ mbRest(p); MB.mpos[p]=null; } mbIdleBoards();
+}
+/* ---------------- controls ---------------- */
+function moleActive(){ const s=S.state; return S.open && S.def && S.def.id==='mole' && s && !s.over && !S.ended; }
+function mbResetInputs(){ for(const L of MLC){ L.kc={}; for(const set of MKEYS) for(const codes of set) for(const c of codes) L.kc[c]=keyPressN[c]||0; L.pb={}; L.mx=null; L.mt=0; } }
+function mbWhack(p, h, x, z){
+  const L=MLC[p], now=performance.now()/1000; if(now-L.last<MO.GAP*.9) return; L.last=now;
+  L.wn++; L.q.push([L.wn,h]); if(L.q.length>6) L.q.shift(); if(h>=0) L.hov=h;
+  MB.swing[p]={ t0:now, h, x, z };
+}
+function mbToScreen(w){ mbV.copy(w).project(camera); const r=gc.getBoundingClientRect(); return { x:(mbV.x+1)/2*innerWidth-r.left, y:(1-mbV.y)/2*innerHeight-r.top, z:mbV.z }; }
+function mbDeckAt(cx, cy){
+  mbV2.set(cx/innerWidth*2-1, -cy/innerHeight*2+1); mbRay.setFromCamera(mbV2, camera); mbPlane.constant=-MB.DECK; const hit=mbRay.ray.intersectPlane(mbPlane, mbV); if(!hit) return null;
+  const lx=MB.cx-hit.x, lz=MB.cz-hit.z, p = lx<0 ? 0 : 1; return { p, x:lx-MB.CABX[p], z:lz };
+}
+function mbNearHole(x, z, rad){ let best=-1, bd=rad; MO.HOLES.forEach(([hx,hz],i)=>{ const d=Math.hypot(x-hx,z-hz); if(d<bd){ bd=d; best=i; } }); return best; }
+function mbInputs(){
+  gc.addEventListener('pointerdown', e=>{
+    if(!moleActive()) return; const s=S.state; if(s.ph!=='play' && s.ph!=='count') return;
+    const r=gc.getBoundingClientRect();
+    if(e.pointerType==='mouse'){ if(e.button!==0) return; const mp=S.local.length>1?0:S.local[0], hit=mbDeckAt(e.clientX,e.clientY);
+      if(!hit || hit.p!==mp || Math.abs(hit.x)>.46 || hit.z<-.42 || hit.z>.46){ if(hit && hit.p!==mp){} return; }
+      const h=mbNearHole(hit.x,hit.z,.12); if(s.ph==='play') mbWhack(mp, h, hit.x, hit.z); return; }
+    // touch: the nearest hole on screen of a machine you're playing
+    const x=e.clientX-r.left, y=e.clientY-r.top; let best=null, bd=1e9;
+    for(const p of S.local){ if(S.cpu===p || p>=s.n) continue;
+      MO.HOLES.forEach(([hx,hz],i)=>{ const a=mbToScreen(mbW(p,hx,MB.DECK,hz)), b=mbToScreen(mbW(p,hx+MO.R,MB.DECK,hz)); const rad=Math.max(44, Math.hypot(b.x-a.x,b.y-a.y)*2.3), d=Math.hypot(x-a.x,y-a.y); if(d<rad && d<bd){ bd=d; best={ p, h:i }; } }); }
+    if(best){ if(s.ph==='play') mbWhack(best.p, best.h); return; }
+    const hit=mbDeckAt(e.clientX,e.clientY); if(hit && S.local.includes(hit.p) && S.cpu!==hit.p && Math.abs(hit.x)<.46 && hit.z>-.42 && hit.z<.46 && s.ph==='play') mbWhack(hit.p, -1, hit.x, hit.z);
+  });
+  gc.addEventListener('pointermove', e=>{
+    if(e.pointerType!=='mouse' || !moleActive()) return; const mp=S.local.length>1?0:S.local[0]; if(S.cpu===mp) return;
+    const hit=mbDeckAt(e.clientX,e.clientY); if(!hit || hit.p!==mp) return; const L=MLC[mp];
+    L.mx=clamp(hit.x,-.4,.4); L.mz=clamp(hit.z,-.36,.4); L.mt=performance.now()/1000; const h=mbNearHole(hit.x,hit.z,.2); if(h>=0) L.hov=h;
+  });
+}
+Object.assign(GAMES.find(g=>g.id==='mole'), {
+  frame3d: moleFrame,
+  cont(v, p, s){
+    const L=MLC[p], out=()=>({ m:L.hov, q:L.q.slice() });
+    if(!s || s.over || S.cpu===p || !s.P) return out();
+    const play=s.ph==='play';
+    // keys laid out like the holes
+    const sets = S.local.length>1 ? [MKEYS[p]] : MKEYS;
+    for(const set of sets) set.forEach((codes,i)=>{ for(const c of codes){ const n=keyPressN[c]||0, was=L.kc[c]??n; L.kc[c]=n; if(n>was && play){ mbWhack(p,i); L.mx=null; } } });
+    // controllers: face buttons and bumpers are the holes; or point the stick and press Ⓐ
+    const P=pads(); let mine=[];
+    if(S.local.length>1){ if(P.length>=2) mine=[P[p]]; else if(P.length===1 && p===1) mine=[P[0]]; } else mine=P;
+    mine.forEach((g,gi)=>{ if(!g) return; const b=i=>!!(g.buttons[i]&&(g.buttons[i].pressed||(g.buttons[i].value||0)>.5));
+      const edge=(k,on)=>{ const id=gi+':'+k, w=L.pb[id]; L.pb[id]=on; return on&&!w; };
+      const sx=g.axes[0]||0, sy=g.axes[1]||0;
+      if(Math.hypot(sx,sy)>.55){ const a=Math.atan2(sy,sx)*180/Math.PI; L.hov = sy<0 ? (a<-120?0:a<-60?1:2) : (sx<0?3:4); L.mx=null; L.padHov=true; }
+      for(const [btn,h] of [[2,0],[3,1],[1,2],[4,3],[6,3],[5,4],[7,4],[0,-2],[14,-3],[15,-4],[12,-5],[13,-6]]) if(edge(btn,b(btn)) && play){
+        let hh=h; if(h===-2) hh=L.hov; else if(h===-3) hh=L.hov===1?0:L.hov===2?1:L.hov===4?3:L.hov; else if(h===-4) hh=L.hov===0?1:L.hov===1?2:L.hov===3?4:L.hov; else if(h===-5) hh=L.hov===3?0:L.hov===4?2:L.hov; else if(h===-6) hh=L.hov===0?3:L.hov===1?3:L.hov===2?4:L.hov;
+        if(h<=-3){ L.hov=hh; L.padHov=true; continue; }
+        mbWhack(p,hh); L.mx=null; L.padHov=true; }
+    });
+    return out();
+  },
+});
+/* ---------------- HUD ---------------- */
+function moleHud(g, s, t){
+  const c=g.ctx, w=g.w, h=g.h; c.clearRect(0,0,w,h); if(!s || !s.P) return;
+  const short=h<500, small=w<600||short, names=s.names||S.names, now=performance.now()/1000;
+  // score cards
+  const tall = h > w*1.05;   // phone held upright: the cards go in the empty space under the machine
+  const cw = short ? 150 : tall ? (w-36)/2 : Math.min(260,(w-24)/2-70), ch = short ? 40 : 54, y0 = short ? 6 : tall ? h-ch-18 : 58;
+  for(let p=0;p<s.n;p++){ const x = p ? w-(short?8:12)-cw : (short?8:12), P=s.P[p];
+    c.save(); c.fillStyle='rgba(6,6,14,.72)'; c.beginPath(); rrect(c,x,y0,cw,ch,10); c.fill(); glowStroke(c,PC[p],2.5,()=>rrect(c,x,y0,cw,ch,10));
+    c.textBaseline='middle'; c.font=`700 ${small?14:17}px ${BODY}`; c.fillStyle=PC[p]; c.textAlign=p?'right':'left';
+    const you=(S.mode==='online'&&p===S.me)||(S.mode==='cpu'&&p===0)?' (you)':'';
+    c.fillText(((names[p]||`Player ${p+1}`).slice(0,12))+you, p?x+cw-12:x+12, y0+ch/2);
+    glowText(c, String(P.sc), p?x+16:x+cw-16, y0+ch/2+1, short?24:30, '#ffffff', { font:HEAD, weight:900, glow:.4, align:p?'left':'right' });
+    c.restore(); }
+  // clock
+  const tl = s.ph==='count' ? MO.T : Math.ceil(s.left), hurry = s.ph==='play' && s.left<=5.5;
+  const cy = short ? 26 : 84, pulse = hurry ? 1+Math.max(0,Math.sin(now*TAU*1))*0.12 : 1;
+  glowText(c, String(tl), w/2, cy, (short?30:44)*pulse, hurry?'#ff4a3a':NEON.yellow, { font:HEAD, weight:900, glow:.7 });
+  if(!short) glowText(c, 'SECONDS', w/2, cy+30, 11, '#c7d4ff', { font:BODY, weight:700, glow:.2 });
+  if(s.solo && s.ph!=='count'){ const P=s.P[0], ok=P.sc>=MO.BONUS; glowText(c, ok ? '🎟️ BONUS!' : `BONUS AT ${MO.BONUS}`, w/2, cy+(short?24:50), short?13:15, ok?NEON.green:'#ffd83a', { font:HEAD, weight:800, glow:.4 }); }
+  // countdown / end
+  if(s.ph==='count'){ const n=Math.ceil(s.cd), f=s.cd-Math.floor(s.cd); c.save(); c.globalAlpha=.4+.6*f; glowText(c, String(n), w/2, h*.5, Math.min(w,h)*(.16+.08*f), NEON.yellow, { font:HEAD, weight:900 }); c.restore();
+    glowText(c, IS_TOUCH ? 'Tap the holes to bonk!' : MLC[S.local[0]]?.padHov ? 'Ⓧ Ⓨ Ⓑ · LB RB — or stick + Ⓐ' : 'Click the holes — or Q W E / A S', w/2, h*.5+Math.min(w,h)*.14, clamp(w*.024,13,19), '#eaf2ff', { font:BODY, weight:700, glow:.3, maxW:w-40 }); }
+  else if(s.ph==='play' && s.pt<.7){ c.save(); c.globalAlpha=1-s.pt/.7; glowText(c, 'BONK!', w/2, h*.5, Math.min(w,h)*.2, '#9cff3a', { font:HEAD, weight:900 }); c.restore(); }
+  else if(s.ph==='end'){ glowText(c, "TIME'S UP!", w/2, h*.5, Math.min(w,h)*.12, '#ff7a1a', { font:HEAD, weight:900 }); }
+  // key letters under the holes for keyboard players
+  if(!IS_TOUCH && s.ph!=='end'){ const kp=S.local.filter(p=>S.cpu!==p && p<s.n);
+    for(const p of kp){ if(MLC[p].padHov) continue; const lab=MKEYL[S.local.length>1?p:0];
+      c.save(); c.globalAlpha = s.ph==='count' || s.pt<6 ? .85 : .32;
+      MO.HOLES.forEach(([hx,hz],i)=>{ const q=mbToScreen(mbW(p,hx,MB.DECK,hz+MO.R+.035)); c.fillStyle='rgba(6,6,14,.6)'; c.beginPath(); c.arc(q.x,q.y,11,0,TAU); c.fill(); c.font=`800 13px ${BODY}`; c.fillStyle='#fff'; c.textAlign='center'; c.textBaseline='middle'; c.fillText(lab[i],q.x,q.y+.5); });
+      c.restore(); } }
+  // floating points
+  MB.pops=MB.pops.filter(o=>now-o.t0<.9);
+  for(const o of MB.pops){ const k=(now-o.t0)/.9, q=mbToScreen(mbW(o.p,MO.HOLES[o.h][0],MB.DECK+.22+k*.12,MO.HOLES[o.h][1]));
+    c.save(); c.globalAlpha=1-k*k; glowText(c, o.txt, q.x, q.y, (short?20:26)*(1+.25*Math.min(1,k*4)), o.col, { font:HEAD, weight:900, glow:.6 }); c.restore(); }
+}
+/* ---------------- sound + effects ---------------- */
+function mbPuff(p, h){
+  const H=MO.HOLES[h], g=new THREE.Group(); MB.cabs[p].g.add(g); g.position.set(H[0],MB.DECK+.12,H[1]);
+  const m=new THREE.MeshBasicMaterial({ color:'#9cf04a', transparent:true, opacity:.4, depthWrite:false });
+  for(let k=0;k<6;k++){ const b=new THREE.Mesh(new THREE.SphereGeometry(.035+Math.random()*.03,10,8), m); b.position.set((Math.random()-.5)*.12,Math.random()*.08,(Math.random()-.5)*.1); g.add(b); }
+  MB.puffs.push({ g, m, t:0 });
+}
+function mbPuffs(dt){ MB.puffs=MB.puffs.filter(f=>{ f.t+=dt; f.g.position.y+=dt*.12; f.g.scale.setScalar(1+f.t*1.1); f.m.opacity=.4*(1-f.t/.85); if(f.t>.85){ f.g.parent.remove(f.g); f.g.children.forEach(b=>b.geometry.dispose()); f.m.dispose(); return false; } return true; }); }
+function moleSounds(s){
+  if((s.evn||0)<MB.lastEv) MB.lastEv=0;
+  const now=performance.now()/1000; let pops=0;
+  for(const e of s.ev){ if(e.i<=MB.lastEv) continue; MB.lastEv=e.i;
+    const mine = S.local.includes(e.p) && S.cpu!==e.p, v = mine||s.n<2 ? 1 : .55;
+    switch(e.k){
+      case 'pop': if(pops++<2){ if(e.a===1) tone(1500,.06,'sine',.05*v,1.4); else tone(e.a===2?330:560,.05,'triangle',.035*v,1.5); } break;
+      case 'bonk': noise(.04,.22*v,1500); tone(e.a===2?140:250,.1,'triangle',.24*v,.45);
+        if(e.a===1){ [988,1319,1760].forEach((f,i)=>tone(f,.09,'square',.05*v,1,.04+i*.06)); MB.pops.push({ p:e.p, h:e.h, txt:'+3', col:'#ffd83a', t0:now }); }
+        else if(e.a===2){ noise(.45,.12*v,320,.05); tone(150,.4,'sawtooth',.06*v,.55,.05); MB.pops.push({ p:e.p, h:e.h, txt:'PEE-YEW −2', col:'#a8e05a', t0:now }); mbPuff(e.p,e.h); }
+        else MB.pops.push({ p:e.p, h:e.h, txt:'+1', col:PC[e.p], t0:now }); break;
+      case 'miss': tone(95,.07,'sine',.18*v,.6); noise(.03,.08*v,420); break;
+      case 'beep': tone(660,.12,'square',.08); break;
+      case 'go': tone(990,.28,'square',.09); tone(1320,.28,'square',.05,1,.05); break;
+      case 'end': tone(220,.55,'sawtooth',.09,.8); tone(165,.55,'square',.06,.8,.08); break;
+    } }
+}
+/* ---------------- the marquee over the machines ---------------- */
+function moleAttract(c, w, h, t){
+  const g=c.createLinearGradient(0,0,w,0); g.addColorStop(0,'#0e2a08'); g.addColorStop(.5,'#1e4a10'); g.addColorStop(1,'#0e2a08'); c.fillStyle=g; c.fillRect(0,0,w,h);
+  const bob=k=>Math.max(0,Math.sin(t*2.2+k))*h*.18;
+  c.save(); c.beginPath(); c.rect(0,0,w,h*.78); c.clip();
+  mbHogFace(c, w*.1, h*.86-bob(0), h*.0042, false); mbHogFace(c, w*.9, h*.86-bob(2.1), h*.0042, true);
+  c.restore();
+  glowText(c,'GROUNDHOG DAZE', w/2, h*.36, h*.27, '#9cff3a', { font:HEAD, weight:900, maxW:w*.72 });
+  glowText(c,'BONK ’EM · 2 PLAYER', w/2, h*.64, h*.11, '#ff8a1a', { font:HEAD, weight:800, glow:.6 });
 }
 
 /* =====================================================================
@@ -9908,7 +10444,7 @@ function gameFrame(dt, t){
   // ---- game over ----
   if(st.over && !S.ended){ S.ended=true; S.endAt=t+(def.kind==='field'?1.3:1.1);
     if(S.host && st.winner>=0){ S.wins[st.winner]++; if(S.mode==='online') netSend('st',{ s:ser(st), fx:S.fxq, w:S.wins }); awardTickets(def, st.winner); }
-    const wn = st.winner<0 ? 'Draw' : `${nameOf(st.winner)} won`; logResult(def.name, wn, st.winner<0?NEON.yellow:PC[st.winner]); }
+    const wn = st.winner<0 ? (S.mode==='solo'?'Finished':'Draw') : `${nameOf(st.winner)} won`; logResult(def.name, wn, st.winner<0?NEON.yellow:PC[st.winner]); }
   if(S.ended && S.endAt && t>=S.endAt && $('#gMsg').hidden){ S.endAt=0; showEnd(); }
 }
 function ui_reset(ui){ ui.btns=[]; }
@@ -10240,7 +10776,7 @@ function frame(){
   placeCamera(dt,t,bob);
   voiceFrame();
   if(me.av) animateAvatar(me.av, dt, { sit:SEAT.on, speed:spd, dance:myDance, beat:musicBeat(t), level:Voice.level, hold:!!HELD.kind, use:HELD.use>0?1-HELD.use/HELD.useDur:0, useKind:HELD.useKind });
-  itemsFrame(dt,t); boardFrame(); alleyFrame(dt,t); galFrame(dt,t); fishIdle(dt,t); poolIdle(dt,t);
+  itemsFrame(dt,t); boardFrame(); alleyFrame(dt,t); galFrame(dt,t); fishIdle(dt,t); poolIdle(dt,t); moleIdle(dt,t);
   animateJukebox(t);
   // attract screens: refresh the nearest ones every frame, the rest in turn
   const near=CABS.map(c=>[c,Math.hypot(c.x-player.x,c.z-player.z)]).sort((a,b)=>a[1]-b[1]);
