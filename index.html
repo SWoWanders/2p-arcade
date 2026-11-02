@@ -6026,13 +6026,21 @@ function buildLobby(){
     const crv=new THREE.CatmullRomCurve3([new THREE.Vector3(side*2.9,.9,z), new THREE.Vector3(side*2.9,.68,z+1), new THREE.Vector3(side*2.9,.9,z+2)]);
     const r=new THREE.Mesh(new THREE.TubeGeometry(crv,16,.03,6), velvetMat); scene.add(r); }
   // benches
-  for(const side of [-1,1]){ const x=side*5.6; box(2.2,.45,.7,x,.225,10.9,darkMat); box(2.24,.06,.74,x,.47,10.9,velvetMat); tubeX(x-1.1,x+1.1,.06,10.54,NEON.violet,.025); collide(x-1.1,x+1.1,10.55,11.25); }
+  for(const side of [-1,1]) bench(side*5.6, 10.9);
   // marquee lights along the ARCADE sign (chaser bulbs)
   const bg=new THREE.SphereGeometry(.045,10,8);
   for(const side of [-1,1]) for(let i=0;i<14;i++){ const b=new THREE.Mesh(bg, new THREE.MeshBasicMaterial({color:'#fff2b0'})); b.position.set(side*(DOOR+.28), .35+i*.18, .16); b.userData.chase=i; scene.add(b); CHASE.push(b); }
   for(let i=0;i<20;i++){ const b=new THREE.Mesh(bg, new THREE.MeshBasicMaterial({color:'#fff2b0'})); b.position.set(-DOOR-.28+i*((DOOR+.28)*2/19), 2.98-.0+ .0, .16); b.position.y=2.72; b.userData.chase=14+Math.abs(i-9.5)|0; scene.add(b); CHASE.push(b); }
 }
 const CHASE=[];
+
+/* ---------- benches (sit-able: two seats each, facing -z) ---------- */
+const BENCHES=[];
+function bench(x,z){
+  box(2.2,.45,.7,x,.225,z,darkMat); box(2.24,.06,.74,x,.47,z,velvetMat); tubeX(x-1.1,x+1.1,.06,z-.36,NEON.violet,.025); collide(x-1.1,x+1.1,z-.35,z+.35);
+  const b={ x, z, yaw:0, spots:[x-.55, x+.55] };
+  const hit=box(2.3,.7,.85,x,.35,z,new THREE.MeshBasicMaterial({visible:false})); hit.userData.bench=b; hitList.push(hit); BENCHES.push(b);
+}
 
 /* ---------- machines ---------- */
 function marqueeTex(def){
@@ -6178,7 +6186,7 @@ function buildRoom2(){
   buildFishBooth();
   buildPoolTable();
   // benches facing the alleys
-  for(const x of [cx-2.4,cx+2.4]){ box(2.2,.45,.7,x,.225,-9.6,darkMat); box(2.24,.06,.74,x,.47,-9.6,velvetMat); tubeX(x-1.1,x+1.1,.06,-9.95,NEON.violet,.025); collide(x-1.1,x+1.1,-9.95,-9.25); }
+  for(const x of [cx-2.4,cx+2.4]) bench(x, -9.6);
 }
 let scoreCanvas, scoreTex;
 const RESULTS = (()=>{ try{ return JSON.parse(store('results')||'[]'); }catch(e){ return []; } })();
@@ -6228,6 +6236,7 @@ function tryMove(dx,dz){ if(!blocked(player.x+dx,player.z)) player.x+=dx; else p
 function segBlocked(x0,z0,x1,z1){ const n=Math.ceil(Math.hypot(x1-x0,z1-z0)/.25); for(let i=1;i<=n;i++){ const t=i/n; if(blocked(x0+(x1-x0)*t,z0+(z1-z0)*t)) return true; } return false; }
 let auto=null;
 function travel(x,z,yaw,pitch,viaFade){
+  if(SEAT.on) seatLeave();
   if(blocked(x,z)){ toast("Can't stand there."); return; }
   const fade = viaFade || segBlocked(player.x,player.z,x,z) || RM;
   auto={ fx:player.x, fz:player.z, fy:player.yaw, fp:player.pitch, x, z, yaw: yaw==null?player.yaw:player.yaw+wrapA(yaw-player.yaw), pitch: pitch==null?player.pitch:pitch,
@@ -6238,7 +6247,7 @@ function stepAuto(dt){
   const a=auto; a.t+=dt; const k=Math.min(1,a.t/a.dur);
   if(a.fade){ if(k>=.5 && !a.swapped){ a.swapped=true; player.x=a.x; player.z=a.z; player.yaw=a.yaw; player.pitch=a.pitch; $('#fade').classList.remove('on'); } }
   else { const e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2; player.x=a.fx+(a.x-a.fx)*e; player.z=a.fz+(a.z-a.fz)*e; player.yaw=a.fy+(a.yaw-a.fy)*e; player.pitch=a.fp+(a.pitch-a.fp)*e; }
-  if(k>=1) auto=null;
+  if(k>=1){ const f=a.then; auto=null; if(f) f(); }
 }
 function viewSpot(cab){
   if(cab.kind==='hockey') return { x:cab.x, z:cab.z+2.35, yaw:0, pitch:-.42 };
@@ -6619,7 +6628,7 @@ function buildAvatar(look){
   // ---- scale, record rig ----
   const hk=HEIGHTS.find(h=>h[0]===L.height)[2]*(f?.96:1);
   body.scale.setScalar(hk);
-  const av={ wear, root, body, look:L, rim, accents, head, neck, chest, spine, hips, arms, legs, mouth, faceCv, faceTex, glowCol, level:0, blinkT:2+Math.random()*3, blinking:0, phase:0, t:0, height:hk*(legLen+pelH+absH+chestH+neckH+R*2) };
+  const av={ wear, root, body, look:L, rim, accents, head, neck, chest, spine, hips, arms, legs, mouth, faceCv, faceTex, glowCol, hipH:hk*legLen, level:0, blinkT:2+Math.random()*3, blinking:0, phase:0, t:0, height:hk*(legLen+pelH+absH+chestH+neckH+R*2) };
   root.traverse(o=>{ if(o.isMesh){ o.castShadow=false; o.frustumCulled=true; } });
   return av;
 }
@@ -6643,7 +6652,13 @@ function animateAvatar(av, dt, st){
   let bodyY=0, hipZ=0, hipY=0, spY=0, spX=0, hdX=0, hdY=0, hdZ=0;
   const J={ shL:[0,0,.08], shR:[0,0,-.08], elL:[-.12,0,0], elR:[-.12,0,0], hpL:[0,0,0], hpR:[0,0,0], knL:[0,0,0], knR:[0,0,0] };
   const sp=st.speed||0;
-  if(st.dance){
+  if(st.sit){
+    // seated on a bench: thighs forward, shins hanging, hands on knees
+    const br=Math.sin(t*1.8); bodyY=.555-av.hipH+br*.003;
+    J.hpL=[-1.5,0,.07]; J.hpR=[-1.5,0,-.07]; J.knL=[1.45,0,0]; J.knR=[1.45,0,0];
+    J.shL=[-.42,0,.14]; J.shR=[-.42,0,-.14]; J.elL=[-.7,0,0]; J.elR=[-.7,0,0];
+    spX=.06; hdY=Math.sin(t*.35)*.2; hdX=Math.sin(t*.6)*.05-.03;
+  } else if(st.dance){
     const b=st.beat, s=Math.sin(b*Math.PI), c=Math.cos(b*Math.PI), bounce=Math.abs(Math.sin(b*Math.PI));
     switch(st.dance){
       case 'disco': { const up=Math.floor(b/2)%2===0; const e=sstep(0,.25,(b%2)/2);
@@ -9469,7 +9484,7 @@ function onNet(m){
     case 'tix': { const c=TIXCABS().find(c=>c.def.id===m.cab); if(c) printTickets(c, m.n|0, m.owner, m.id, m.name); break; }
     case 'tixgot': for(const c of TIXCABS()){ const t=(c.tix||[]).find(x=>x.id===m.id); if(t){ c.slot.remove(t.g); c.tix.splice(c.tix.indexOf(t),1); toast(`${Net.partner} collected their tickets.`,1600); } } break;
     case 'full': netFail('That room already has two players.'); break;
-    case 'pos': if(partner){ partner.tx=m.x; partner.tz=m.z; partner.tyaw=m.yaw; partner.dance = DANCES.some(d=>d[0]===m.d) ? m.d : null; if(!partner.g.visible){ partner.x=m.x; partner.z=m.z; partner.g.visible=true; } } break;
+    case 'pos': if(partner){ partner.tx=m.x; partner.tz=m.z; partner.tyaw=m.yaw; partner.sit=!!m.s; partner.dance = DANCES.some(d=>d[0]===m.d) ? m.d : null; if(!partner.g.visible){ partner.x=m.x; partner.z=m.z; partner.g.visible=true; } } break;
     case 'where': setPartnerLabel(Net.partner, m.g?`playing ${m.g}`:''); break;
     case 'bye': onNetDown(); break;
     case 'alley': alleyOnNet(m); break;
@@ -9931,7 +9946,7 @@ function overlayOpen(){ return ALLEY.open || GAL.open || BOARD.open || introOpen
 function pick(cx,cy){ ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1); ray.setFromCamera(ndc,camera); ray.far=40;
   const h=ray.intersectObjects([...hitList, ...itemHits, lobbyFloor, roomFloor, room2Floor, ...wallHits], false); return h[0]||null; }
 const wallHits=[];
-function infoOf(o){ const u=o.userData; if(u.board) return {type:'board'}; if(u.juke) return {type:'juke'}; if(u.item) return {type:'item', id:u.item}; if(u.trash) return {type:'trash'}; if(u.shop) return {type:'shop', shop:u.shop};
+function infoOf(o){ const u=o.userData; if(u.bench) return {type:'bench', b:u.bench}; if(u.board) return {type:'board'}; if(u.juke) return {type:'juke'}; if(u.item) return {type:'item', id:u.item}; if(u.trash) return {type:'trash'}; if(u.shop) return {type:'shop', shop:u.shop};
   if(u.gal) return stripOf(u.gal,true) ? {type:'tix', cab:u.gal} : {type:'gal', st:u.gal};
   if(u.alley) return stripOf(u.alley,true) ? {type:'tix', cab:u.alley} : {type:'alley', a:u.alley};
   if(u.tixcab) return (u.tixcab.tix||[]).length ? {type:'tix', cab:u.tixcab} : (u.tixcab.alley ? {type:'alley', a:u.tixcab} : u.tixcab.gal ? {type:'gal', st:u.tixcab} : {type:'cab', cab:u.tixcab}); if(u.cab) return {type:'cab', cab:u.cab}; return null; }
@@ -9940,6 +9955,7 @@ function interactWith(info, far){
   switch(info.type){
     case 'board': if(far){ travel(0, LOBBY.z1-1.8, Math.PI, -.05); } else openBoard(); return true;
     case 'juke': if(far){ travel(JUKE.x, JUKE.z+1.6, 0, -.1); } else openJuke(); return true;
+    case 'bench': sitOn(info.b, far); return true;
     case 'item': pickUp(info.id); return true;
     case 'trash': if(far){ toast('Walk over to the trash can.'); return true; } if(HELD.kind) trashHeld(); else toast(IS_TOUCH?'Trash can — bring empty wrappers and cups here, or throw things in.':'Trash can — hold something and press Enter here, or throw it in with R.'); return true;
     case 'shop': if(far){ toast(info.shop==='snacks'?'Walk up to the snack bar.':'Walk up to the prize counter.'); return true; } openShop(info.shop); return true;
@@ -10060,7 +10076,7 @@ addEventListener('gamepaddisconnected', ()=>toast('Controller disconnected.'));
 
 let centreCab=null;
 function centreTarget(){ ndc.set(0,0); ray.setFromCamera(ndc,camera); ray.far = viewMode()==='first' ? 4.2 : 7; const h=ray.intersectObjects([...hitList,...itemHits],false)[0]; return h ? infoOf(h.object) : null; }
-function interactCentre(){ const info=centreTarget(); if(info){ interactWith(info,false); return; } if(JUKE && Math.hypot(JUKE.x-player.x,JUKE.z-player.z)<2.4){ openJuke(); return; } const list=ORDER(); const near=list.map(c=>[c,Math.hypot(c.x-player.x,c.z-player.z)]).sort((a,b)=>a[1]-b[1])[0];
+function interactCentre(){ const info=centreTarget(); if(info){ interactWith(info,false); return; } if(SEAT.on){ standUp(); return; } { const nb=BENCHES.map(b=>[b,Math.hypot(b.x-player.x,b.z-player.z)]).sort((a,b)=>a[1]-b[1])[0]; if(nb && nb[1]<1.7){ sitOn(nb[0],false); return; } } if(JUKE && Math.hypot(JUKE.x-player.x,JUKE.z-player.z)<2.4){ openJuke(); return; } const list=ORDER(); const near=list.map(c=>[c,Math.hypot(c.x-player.x,c.z-player.z)]).sort((a,b)=>a[1]-b[1])[0];
   if(near && near[1]<3.1){ openLaunch(near[0]); return; } toast(IS_TOUCH?'Walk up to a machine and tap it.':'Walk up to a machine and press Enter — or use Q / E to jump to one.'); }
 
 /* ---------- intro / panels ---------- */
@@ -10101,8 +10117,30 @@ $('#jVol').oninput=e=>setJukeVol(+e.target.value);
 
 /* ---------- dancing + camera views ---------- */
 let myDance=null, lastDance='disco', view3=false;
+/* ---------- sitting on benches ---------- */
+const SEAT={ on:false, b:null, x:0, z:0, t:0, k:0, ox:0, oz:0, yaw:0 };
+function seatSpots(b){ return b.spots.map(x=>({x, z:b.z+.1})); }
+function freeSeat(b){
+  const taken = s => partner && partner.g.visible && partner.sit && Math.hypot(partner.tx-s.x, partner.tz-s.z)<.4;
+  return seatSpots(b).filter(s=>!taken(s)).sort((p,q)=>Math.hypot(p.x-player.x,p.z-player.z)-Math.hypot(q.x-player.x,q.z-player.z))[0]||null;
+}
+function frontOf(b, x){ for(const d of [.85,1.0,1.2]){ const z=b.z-d; if(!blocked(x,z)) return {x,z}; } return {x, z:b.z-.85}; }
+function sitOn(b, far){
+  if(SEAT.on && SEAT.b===b){ standUp(); return; }
+  const s=freeSeat(b); if(!s){ toast(`${esc(Net.partner||'The other player')} is sitting there.`,1800); return; }
+  if(far || Math.hypot(s.x-player.x, s.z-player.z)>2.2){ const f=frontOf(b,s.x); travel(f.x, f.z, b.yaw, null); if(auto) auto.then=()=>sitOn(b,false); return; }
+  if(SEAT.on) seatLeave();
+  stopDance(); auto=null;
+  SEAT.ox=player.x-s.x; SEAT.oz=player.z-s.z;   // visual slide from where we stood
+  player.x=s.x; player.z=s.z; player.vx=player.vz=0;
+  Object.assign(SEAT,{ on:true, b, x:s.x, z:s.z, t:0 });
+  SEAT.turn = wrapA(b.yaw-player.yaw);           // swing the view round to face out
+  sfx('tick');
+}
+function seatLeave(){ if(!SEAT.on) return; const f=frontOf(SEAT.b, SEAT.x); SEAT.ox+=player.x-f.x; SEAT.oz+=player.z-f.z; player.x=f.x; player.z=f.z; SEAT.on=false; SEAT.b=null; }
+function standUp(){ seatLeave(); }
 function viewMode(){ return myDance ? 'dance' : (view3 ? 'third' : 'first'); }
-function startDance(id){ myDance=id; lastDance=id; netSend('dance',{d:id}); closeDanceMenu(); $('#danceBtn').classList.add('live'); auto=null; if(Music.playing<0) toast('Tip: walk up to the jukebox and play a song to dance to.', 2600); }
+function startDance(id){ if(SEAT.on) standUp(); myDance=id; lastDance=id; netSend('dance',{d:id}); closeDanceMenu(); $('#danceBtn').classList.add('live'); auto=null; if(Music.playing<0) toast('Tip: walk up to the jukebox and play a song to dance to.', 2600); }
 function stopDance(){ if(!myDance) return; myDance=null; netSend('dance',{d:''}); $('#danceBtn').classList.remove('live'); }
 function toggleDance(){ if(myDance) stopDance(); else startDance(lastDance); }
 function openDanceMenu(){ const m=$('#dmenu'); m.innerHTML='<h3>Dance</h3>'; DANCES.forEach(([id,name])=>{ const b=document.createElement('button'); b.className='btn'+(myDance===id?' yellow':''); b.textContent=name; b.onclick=()=>{ sfx('sel'); startDance(id); }; m.appendChild(b); });
@@ -10113,16 +10151,18 @@ const camTmp=new THREE.Vector3();
 function placeCamera(dt,t,bob){
   const mode=viewMode(), h=me.av?me.av.height:1.75;
   me.g.visible = mode!=='first';
-  me.g.position.set(player.x,0,player.z); me.g.rotation.y=player.yaw+Math.PI;
-  if(mode==='first'){ camera.position.set(player.x, EYE+bob, player.z); camera.rotation.set(player.pitch, player.yaw, 0); return; }
+  const px=player.x+SEAT.ox, pz=player.z+SEAT.oz, sk=SEAT.k;
+  const byaw = SEAT.on ? SEAT.b.yaw : player.yaw; SEAT.yaw += wrapA(byaw-SEAT.yaw)*(1-Math.exp(-dt*(SEAT.on?9:30)));
+  me.g.position.set(px,0,pz); me.g.rotation.y=SEAT.yaw+Math.PI;
+  if(mode==='first'){ camera.position.set(px+Math.sin(SEAT.yaw)*-.12*sk, EYE-.44*sk+bob, pz+Math.cos(SEAT.yaw)*-.12*sk); camera.rotation.set(player.pitch, player.yaw, 0); return; }
   const f=fwd(); let ang, d, y, tx, tz;
   if(mode==='dance'){ ang=Math.atan2(f.x,f.z)+Math.sin(t*.35)*.7; d=2.4; y=h*.75; }
   else { ang=Math.atan2(-f.x,-f.z); d=2.7; y=h*.95+(-player.pitch)*1.6; }
   // pull the camera in if a wall is in the way
-  let dd=d; for(; dd>.6; dd-=.1){ const cx=player.x+Math.sin(ang)*dd, cz=player.z+Math.cos(ang)*dd; if(!blocked(cx,cz)) break; }
-  camTmp.set(player.x+Math.sin(ang)*dd, clamp(y+.25,.5,3.0), player.z+Math.cos(ang)*dd);
+  let dd=d; for(; dd>.6; dd-=.1){ const cx=px+Math.sin(ang)*dd, cz=pz+Math.cos(ang)*dd; if(!blocked(cx,cz) || sk>.5) break; }
+  camTmp.set(px+Math.sin(ang)*dd, clamp(y+.25-.4*sk,.5,3.0), pz+Math.cos(ang)*dd);
   camera.position.lerp(camTmp, 1-Math.exp(-dt*8));
-  camera.lookAt(player.x, mode==='dance'?h*.55:h*.82, player.z);
+  camera.lookAt(px, (mode==='dance'?h*.55:h*.82)-.42*sk, pz);
 }
 $('#prev').onclick=()=>step(-1); $('#next').onclick=()=>step(1);
 $('#exit').href=EXIT_URL;
@@ -10182,6 +10222,7 @@ function frame(){
     mvF+=-stick.y-pad.ly; mvS+=stick.x+pad.lx;
     const L=Math.hypot(mvF,mvS); if(L>1){ mvF/=L; mvS/=L; }
     if(myDance && (L>.25 || turn)) stopDance();
+    if(SEAT.on){ if(L>.3 && SEAT.t>.45) standUp(); else { mvF=mvS=0; } }
     const speed=(keys.has('ShiftLeft')||keys.has('ShiftRight')||pad.run)?4.6:2.7;
     const f=fwd(), rg={x:-f.z,z:f.x};
     const tvx=(f.x*mvF+rg.x*mvS)*speed, tvz=(f.z*mvF+rg.z*mvS)*speed, acc=1-Math.exp(-dt*10);
@@ -10190,10 +10231,15 @@ function frame(){
     player.yaw += turn*1.9*dt - pad.rx*Math.abs(pad.rx)*2.6*dt;
     player.pitch = clamp(player.pitch - pad.ry*Math.abs(pad.ry)*1.8*dt, -1.1, 1.1);
   }
-  const spd=Math.hypot(player.vx,player.vz), bob=RM?0:Math.sin(performance.now()/170)*.018*Math.min(1,spd/2.7);
+  // seat bookkeeping: anything that moves us (a game, the map) ends the sit
+  if(SEAT.on && Math.hypot(player.x-SEAT.x, player.z-SEAT.z)>.05){ SEAT.on=false; SEAT.b=null; }
+  if(SEAT.on){ SEAT.t+=dt; if(SEAT.turn){ const step=SEAT.turn*(1-Math.exp(-dt*7)); player.yaw+=step; SEAT.turn-=step; if(Math.abs(SEAT.turn)<.002) SEAT.turn=0; } }
+  SEAT.k += ((SEAT.on?1:0)-SEAT.k)*(1-Math.exp(-dt*7));
+  { const kd=Math.exp(-dt*7); SEAT.ox*=kd; SEAT.oz*=kd; if(Math.abs(SEAT.ox)+Math.abs(SEAT.oz)<.002) SEAT.ox=SEAT.oz=0; }
+  const spd=SEAT.on?0:Math.hypot(player.vx,player.vz), bob=RM?0:Math.sin(performance.now()/170)*.018*Math.min(1,spd/2.7);
   placeCamera(dt,t,bob);
   voiceFrame();
-  if(me.av) animateAvatar(me.av, dt, { speed:spd, dance:myDance, beat:musicBeat(t), level:Voice.level, hold:!!HELD.kind, use:HELD.use>0?1-HELD.use/HELD.useDur:0, useKind:HELD.useKind });
+  if(me.av) animateAvatar(me.av, dt, { sit:SEAT.on, speed:spd, dance:myDance, beat:musicBeat(t), level:Voice.level, hold:!!HELD.kind, use:HELD.use>0?1-HELD.use/HELD.useDur:0, useKind:HELD.useKind });
   itemsFrame(dt,t); boardFrame(); alleyFrame(dt,t); galFrame(dt,t); fishIdle(dt,t); poolIdle(dt,t);
   animateJukebox(t);
   // attract screens: refresh the nearest ones every frame, the rest in turn
@@ -10206,8 +10252,8 @@ function frame(){
     const v=Math.hypot(partner.x-ox,partner.z-oz)/Math.max(dt,.001); partner.speed+= (v-partner.speed)*Math.min(1,dt*6);
     partner.g.position.set(partner.x,0,partner.z); partner.g.rotation.y=partner.yaw+Math.PI;
     partner.useT=Math.max(0,partner.useT-dt);
-    if(partner.av) animateAvatar(partner.av, dt, { speed:partner.speed, dance:partner.dance, beat:musicBeat(t), level:Voice.plevel, hold:!!partner.hold, use:partner.useT>0?1-partner.useT/.6:0, useKind:partner.useKind }); }
-  if(Net.connected){ posT-=dt; if(posT<=0){ posT=.1; netSend('pos',{ x:+player.x.toFixed(2), z:+player.z.toFixed(2), yaw:+player.yaw.toFixed(2), d:myDance||'' }); } }
+    if(partner.av) animateAvatar(partner.av, dt, { sit:!!partner.sit, speed:partner.sit?0:partner.speed, dance:partner.dance, beat:musicBeat(t), level:Voice.plevel, hold:!!partner.hold, use:partner.useT>0?1-partner.useT/.6:0, useKind:partner.useKind }); }
+  if(Net.connected){ posT-=dt; if(posT<=0){ posT=.1; netSend('pos',{ x:+player.x.toFixed(2), z:+player.z.toFixed(2), yaw:+(SEAT.on?SEAT.b.yaw:player.yaw).toFixed(2), d:myDance||'', s:SEAT.on?1:0 }); } }
   hintT-=dt;
   if(hintT<=0){ hintT=.12;
     centreCab = overlayOpen() ? null : centreTarget();
@@ -10215,7 +10261,8 @@ function frame(){
     let txt='';
     const how = IS_TOUCH?'tap it':'click or <b>Enter</b>';
     if(centreCab){ const ci=centreCab;
-      if(ci.type==='board') txt=`Doodle board — ${how} to draw with glow markers`;
+      if(ci.type==='bench') txt = SEAT.on && SEAT.b===ci.b ? `Bench — ${how} to stand up` : `Bench — ${how} to sit down`;
+      else if(ci.type==='board') txt=`Doodle board — ${how} to draw with glow markers`;
       else if(ci.type==='juke') txt=`Jukebox — ${how} to pick a song`;
       else if(ci.type==='item'){ const o=WORLD.get(ci.id); txt = o ? `${ITEMS[o.kind].name} — ${how} to pick it up` : ''; }
       else if(ci.type==='trash') txt = HELD.kind ? `Trash can — ${how} to throw away the ${ITEMS[HELD.kind].name.toLowerCase()}` : 'Trash can';
@@ -10225,6 +10272,7 @@ function frame(){
       else if(ci.type==='tix'){ const m=stripOf(ci.cab,true), o=stripOf(ci.cab,false); txt = m ? `🎟️ Your ${m.n} tickets — ${how} to collect` : `${o.name||'The other player'}'s tickets`; }
       else if(ci.type==='cab'){ const cab=ci.cab; const m=stripOf(cab,true); txt = m ? `🎟️ ${m.n} tickets are waiting — ${how} to collect` : `${cab.def.name} — ${how} to play`; if(CABS.indexOf(cab)!==cur){ cur=CABS.indexOf(cab); updateCounter(cab); } }
     }
+    else if(SEAT.on && !overlayOpen()) txt = IS_TOUCH ? 'Sitting — move the stick or tap the bench to stand up' : 'Sitting — press <b>W</b> or <b>Enter</b> to stand up';
     else if(player.z>9 && !overlayOpen() && t<40) txt = IS_TOUCH ? 'Walk forward into the arcade — drag bottom-left' : 'Walk forward with <b>W</b> or <b>↑</b> — or press <b>E</b> to jump to a machine';
     if(txt!==lastHint){ lastHint=txt; $('#hint').innerHTML=txt; $('#hint').classList.toggle('on',!!txt); }
     if(!centreCab && cur<0 && (Math.floor(t*2)%4===0)) updateCounter(null);
@@ -10256,7 +10304,7 @@ function frame(){
   window.__arcadeReady=true;
   requestAnimationFrame(frame);
 })();
-window.__arcade = { openLaunch, pick, infoOf, handleTap, GAL, GALST, GT, GW, openGallery, closeGallery, galFire, galAimAt, blocked, ALLEY, ALLEYS, openAlley, closeAlley, rollBall, hitList, camera, BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
+window.__arcade = { SEAT, BENCHES, sitOn, standUp, openLaunch, pick, infoOf, handleTap, GAL, GALST, GT, GW, openGallery, closeGallery, galFire, galAimAt, blocked, ALLEY, ALLEYS, openAlley, closeAlley, rollBall, hitList, camera, BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
 addEventListener('pagehide', ()=>{ if(Net.connected) leaveRoom(); });
 </script>
 </body>
