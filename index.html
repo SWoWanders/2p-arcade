@@ -113,6 +113,10 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
 /* ---------- game screen ---------- */
 #game{position:fixed; inset:0; z-index:30; background:#030208; display:flex; flex-direction:column}
 #game[hidden]{display:none}
+.booth #game{background:transparent}
+.booth .hud, .booth .reticle, .booth .hint, .booth .map, .booth .stick, .booth .stick-hint, .booth #side, .booth .handp, .booth #catchBtn{display:none!important}
+.booth .gbar{background:transparent; border-color:transparent; box-shadow:none}
+.booth .gstat{visibility:hidden}
 .gbar{flex:none; display:flex; align-items:center; gap:8px; padding:max(6px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 6px max(8px, env(safe-area-inset-left)); background:rgba(5,4,10,.95); border-bottom:2px solid #22264a; min-height:66px}
 .gbar .btn{min-height:50px; min-width:50px; font-size:18px; padding:0 12px}
 .gstat{flex:1; display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; font-weight:700}
@@ -4497,6 +4501,1024 @@ game({
 });
 
 /* =====================================================================
+   LUNKER LAKE — a two-rod fishing derby.
+   The booth in Arcade 2 (44-fish-booth.js) has two rod-and-reel
+   controllers in front of one big screen. This file is the game: the
+   lake, the fish and the line / rod / drag physics. The screen art is in
+   29e-fish-art.js.
+   Units: metres, kilograms, newtons, seconds. Weights shown in pounds.
+   x = left/right (0 = middle of the dock), z = distance out from the
+   dock, d = depth below the surface (down is +), y = height above water.
+   ===================================================================== */
+const FI = {
+  TIME: 240, BAG: 5, GO: 2.6,
+  BREAK: 53,         // 12 lb monofilament ≈ 53 N
+  STRETCH: .2,       // mono stretches about 20% before it breaks
+  K_ROD: 42,         // rod tip stiffness, N per metre of deflection (medium power)
+  ROD_L: 2.1, ROD_Y: 1.2, ROD_Z: -.4,
+  REEL: 1.6,         // metres of line wound in per second at full cranking speed (≈2 handle turns a second)
+  SPOOL: 150,        // metres of line on the reel
+  W: 1280, H: 720, HY: 230, CAM: 12, F: 1280, EYE: 4.6,
+  Z1: 58,
+  BASE: [-1.5, 1.5],
+  LURES: [
+    { id:'pop',   name:'Popper',    range:30, col:'#ffd23a', tip:'Topwater — twitch it and pause' },
+    { id:'crank', name:'Crankbait', range:38, col:'#ff6a3a', tip:'Dives when you reel — steady retrieve' },
+    { id:'jig',   name:'Jig',       range:41, col:'#7dff6a', tip:'Sinks to the bottom — hop it with the rod' } ],
+  COVER: [
+    { k:'weeds',  x:-8.5, z:12,  rx:3.4, rz:2.6 },
+    { k:'pads',   x:-12.5,z:23,  rx:3.4, rz:4.6 },
+    { k:'log',    x:13.2, z:17.5,rx:4.8, rz:.9, ang:.55 },
+    { k:'weeds',  x:9.5,  z:27,  rx:2.8, rz:2.4 },
+    { k:'stumps', x:-3.5, z:33,  rx:3.0, rz:2.4 },
+    { k:'rocks',  x:18.5, z:38,  rx:3.0, rz:2.8 },
+    { k:'weeds',  x:-16,  z:40,  rx:3.5, rz:3.2 } ],
+};
+/* the fish — real Ontario lake species; numbers are game-tuned but follow the real fish:
+   w = weight range in lb, dep = depth range m, lure = how much each lure appeals, v / vt = favourite retrieve speed,
+   pow = burst pull per kg, vmax = burst speed m/s, stam = stamina, jump = how often it leaps, nib = nibbles before biting,
+   win = seconds it holds the lure before spitting it, cover = runs for cover */
+FI.SP = [
+  { id:'gill',   name:'Bluegill',        w:[.25,1.2], n:5, skew:1.6, dep:[.4,2.6],  hab:['weeds','pads'],  lure:{pop:.7,crank:.25,jig:1},  v:.25, vt:.32, pow:2.5, vmax:2.0, stam:.55, jump:0,   nib:3, win:.55, len:.75, eager:1.2 },
+  { id:'perch',  name:'Yellow Perch',    w:[.3,1.6],  n:4, skew:1.8, dep:[1.5,5],   hab:['weeds','open'],  lure:{pop:.15,crank:.7,jig:1},  v:.35, vt:.35, pow:2.4, vmax:2.2, stam:.6,  jump:0,   nib:2, win:.6,  len:1,   eager:1.1 },
+  { id:'lmb',    name:'Largemouth Bass', w:[1,9.5],   n:4, skew:2.3, dep:[.5,4],    hab:['weeds','pads','log'], lure:{pop:1,crank:.8,jig:.9}, v:.5, vt:.45, pow:2.9, vmax:3.6, stam:1,   jump:.55, nib:0, win:.95, len:1,   cover:true, charge:.12 },
+  { id:'smb',    name:'Smallmouth Bass', w:[1,6.5],   n:3, skew:2.2, dep:[1,5],     hab:['rocks','stumps'], lure:{pop:.7,crank:1,jig:.9}, v:.6, vt:.5,  pow:3.3, vmax:3.8, stam:1.25,jump:.8,  nib:0, win:.75, len:1 },
+  { id:'pike',   name:'Northern Pike',   w:[3,21],    n:2, skew:2.6, dep:[.8,4],    hab:['weeds','pads'],  lure:{pop:.55,crank:1,jig:.4}, v:.95, vt:.55, pow:2.6, vmax:4.6, stam:1.1, jump:.15, nib:0, win:.7,  len:1.35, cover:true },
+  { id:'walleye',name:'Walleye',         w:[1.5,10],  n:3, skew:2.4, dep:[3.5,9],   hab:['ledge','deep'],  lure:{pop:0,crank:.6,jig:1},   v:.2,  vt:.3,  pow:2.4, vmax:3.0, stam:.9,  jump:0,   nib:1, win:.5,  len:1.1, deep:true },
+  { id:'cat',    name:'Channel Catfish', w:[2.5,24],  n:2, skew:2.6, dep:[5,11],    hab:['deep'],          lure:{pop:0,crank:.2,jig:1},   v:.05, vt:.28, pow:2.5, vmax:3.0, stam:1.5, jump:0,   nib:1, win:1.1, len:1.1, deep:true },
+  { id:'musky',  name:'Muskellunge',     w:[12,42],   n:1, skew:2.2, dep:[1,5],     hab:['weeds','log','open'], lure:{pop:.6,crank:1,jig:.3}, v:1.0, vt:.6, pow:2.2, vmax:4.8, stam:1.4, jump:.3, nib:0, win:.7, len:1.4, cover:true, musky:true },
+];
+const FI_G=9.81;
+const fiHW = z => 9 + Math.max(0,z)*.33;                       // half-width of the lake at distance z
+const fiIn = (x,z) => z>.6 && z<FI.Z1-.6 && Math.abs(x)<fiHW(z)-.5;
+function fiDepth(x,z){
+  let d = .55 + z*.085;
+  d += 2.6/(1+Math.exp(-(z-21)*.6));                              // drop-off ledge about 21 m out
+  d += 3.4*Math.exp(-((x-6)**2/80 + (z-42)**2/70));             // the deep hole
+  d -= 1.1*Math.exp(-((x+10)**2/30 + (z-16)**2/60));            // weedy flats on the left
+  d -= 2.6*Math.exp(-((x-18.5)**2 + (z-38)**2)/14);             // rock point
+  d -= 1.4*Math.exp(-((x+3.5)**2 + (z-33)**2)/10);              // stump field (an old drowned hilltop)
+  d *= clamp((fiHW(z)-Math.abs(x))/4.5, .1, 1);                 // shallow along the banks
+  d *= clamp((FI.Z1-z)/7, .1, 1);
+  return clamp(d, .35, 11.5);
+}
+function fiCover(x,z,pad=0){
+  for(const C of FI.COVER){ let dx=x-C.x, dz=z-C.z; if(C.ang){ const c=Math.cos(C.ang), s=Math.sin(C.ang); const a=dx*c-dz*s, b=dx*s+dz*c; dx=a; dz=b; }
+    if((dx/(C.rx+pad))**2+(dz/(C.rz+pad))**2<1) return C; }
+  return null;
+}
+const FI_TIP={x:0,y:0,z:0}, FI_RD={x:0,y:0,z:0};
+function fiTip(P, o=FI_TIP){ const cp=Math.cos(P.rp); o.x=P.bx+FI.ROD_L*Math.sin(P.ry)*cp; o.y=FI.ROD_Y+FI.ROD_L*Math.sin(P.rp); o.z=FI.ROD_Z+FI.ROD_L*Math.cos(P.ry)*cp; return o; }
+function fiLb(w){ if(!(w>0)) return '0 lb'; let lb=Math.floor(w), oz=Math.round((w-lb)*16); if(oz===16){ lb++; oz=0; } return lb ? (oz?`${lb} lb ${oz} oz`:`${lb} lb`) : `${oz} oz`; }
+const fiTot = P => P.bag.slice(0,FI.BAG).reduce((a,b)=>a+b.w,0);
+const fiKg = lb => lb*.4536;
+function fiMsg(P, txt, sec=1.8, col='#f6ecd2'){ P.msg=txt; P.msgT=sec; P.mc=col; }
+function fiEv(s, k, x, z, p=-1, a=0){ s.evn=(s.evn||0)+1; s.ev.push({ i:s.evn, k, x:+x.toFixed(2), z:+z.toFixed(2), p, a }); if(s.ev.length>14) s.ev.shift(); }
+function fiFish(s, spi){
+  const sp=FI.SP[spi]; let x=0, z=20, tries=0;
+  do{ tries++;
+    const hab=sp.hab[ri(sp.hab.length)];
+    if(hab==='deep'){ x=rnd(-3,14); z=rnd(34,50); }
+    else if(hab==='ledge'){ x=rnd(-14,14); z=rnd(19,27); }
+    else if(hab==='open'){ x=rnd(-14,14); z=rnd(12,50); }
+    else { const cs=FI.COVER.filter(C=>C.k===hab); const C=cs[ri(cs.length)]||FI.COVER[0]; x=C.x+rnd(-1,1)*(C.rx+2.5); z=C.z+rnd(-1,1)*(C.rz+2.5); }
+  } while(tries<30 && (!fiIn(x,z) || z<7 || fiDepth(x,z)<Math.min(sp.dep[0]*.8+.3, 2)));
+  const w=sp.w[0]+(sp.w[1]-sp.w[0])*Math.pow(Math.random(), sp.skew);
+  const bot=fiDepth(x,z), d=clamp(rnd(sp.dep[0],sp.dep[1]), .25, bot-.15);
+  return { i:s.fid++, sp:spi, w:+w.toFixed(2), x, z, d, h:rnd(-3.1,3.1), vx:0, vz:0, vd:0, hx:x, hz:z, tx:x, tz:z, td:d, spd:.2,
+    st:'roam', tg:-1, t:0, bt:0, beh:'', eff:0, wh:0, pv:0, St:1, air:0, ah:0, avy:0, hun:rnd(.55,1), wary:0, nb:0, wm:1, tail:rnd(0,TAU) };
+}
+
+game({
+  id:'fish', name:'Lunker Lake', color:'#2fe0c0', color2:NEON.orange, kind:'field', screen:true, noRotate:true, booth:true, touch:'drag', solo:true, netDt:1/20, netRound:3,
+  W:1280, H:720,
+  blurb:'A fishing derby for two rods. Cast, work your lure until a fish bites, set the hook, then play it on the line without snapping it or letting it throw the hook. Heaviest five fish when the timer runs out wins.',
+  cpuText:'🤖 Fish against the computer<small>A computer angler on the other rod</small>',
+  soloText:'🎣 Solo derby<small>Just you — set your best bag weight</small>',
+  how:{ touch:'<b>Flick up</b> on the water to cast (faster flick = longer cast). <b>Drag the rod stick</b> (left) to move the rod — flick it up to set the hook. <b>Spin the reel</b> (right) with your thumb to wind in. Lure and drag buttons sit by the reel.',
+    keys:'<b>Hold Space</b> to wind up a cast, let go to cast. <b>A / D</b> aim and swing the rod, <b>W</b> raises it (tap it hard to set the hook), <b>S</b> lowers it. <b>Hold Space</b> reels (or spin the <b>mouse wheel</b>). <b>R</b> changes lure, <b>Q / E</b> loosen / tighten the drag.',
+    keys2:'Same device: left rod <b>W A S D</b> + <b>Space</b> (reel / cast) + <b>G</b> (lure; hold G with W/S for drag). Right rod <b>arrows</b> + <b>Enter</b> + <b>Shift (right)</b>.',
+    pad:'Left stick moves the rod (flick up to set the hook). <b>RT</b> or Ⓐ reels — hold and let go to cast. Ⓧ changes lure, <b>LB / RB</b> drag.' },
+  init(o){
+    const solo=o.mode==='solo';
+    const s={ t:0, time:FI.TIME, go:FI.GO, tod:0, ot:0, over:false, winner:-1, solo, fish:[], fid:1, rq:[], ev:[], evn:0, fz:null, fzT:rnd(40,60), loon:{ x:-6, z:52, t:0, dive:0 } };
+    const mk=p=>({ p, bx:FI.BASE[p], ph:'ready', lure: p?1:0, drag:.45, ry:0, rp:.5, reel:0, ch:-1, L:0, T:0, vs:0, slack:0, e0:0,
+      lx:0, lz:0, ld:0, lv:0, still:0, ft:0, fd:1, fx0:0, fz0:0, ftx:0, ftz:0, fy0:0, fh:2, bite:-1, fish:-1, nib:0, snag:0, foul:0, rub:0, slT:0,
+      cue:'', msg:'', msgT:0, mc:'', card:null, bag:[], tot:0, pt:0, lastJerk:-9, popT:-9, splT:-9, lastCast:-9 });
+    s.pl = solo ? [mk(0)] : [mk(0), mk(1)];
+    if(solo) s.pl[0].bx=0;
+    FI.SP.forEach((sp,i)=>{ for(let k=0;k<sp.n;k++){ if(sp.musky && Math.random()<.35) continue; s.fish.push(fiFish(s,i)); } });
+    return s;
+  },
+  /* ------------------------------------------------------------------ simulation */
+  tick(s, dt, inp){
+    if(s.over) return;
+    s.t+=dt;
+    if(s.go>0) s.go=Math.max(0,s.go-dt);
+    else if(s.time>0){ s.time=Math.max(0,s.time-dt); }
+    s.tod = 1-s.time/FI.TIME;
+    // feeding frenzy: birds and baitfish over one spot, everything nearby gets hungry
+    s.fzT-=dt;
+    if(s.fz){ s.fz.t+=dt; if(s.fz.t>22) s.fz=null; }
+    else if(s.fzT<=0 && s.time>25){ s.fzT=rnd(50,75); const spots=[[-8,14],[9,27],[-3,31],[4,22],[-13,38],[16,34]]; const q=spots[ri(spots.length)]; s.fz={ x:q[0]+rnd(-2,2), z:q[1]+rnd(-2,2), t:0 }; fiEv(s,'frenzy',s.fz.x,s.fz.z); }
+    // the loon
+    const ln=s.loon; ln.t+=dt; if(ln.dive>0){ ln.dive-=dt; if(ln.dive<=0){ ln.x=clamp(ln.x+rnd(-6,6),-18,18); ln.z=clamp(ln.z+rnd(-5,3),40,55); fiEv(s,'loonup',ln.x,ln.z); } }
+    else { ln.x+=Math.sin(ln.t*.07)*.25*dt; if(Math.random()<dt/14){ ln.dive=rnd(6,12); fiEv(s,'loondive',ln.x,ln.z); } if(Math.random()<dt/30) fiEv(s,'looncall',ln.x,ln.z); }
+    for(const P of s.pl) this._player(s, P, inp[P.p]||{}, dt);
+    for(const F of s.fish) if(F.st!=='hooked') this._fishAI(s, F, dt);
+    // fish that left get replaced so the lake never empties
+    for(let i=s.rq.length-1;i>=0;i--){ s.rq[i].t-=dt; if(s.rq[i].t<=0){ s.fish.push(fiFish(s, s.rq[i].sp)); s.rq.splice(i,1); } }
+    for(let i=s.fish.length-1;i>=0;i--) if(s.fish[i].st==='gone') s.fish.splice(i,1);
+    // the end: the clock stops casting, but a fish already on the line can still be landed
+    if(s.time<=0 && s.go<=0){
+      const busy = s.pl.some(P=>P.ph==='fight' || P.bite>=0 || P.ph==='land');
+      if(!busy || s.ot>50){ this._finish(s); }
+      else s.ot+=dt;
+    }
+  },
+  _finish(s){
+    s.over=true;
+    for(const P of s.pl){ P.tot=fiTot(P); }
+    if(s.solo){ s.winner=0; const best=+(store('fish-best')||0); s.best=best; if(s.pl[0].tot>best){ store('fish-best', String(s.pl[0].tot.toFixed(2))); s.newBest=true; } return; }
+    const a=+s.pl[0].tot.toFixed(2), b=+s.pl[1].tot.toFixed(2);
+    s.winner = a>b ? 0 : b>a ? 1 : -1;
+  },
+  _player(s, P, I, dt){
+    // the rod pose is simulated on the angler's own device and arrives with the input
+    if(I.ry!=null){ P._ryv=lerp(P._ryv||0, Math.abs(clamp(+I.ry||0,-.9,.9)-P.ry)/Math.max(dt,1e-3), 1-Math.exp(-dt*5)); P.ry=clamp(+I.ry||0,-.9,.9); P.rp=clamp(+I.rp||0,-.35,1.35); }
+    P.reel=clamp(+I.reel||0,0,1); if(I.dr!=null) P.drag=clamp(+I.dr,.15,1.1); P.ch = I.ch!=null ? +I.ch : -1;
+    const edge=(k,ik)=>{ const v=I[ik]; if(v==null) return false; if(P[k]==null){ P[k]=v; return false; } if(v!==P[k]){ P[k]=v; return true; } return false; };
+    const jerk=edge('_jn','jn'), cast=edge('_cn','cn'), lureSw=edge('_ln','ln');
+    const js = jerk ? clamp(+I.js||0,0,9) : 0;
+    if(P.msgT>0) P.msgT-=dt;
+    if(P.card){ P.card.t+=dt; if(P.card.t>3.4) P.card=null; }
+    P.cue='';
+    if(P.ph==='ready'){
+      P.L=0; P.T=0; P.vs=0; P.slack=0; P.bite=-1; P.fish=-1;
+      const tp=fiTip(P); P.lx=tp.x; P.lz=tp.z; P.ld=-tp.y;
+      if(lureSw){ P.lure=(P.lure+1)%FI.LURES.length; fiMsg(P, FI.LURES[P.lure].name, 1.2, FI.LURES[P.lure].col); }
+      if(cast && s.go<=0 && s.time>0){
+        const pw=clamp(+I.cp||0,0,1), aim=clamp(+I.ca||0,-.95,.95), lt=FI.LURES[P.lure];
+        let dist=(4+pw*lt.range)*(1+rnd(-.04,.04)); const ax=aim+rnd(-1,1)*.035*(.3+pw);
+        let tx=P.bx+Math.sin(ax)*dist, tz=FI.ROD_Z+1.4+Math.cos(ax)*dist;
+        tz=clamp(tz, 2.5, FI.Z1-1.2); const hw=fiHW(tz)-.7; if(Math.abs(tx)>hw){ tx=Math.sign(tx)*hw; fiMsg(P,'Too close to the reeds!',1.4); }
+        P.ph='fly'; P.ft=0; P.fd=.42+dist/36; P.fx0=tp.x; P.fz0=tp.z; P.fy0=tp.y; P.ftx=tx; P.ftz=tz; P.fh=1.2+dist*.16; P.lastCast=s.t;
+        fiEv(s,'cast',tp.x,tp.z,P.p,pw);
+      }
+      return;
+    }
+    if(P.ph==='fly'){
+      P.ft+=dt; const k=clamp(P.ft/P.fd,0,1), tp=fiTip(P);
+      P.lx=lerp(P.fx0,P.ftx,k); P.lz=lerp(P.fz0,P.ftz,k); P.ld=-(lerp(P.fy0,0,k)+P.fh*4*k*(1-k));
+      P.L=Math.hypot(P.lx-tp.x, -P.ld-tp.y, P.lz-tp.z)+.3; P.T=0; P.slack=.3;
+      if(k>=1){ P.ph='water'; P.ld=0; P.L+=.9; P.still=0; P.lv=0; P.foul=0; P.snag=0; P.splT=s.t; P.nib=0; P.bite=-1;
+        fiEv(s,'splash',P.lx,P.lz,P.p,P.lure);
+        // a lure slapping down right on top of a fish spooks it; a popper's plop draws bass in from further away
+        for(const F of s.fish){ if(F.st==='hooked') continue; const d=Math.hypot(F.x-P.lx,F.z-P.lz); if(d<1.3 && F.d<2.5){ this._spook(F, P.lx, P.lz, 6); } } }
+      return;
+    }
+    if(P.ph==='land' || P.ph==='lost'){ P.pt-=dt; P.T=0; P.vs=0; P.L=Math.max(0,P.L-dt*8); if(P.pt<=0){ P.ph='ready'; P.cue=''; } return; }
+    if(P.ph==='water') return this._lure(s, P, dt, jerk, js);
+    if(P.ph==='fight') return this._fight(s, P, dt, jerk, js);
+  },
+  _spook(F, x, z, sec){ F.st='spook'; F.t=0; F.wary=Math.max(F.wary,sec); F.tg=-1; F.wh=Math.atan2(F.x-x, F.z-z); },
+  _lure(s, P, dt, jerk, js){
+    const tp=fiTip(P), lt=FI.LURES[P.lure];
+    if(jerk){ P.lastJerk=s.t; if(P.lure===0){ P.popT=s.t; fiEv(s,'pop',P.lx,P.lz,P.p); } }
+    // a fish has the lure in its mouth: this is the moment to set the hook
+    if(P.bite>=0){
+      const F=s.fish.find(f=>f.i===P.bite);
+      if(!F || F.st!=='bite'){ P.bite=-1; }
+      else {
+        P.lx=F.x; P.lz=F.z; P.ld=F.d; P.cue='bite';
+        P.L=Math.max(.3, P.L-P.reel*FI.REEL*dt);
+        const D=Math.hypot(P.lx-tp.x, -P.ld-tp.y, P.lz-tp.z); P.slack=Math.max(0,P.L-D);
+        if(D>P.L){ P.L=D; P.T=1.5+F.w*.3; } else P.T=0;
+        const reelSet = P.reel>.75 && P.slack<.2 && F.t>.25;
+        if(jerk || reelSet){
+          let q = jerk ? clamp((js-1.3)/2.4,.25,1) : .38; q*=clamp(1-P.slack/2.4,0,1);
+          if(q<.16){ fiMsg(P,'Too much slack — reel it tight first!',2.2,NEON.yellow); F.st='spook'; F.t=0; F.wary=8; F.wh=Math.atan2(F.x-P.bx,F.z); P.bite=-1; fiEv(s,'miss',F.x,F.z,P.p); }
+          else this._hook(s,P,F,q);
+        }
+        return;
+      }
+    }
+    if(jerk && P.nib>0 && P.bite<0){ // jerked on a nibble — pulled it away from the fish
+      fiMsg(P,'Just a nibble — wait for the real bite!',2,NEON.yellow);
+      for(const F of s.fish) if(F.st==='follow' && F.tg===P.p && Math.random()<.5) this._spook(F,P.lx,P.lz,5);
+      P.nib=0;
+    }
+    P.nib=Math.max(0,P.nib-dt);
+    // snagged on a stump or a log: tension builds as you pull; jerk the rod to pop it free
+    if(P.snag){
+      const D=Math.hypot(P.lx-tp.x, -P.ld-tp.y, P.lz-tp.z);
+      P.L=Math.max(.3, P.L-P.reel*FI.REEL*dt*.5);
+      const e=D-P.L; P.slack=Math.max(0,-e);
+      P.T = e>0 ? e*FI.BREAK/(FI.STRETCH*Math.max(P.L,1)+.4) : 0;
+      if(jerk && Math.random()<.45){ P.snag=0; fiMsg(P,'Popped it free!',1.4,NEON.green); P.L=D; }
+      else if(P.T>FI.BREAK){ fiMsg(P,'SNAPPED OFF! Tying on a new lure…',2.4,NEON.red); fiEv(s,'snap',P.lx,P.lz,P.p); P.ph='lost'; P.pt=2.2; P.snag=0; }
+      return;
+    }
+    const L0=P.L;
+    P.L=Math.max(.3, P.L-P.reel*FI.REEL*dt);
+    const dx=P.lx-tp.x, dz=P.lz-tp.z, dy=-P.ld-tp.y, D=Math.hypot(dx,dy,dz);
+    let moved=0;
+    if(D>P.L){ // the line pulls the lure toward the rod tip
+      const Dh=Math.hypot(dx,dz), Dh2=Math.sqrt(Math.max(0, P.L*P.L-dy*dy)), cut=Math.min(Dh, Dh-Dh2);
+      if(Dh>1e-4 && cut>0){ P.lx-=dx/Dh*cut; P.lz-=dz/Dh*cut; moved=cut; }
+      if(Dh2<=0) P.ld=Math.max(0,P.ld-Math.min(P.ld, (D-P.L)));
+    }
+    const v=moved/Math.max(dt,1e-3); P.lv=lerp(P.lv, v, 1-Math.exp(-dt*6));
+    const tight = D>=P.L-.02;
+    P.slack=Math.max(0,P.L-D); if(!tight && P.L>L0-1e-3) P.slack=Math.max(P.slack,.02);
+    if(P.lv<.06) P.still+=dt; else P.still=0;
+    // depth: each lure has its own way of moving through the water
+    const bot=fiDepth(P.lx,P.lz);
+    const Dh=Math.hypot(P.lx-tp.x,P.lz-tp.z);
+    if(P.lure===0) P.ld=0;
+    else if(P.lure===1){ const tgt=Math.min(3.1*clamp(P.lv/.75,0,1.1), bot-.12, Dh*.45);
+      if(P.ld<tgt) P.ld=Math.min(tgt, P.ld+1.4*dt*clamp(P.lv/.4,.2,1)); else P.ld=Math.max(0, P.ld-.28*dt); }
+    else { if(!tight || P.lv<.15) P.ld=Math.min(bot-.05, P.ld+.45*dt); else P.ld=Math.max(.15, P.ld-P.lv*.75*dt);
+      if(jerk && tight) P.ld=Math.max(.1, P.ld-.55); P.ld=Math.min(P.ld, Dh*.8); }
+    P.T = tight ? .6+7*P.lv*P.lv+(P.foul?1.2:0) : 0;
+    // snags and weeds
+    const C=fiCover(P.lx,P.lz);
+    if(C && P.lure>0 && P.lv>.08){
+      if((C.k==='stumps'||C.k==='log'||C.k==='rocks') && P.ld>bot-.6 && Math.random()<dt*(P.lure===2?.55:.3)){ P.snag=1; fiMsg(P,'SNAGGED! Jerk the rod to free it',2.4,NEON.orange); fiEv(s,'snag',P.lx,P.lz,P.p); }
+      else if((C.k==='weeds'||C.k==='pads') && !P.foul && P.ld>.4 && Math.random()<dt*.35){ P.foul=1; fiMsg(P,'Weeds on your lure — rip it free with the rod!',2.4,NEON.yellow); }
+    }
+    if(P.foul && jerk && js>3 && Math.random()<.6){ P.foul=0; fiMsg(P,'Ripped it clean',1.2,NEON.green); }
+    // lure back at the dock
+    if(Math.hypot(P.lx-P.bx, P.lz)<2.1 || (Dh<.9)){ P.ph='ready'; P.ld=0; if(P.foul){ fiMsg(P,'Cleaned the weeds off',1.2); P.foul=0; } }
+  },
+  _hook(s, P, F, q){
+    F.st='hooked'; F.tg=P.p; F.St=1; F.beh=''; F.bt=.25; F.eff=.7; F.wh=Math.atan2(F.x-P.bx,F.z); F.vx=F.vz=F.vd=0; F.air=0;
+    P.ph='fight'; P.fish=F.i; P._H=.42+.58*q; P.bite=-1; P.vs=0; P.e0=0; P.ft=0; P.rub=0; P.slT=0; P.snag=0;
+    const tp=fiTip(P), D=Math.hypot(F.x-tp.x, F.d+tp.y, F.z-tp.z); P.L=Math.min(Math.max(P.L,D-.15), D+.05); P.e0=D-P.L; P._tp={x:tp.x,y:tp.y,z:tp.z};
+    fiMsg(P, q>.7?'FISH ON! Solid hookset!':'FISH ON!', 1.6, NEON.green); fiEv(s,'hook',F.x,F.z,P.p,F.w);
+  },
+  _fishAI(s, F, dt){
+    const sp=FI.SP[F.sp];
+    F.wary=Math.max(0,F.wary-dt);
+    let tx=F.tx, tz=F.tz, td=F.td, spd=F.spd;
+    if(F.st==='roam'){
+      F.bt-=dt;
+      if(F.bt<=0){ F.bt=rnd(2,6); const a=rnd(0,TAU), r=rnd(0,5.5); F.tx=F.hx+Math.cos(a)*r; F.tz=F.hz+Math.sin(a)*r;
+        if(!fiIn(F.tx,F.tz)){ F.tx=F.hx; F.tz=F.hz; } F.td=clamp(rnd(sp.dep[0],sp.dep[1]),.25,fiDepth(F.tx,F.tz)-.15); F.spd=rnd(.15,.45); }
+      tx=F.tx; tz=F.tz; td=F.td; spd=F.spd;
+      for(const P of s.pl){ if(P.ph!=='water' || P.bite>=0 || P.snag) continue;
+        const dh=Math.hypot(P.lx-F.x,P.lz-F.z), dd=Math.abs(P.ld-F.d);
+        if(dh>10) continue;
+        const I=this._interest(s,F,P); if(I<=.02) continue;
+        const R=(3.4+4.6*I)*(P.lure===0?1.2:1)*(s.t-P.popT<1.3?1.6:1)*(s.t-P.splT<3?1.35:1);
+        const vr = P.lure===0 ? 3.4 : 2.3;
+        if(dh<R && dd<vr && Math.random()<dt*2.4*Math.min(1,I+.15)){ F.st='follow'; F.tg=P.p; F.t=0; F.nb = sp.nib ? ri(sp.nib+1) : 0; F.chk=0; break; }
+      }
+    }
+    else if(F.st==='follow'){
+      const P=s.pl[F.tg];
+      if(!P || P.ph!=='water' || P.bite>=0 || P.snag){ F.st='roam'; F.bt=0; }
+      else {
+        F.t+=dt; F.chk-=dt;
+        // swim up behind the lure
+        const tp=fiTip(P), ax=tp.x-P.lx, az=tp.z-P.lz, al=Math.hypot(ax,az)||1;
+        tx=P.lx-ax/al*.38; tz=P.lz-az/al*.38; td=P.lure===0 ? Math.max(.25,Math.min(F.d,1.2)) : P.ld; spd=Math.min(sp.vmax*.55, Math.max(P.lv+.55,.5));
+        const dl=Math.hypot(P.lx-F.x, P.lz-F.z, (P.ld-F.d)*.7);
+        const nearDock=Math.hypot(P.lx-P.bx,P.lz)<4.2;
+        if(F.chk<=0){ F.chk=.25;
+          const I=this._interest(s,F,P);
+          if(I<.06 && F.t>1.2){ F.st='roam'; F.bt=0; F.wary=3; }
+          else if(dl<1.0){
+            let p=.15*I;
+            if(P.still>.15 && P.still<1.5) p+=.32*I;     // fish so often hit on the pause…
+            if(s.t-P.lastJerk<.5) p+=.24*I;              // …or on the twitch
+            if(sp.musky){ const sweep=(P._ryv||0)>.9; /* a figure-eight at the dock */ p = nearDock ? (sweep ? .5 : .04) : .012; }
+            if(Math.random()<p){
+              if(F.nb>0){ F.nb--; P.nib=.35; fiEv(s,'nib',P.lx,P.lz,P.p); F.t=Math.min(F.t,.5); }
+              else { F.st='bite'; F.t=0; F.wm=rnd(.8,1.3); P.bite=F.i; P.nib=0; fiEv(s,'bite',P.lx,P.lz,P.p,F.sp); if(P.lure===0) fiEv(s,'strike',P.lx,P.lz,P.p,F.w); }
+            }
+          }
+        }
+        if(F.st==='follow'){
+          if(nearDock && !sp.musky){ F.st='roam'; F.bt=0; F.wary=2; }
+          else if(nearDock && sp.musky && F.t>3){ this._spook(F,P.bx,0,20); fiMsg(P,'A HUGE shadow followed your lure to the dock…',3,NEON.yellow); }
+          else if(F.t>10){ F.st='roam'; F.bt=0; F.wary=3; }
+        }
+      }
+    }
+    else if(F.st==='bite'){
+      F.t+=dt; const P=s.pl[F.tg];
+      if(!P || P.bite!==F.i){ F.st='roam'; F.bt=0; }
+      else if(F.t>sp.win*F.wm){ P.bite=-1; this._spook(F,P.bx,0,8); fiMsg(P,'It spat the lure!',1.8,NEON.yellow); fiEv(s,'miss',F.x,F.z,P.p); }
+      else { const a=Math.atan2(F.x-P.bx,F.z)+Math.sin(F.i)*.8; tx=F.x+Math.sin(a); tz=F.z+Math.cos(a); td=F.d; spd=sp.deep||P.lure===2 ? .35 : .12; }
+    }
+    else if(F.st==='spook'){
+      F.t+=dt; tx=F.x+Math.sin(F.wh)*3; tz=F.z+Math.cos(F.wh)*3; td=Math.min(fiDepth(F.x,F.z)-.2, F.d+1); spd=sp.vmax*.55;
+      if(F.t>1.6){ F.st='roam'; F.bt=0; }
+    }
+    // steer
+    let dx=tx-F.x, dz=tz-F.z; const L=Math.hypot(dx,dz);
+    const want = L>.05 ? Math.min(spd, L*1.2) : 0;
+    const dvx = L>.05 ? dx/L*want : 0, dvz = L>.05 ? dz/L*want : 0, k=1-Math.exp(-dt*2.2);
+    F.vx+=(dvx-F.vx)*k; F.vz+=(dvz-F.vz)*k;
+    let nx=F.x+F.vx*dt, nz=F.z+F.vz*dt; if(!fiIn(nx,nz)){ F.vx*=-.5; F.vz*=-.5; nx=F.x; nz=F.z; F.bt=0; }
+    F.x=nx; F.z=nz;
+    const sv=Math.hypot(F.vx,F.vz); if(sv>.03) F.h=Math.atan2(F.vx,F.vz);
+    F.d+=clamp(td-F.d,-.5*dt,.5*dt); F.d=clamp(F.d,.1,fiDepth(F.x,F.z)-.08);
+    F.tail+=dt*(2.5+sv*7);
+  },
+  _interest(s, F, P){
+    if(P.foul || F.wary>0) return 0;
+    const sp=FI.SP[F.sp], lm=sp.lure[FI.LURES[P.lure].id]; if(!lm) return 0;
+    const sm=Math.exp(-(((P.lv-sp.v)/(sp.vt*1.35))**2));
+    const bot=fiDepth(P.lx,P.lz);
+    const restOK = (P.lure===2 && P.ld>bot-.45) || P.lure===0 ? .62 : .15;
+    const spd=Math.max(sm, P.still>0 ? restOK : 0);
+    let todK=1; if(P.lure===0) todK=1.45-.85*s.tod; if(sp.id==='walleye') todK=1.35-.6*s.tod;
+    const fr = s.fz && Math.hypot(F.x-s.fz.x,F.z-s.fz.z)<11 ? 2.3 : 1;
+    const depthOK = P.lure===0 ? (F.d<3.6 ? 1 : .2) : clamp(1-Math.abs(P.ld-F.d)/2.6, 0, 1);
+    return clamp(lm*spd*F.hun*todK*fr*depthOK*(sp.eager||1), 0, 1.6);
+  },
+  _fight(s, P, dt, jerk, js){
+    const F=s.fish.find(f=>f.i===P.fish); if(!F){ P.ph='ready'; return; }
+    const sp=FI.SP[F.sp], kg=fiKg(F.w), m=kg*1.6+.05;
+    const Fmax=sp.pow*FI_G*Math.pow(kg,.8)+1.5, Cd=Fmax/(sp.vmax*sp.vmax), dragF=P.drag*FI.BREAK;
+    P.ft+=dt;
+    F.bt-=dt; if(F.bt<=0) this._fightBrain(s,F,P,sp);
+    // fish turns toward where it wants to go (head shakes are fast and wild)
+    let want=F.wh; if(F.beh==='shake') want=F.wh+Math.sin(s.t*13+F.i)*.75;
+    const turn=(F.beh==='shake'?7:2.4)*(.3+F.eff);
+    F.h+=clamp(wrapA(want-F.h),-turn*dt,turn*dt);
+    const tp=fiTip(P), tq=P._tp||{x:tp.x,y:tp.y,z:tp.z};
+    // the line pulls the fish's head round; holding the rod off to one side pulls from that side (side pressure)
+    const Dh0=Math.hypot(tp.x-F.x,tp.z-F.z);
+    const pa=Math.atan2(tp.x-F.x,tp.z-F.z) - P.ry*.6*clamp(1-Dh0/30,.15,1);
+    const pullG=P.T/(kg*FI_G+2);
+    F.h+=clamp(wrapA(pa-F.h),-1,1)*.8*pullG*dt;
+    const n=4, h=dt/n; let Tmax=0, Tsum=0;
+    const cp=Math.cos(P.rp); FI_RD.x=Math.sin(P.ry)*cp; FI_RD.y=Math.sin(P.rp); FI_RD.z=Math.cos(P.ry)*cp;
+    for(let k=0;k<n;k++){
+      const kk=(k+1)/n, tx=lerp(tq.x,tp.x,kk), ty=lerp(tq.y,tp.y,kk), tz=lerp(tq.z,tp.z,kk);   // the rod tip moves smoothly through the frame
+      let ux=tx-F.x, uy=ty+F.d, uz=tz-F.z; const D=Math.hypot(ux,uy,uz)||1e-3; ux/=D; uy/=D; uz/=D;     // unit fish → tip (uy is up)
+      const c=-(FI_RD.x*ux+FI_RD.y*uy+FI_RD.z*uz), s2=clamp(1-c*c,0,1);                                     // rod pointing at the fish → no cushion
+      const kEff=1/(FI.STRETCH*Math.max(P.L,.6)/FI.BREAK + s2/FI.K_ROD + .004);
+      const e=D-P.L, ed=clamp((e-P.e0)/h,-6,6); P.e0=e;
+      let T = e>0 ? Math.max(0, kEff*e + .5*Math.sqrt(kEff*m)*ed) : 0;
+      T+=Math.min(3, .0025*P.L*Math.hypot(F.vx,F.vz)*Math.hypot(F.vx,F.vz));              // a long line dragging through the water
+      // the spool slips once tension beats the drag (it needs a little extra to break loose)
+      if(P.vs>0 || T>dragF*1.12){ P.vs=Math.max(0, P.vs+(T-dragF)/.55*h); }
+      P.L+=P.vs*h;
+      if(P.vs<.02 && T<dragF) P.L=Math.max(.4, P.L-P.reel*FI.REEL*h);
+      // the fish
+      const eff=F.eff*(.22+.78*F.St), pv=F.pv;
+      const fx=Math.sin(F.h)*Math.cos(pv), fz=Math.cos(F.h)*Math.cos(pv), fd=Math.sin(pv);
+      const v3=Math.hypot(F.vx,F.vz,F.vd);
+      if(F.air>0){ // out of the water: falls, the line still tugs
+        F.vx+=(T*ux)/m*h*.6; F.vz+=(T*uz)/m*h*.6; F.avy-=FI_G*h; F.ah+=F.avy*h; F.x+=F.vx*h; F.z+=F.vz*h; F.d=-F.ah; F.air+=h;
+        if(F.ah<=0){ F.air=0; F.ah=0; F.d=.05; F.vd=.8; fiEv(s,'reentry',F.x,F.z,P.p,F.w); }
+      } else {
+        const ax=(Fmax*eff*fx + T*ux - Cd*v3*F.vx)/m, az=(Fmax*eff*fz + T*uz - Cd*v3*F.vz)/m, ad=(Fmax*eff*fd - T*uy - Cd*v3*F.vd)/m;
+        F.vx+=ax*h; F.vz+=az*h; F.vd+=ad*h; F.x+=F.vx*h; F.z+=F.vz*h; F.d+=F.vd*h;
+        if(F.d<0){ if(F.beh==='jump' && F.vd<-1.1 && F.St>.15){ F.air=1e-4; F.ah=0; F.avy=clamp(-F.vd*.9,2.2,4.4); F.d=0; fiEv(s,'jump',F.x,F.z,P.p,F.w); }
+          else { F.d=0; if(F.vd<0) F.vd*=-.25; } }
+        const bot=fiDepth(F.x,F.z)-.08; if(F.d>bot){ F.d=bot; if(F.vd>0) F.vd=0; }
+        const hw=fiHW(F.z)-.5; if(Math.abs(F.x)>hw){ F.x=Math.sign(F.x)*hw; F.vx*=-.3; F.bt=Math.min(F.bt,.2); }
+        if(F.z>FI.Z1-1){ F.z=FI.Z1-1; F.vz*=-.3; F.bt=Math.min(F.bt,.2); }
+        if(F.z<.4){ F.z=.4; F.vz=Math.max(0,F.vz); }
+      }
+      Tmax=Math.max(Tmax,T); Tsum+=T;
+    }
+    P._tp={x:tp.x,y:tp.y,z:tp.z};
+    P.T=Tsum/n; P.Tpk=Tmax; P.slack=Math.max(0,-P.e0);
+    P.lx=F.x; P.lz=F.z; P.ld=F.d;
+    F.tail+=dt*(4+Math.hypot(F.vx,F.vz)*6+(F.beh==='shake'?10:0));
+    // stamina: pulling across the way it swims tires a fish fastest
+    const hdx=Math.sin(F.h), hdz=Math.cos(F.h), plx=(tp.x-F.x)/(Dh0||1), plz=(tp.z-F.z)/(Dh0||1);
+    const side=1+1.4*Math.abs(hdx*plz-hdz*plx)*clamp(1-Dh0/35,.25,1)+.6*Math.abs(P.ry)*clamp(1-Dh0/25,0,1);
+    F.St-=dt*(.011*F.eff + .046*Math.pow(P.T/(kg*FI_G),.85)*side)/(sp.stam*Math.pow(kg,.12));
+    if(F.eff<.4 && P.T<.12*kg*FI_G) F.St+=dt*.012;
+    F.St=clamp(F.St,0,1);
+    // trouble
+    const lose=(txt,ev)=>{ fiMsg(P,txt,2.6,NEON.red); fiEv(s,ev,F.x,F.z,P.p,F.w); P.ph='lost'; P.pt=2; P.fish=-1; P.cue='';
+      F.st='spook'; F.t=0; F.wary=25; F.wh=Math.atan2(F.x-P.bx,F.z); F.air=0; F.ah=0; if(F.d<0) F.d=.1; F.tg=-1; };
+    if(Tmax>FI.BREAK){ return lose(P.L<6?'SNAP! Too tight, too close — ease the drag or lower the rod':'SNAP! The line broke','snap'); }
+    if(P.L>FI.SPOOL){ return lose('SPOOLED! It took all your line','snap'); }
+    // hook hold: a soft hookset tears out under heavy load; slack lets head shakes and jumps throw it
+    P._H-=dt*Math.max(0, Tmax/FI.BREAK-(.45+.45*P._H))*2.2;
+    if((F.beh==='shake' || F.air>0) && P.slack>.25) P._H-=dt*(F.air>0?.95:.42)*clamp(P.slack/1.2,.35,1);
+    if(F.air>0 && P.rp>.55 && P.T>.4*FI.BREAK) P._H-=dt*.85;                       // rod held high & tight on a jump
+    if(P.slack>1.4){ P.slT+=dt; if(P.slT>1.5) P._H-=dt*.3; } else P.slT=Math.max(0,P.slT-dt);
+    if(P._H<=0){ return lose(F.air>0?'It jumped and threw the hook!':'It shook the hook!','lost'); }
+    // cover: a fish that reaches weeds, a log or stumps wraps the line around them
+    const C=fiCover(F.x,F.z,.4);
+    if(C && P.L>5 && F.d>.2){ P.rub+=dt*(C.k==='weeds'||C.k==='pads'?.55:1);
+      if(P.rub>2.6) return lose(C.k==='weeds'||C.k==='pads'?'Buried in the weeds — line cut':`Wrapped round the ${C.k==='log'?'log':C.k==='rocks'?'rocks':'stumps'} — line cut`,'snap'); }
+    else P.rub=Math.max(0,P.rub-dt*.8);
+    // landing: a tired fish brought to the dock goes in the net
+    const near=Math.hypot(F.x-P.bx, F.z-.4);
+    if(near<2.7 && F.d<1.9 && F.St<.33 && F.air<=0) return this._land(s,P,F);
+    P.cue = F.air>0 || (F.beh==='jump' && F.d<.8) ? 'jump' : P.rub>.35 ? 'rub' : P.Tpk>.86*FI.BREAK ? 'tight' : P.slack>.9 ? 'slack' : F.St<.33 ? 'tired' : '';
+    // what the fish is doing, for the screen: 0..1 pull
+    F.pull=+(P.T/FI.BREAK).toFixed(2);
+  },
+  _fightBrain(s, F, P, sp){
+    const near=Math.hypot(F.x-P.bx,F.z), away=Math.atan2(F.x-P.bx,F.z);
+    let b;
+    if(F.St<.12) b='tired';
+    else if(near<4.8 && F.St>.33 && Math.random()<.8) b='lunge';
+    else { const W={ run:.36, shake:.2, jump:sp.jump*(F.d<3?.55:.18)*(F.St>.3?1:.25), dive:sp.deep?.32:.06, sulk:.17, charge:sp.charge||.05 };
+      let r=Math.random()*Object.values(W).reduce((a,b)=>a+b,0); for(const k in W){ r-=W[k]; if(r<=0){ b=k; break; } } b=b||'run'; }
+    F.beh=b; F.pv=0;
+    if(b==='run'){ F.wh=away+rnd(-1.15,1.15); if(sp.cover && Math.random()<.5){ let best=null, bd=15; for(const C of FI.COVER){ const d=Math.hypot(C.x-F.x,C.z-F.z); if(d<bd){ bd=d; best=C; } } if(best) F.wh=Math.atan2(best.x-F.x,best.z-F.z); }
+      F.eff=rnd(.75,1); F.bt=rnd(1.3,3.2); F.pv=rnd(-.1,.25); }
+    else if(b==='lunge'){ F.wh=away+rnd(-1.3,1.3); F.eff=1; F.bt=rnd(.8,1.5); F.pv=.35; }
+    else if(b==='shake'){ F.wh=F.h; F.eff=.55; F.bt=rnd(.7,1.6); }
+    else if(b==='jump'){ F.wh=F.h+rnd(-.5,.5); F.eff=1; F.pv=-1.2; F.bt=1.7; }
+    else if(b==='dive'){ F.wh=F.h+rnd(-.6,.6); F.eff=.9; F.pv=1.0; F.bt=rnd(1.4,2.8); }
+    else if(b==='sulk'){ F.wh=F.h; F.eff=.3; F.pv=.35; F.bt=rnd(1.4,2.8); }
+    else if(b==='charge'){ F.wh=away+Math.PI+rnd(-.5,.5); F.eff=.85; F.bt=rnd(.8,1.5); }
+    else { F.wh=away+rnd(-.4,.4); F.eff=.12; F.pv=-.45; F.bt=1; }
+  },
+  _land(s, P, F){
+    const sp=FI.SP[F.sp];
+    const prevBest=P.bag.length?P.bag[0].w:0;
+    P.bag.push({ sp:F.sp, w:F.w }); P.bag.sort((a,b)=>b.w-a.w); P.tot=fiTot(P);
+    const counts = F.w>=prevBest && P.bag.indexOf(P.bag.find(b=>b.w===F.w))<FI.BAG;
+    const rank = F.w>=sp.w[0]+(sp.w[1]-sp.w[0])*.62 ? 'TROPHY!' : F.w>=sp.w[0]+(sp.w[1]-sp.w[0])*.3 ? 'NICE ONE!' : '';
+    P.card={ sp:F.sp, w:F.w, t:0, rank, big:F.w>prevBest && P.bag.length>1 };
+    P.ph='land'; P.pt=2.6; P.fish=-1; P.cue='';
+    fiEv(s,'land',F.x,F.z,P.p,F.w);
+    F.st='gone'; s.rq.push({ sp:F.sp, t:rnd(8,16) });
+  },
+  /* ------------------------------------------------------------------ computer angler */
+  cpu(s, p, dt, m){
+    const P=s.pl[p]; m.cn=m.cn||0; m.jn=m.jn||0; m.ln=m.ln||0; m.t=(m.t||0)+dt;
+    if(m.ry==null){ m.ry=0; m.rp=.5; }
+    let reel=0, ch=-1, wantRy=m.ry, wantRp=.5;
+    const jerk=(str)=>{ m.jn++; m.js=str; m.up=.22; };
+    if(P.ph==='ready'){
+      m.fsh=null;
+      if(!m.plan && s.go<=0){
+        let x, z, lure;
+        if(s.fz && Math.random()<.8){ x=s.fz.x+rnd(-3,3); z=s.fz.z+rnd(-3,3); }
+        else { const F=s.fish[ri(s.fish.length)]; x=F.hx+rnd(-6,6); z=F.hz+rnd(-6,6); }
+        x=clamp(x,-fiHW(z)+2,fiHW(z)-2); z=clamp(z,8,40);
+        const d=fiDepth(x,z); lure = s.tod<.35 && Math.random()<.5 ? 0 : d>4 && Math.random()<.7 ? 2 : Math.random()<.5 ? 1 : 2;
+        m.plan={ x, z, lure, wait:rnd(.9,2.2) };
+      }
+      if(m.plan){
+        if(P.lure!==m.plan.lure && m.t>.35){ m.ln++; m.t=0; }
+        const dx=m.plan.x-P.bx, dz=m.plan.z-(FI.ROD_Z+1.4); wantRy=clamp(Math.atan2(dx,dz),-.85,.85);
+        m.plan.wait-=dt; if(m.plan.wait<.7) ch=clamp(1-m.plan.wait/.7,0,1);
+        if(m.plan.wait<=0 && P.lure===m.plan.lure){ const lt=FI.LURES[P.lure]; m.cp=clamp((Math.hypot(dx,dz)-4)/lt.range+rnd(-.06,.06),0,1); m.ca=wantRy+rnd(-.05,.05); m.cn++; m.plan=null; m.rt=0; m.ph=0; }
+      }
+    } else if(P.ph==='water'){
+      m.rt+=dt;
+      if(P.bite>=0){ if(m.react==null) m.react=rnd(.22,.6)*(Math.random()<.16?3.5:1); m.bt=(m.bt||0)+dt; if(m.bt>m.react && m.bt<50){ jerk(rnd(3,4.6)); m.bt=99; } reel=.3; }
+      else { m.react=null; m.bt=0;
+        if(P.snag){ if(m.rt>1){ m.rt=0; jerk(3.5); } }
+        else if(P.lure===0){ if(m.rt>1.4){ m.ph+=dt; if(m.ph>.95){ m.ph=0; jerk(rnd(2.2,3)); } reel = m.ph>.15&&m.ph<.6 ? .6 : 0; } }
+        else if(P.lure===1){ reel = m.rt>.6 ? (Math.sin(m.t*.9)>-.75 ? .62 : 0) : 0; }
+        else { const bot=fiDepth(P.lx,P.lz); if(m.rt>1 && (P.ld>bot-.3 || m.rt>3.5)){ m.ph+=dt; if(m.ph>1.6){ m.ph=0; jerk(rnd(2.2,3)); } reel = m.ph<.6 ? .45 : 0; } }
+        if(P.foul && m.rt>2){ reel=1; } }
+      wantRy=clamp(Math.atan2(P.lx-P.bx,P.lz)*.4,-.5,.5);
+    } else if(P.ph==='fight'){
+      const F=s.fish.find(f=>f.i===P.fish), dragF=P.drag*FI.BREAK;
+      reel = P.slack>.15 ? 1 : P.T<.72*dragF ? 1 : P.T<dragF ? .35 : 0;
+      if(F){ const fa=Math.atan2(F.x-P.bx,F.z), lat=Math.sin(F.h-fa);
+        wantRy=clamp(-Math.sign(lat)*.7*Math.min(1,Math.abs(lat)*2),-.8,.8);
+        if(m.fsh==null) m.fsh=Math.random()<.7;          // does it spot jumps this fight?
+        wantRp = (F.air>0 || (F.beh==='jump'&&F.d<1)) && m.fsh ? .02 : .95; }
+    }
+    m.up=Math.max(0,(m.up||0)-dt); if(m.up>0) wantRp=1.25;
+    m.ry+=(wantRy-m.ry)*(1-Math.exp(-dt*5)); m.rp+=(wantRp-m.rp)*(1-Math.exp(-dt*(m.up>0?14:5)));
+    return { ry:m.ry, rp:m.rp, reel, cn:m.cn, cp:m.cp||0, ca:m.ca||0, ln:m.ln, jn:m.jn, js:m.js||0, dr:.45, ch };
+  },
+  /* ------------------------------------------------------------------ session glue */
+  status(s, names){
+    const tm=s.time>0 ? `${Math.floor(Math.ceil(s.time)/60)}:${String(Math.ceil(s.time)%60).padStart(2,'0')}` : 'FINAL FISH';
+    return { l:fiLb(fiTot(s.pl[0])), r: s.pl[1] ? fiLb(fiTot(s.pl[1])) : '', c:tm };
+  },
+  endHead(s, names){
+    const P=s.pl[0], big=P.bag[0];
+    if(s.solo){ return { kick:'solo derby', big:fiLb(P.tot), col:'#2fe0c0', again:'Fish again',
+      sub:`${P.bag.length} fish caught${big?` · biggest: ${FI.SP[big.sp].name}, ${fiLb(big.w)}`:''}${s.newBest?' · 🏆 new best bag!':s.best?` · best ${fiLb(s.best)}`:''}` }; }
+    const Q=s.pl[1], w=s.winner;
+    const mine = S.mode==='online' ? w===S.me : S.mode==='cpu' ? w===0 : true;
+    const head = w<0 ? 'Dead heat!' : S.mode==='cpu' ? (w===0?'You win the derby!':'The computer wins') : S.mode==='online' ? (w===S.me?'You win the derby!':`${esc(names[w])} wins`) : `${esc(names[w])} wins the derby!`;
+    return { kick:'derby weigh-in', big:head, col: w<0 ? NEON.yellow : PC[w], again:'Fish again',
+      sub:`<b style="color:${PC[0]}">${esc(names[0])}</b> ${fiLb(P.tot)} (${P.bag.length} fish) &nbsp;·&nbsp; <b style="color:${PC[1]}">${esc(names[1])}</b> ${fiLb(Q.tot)} (${Q.bag.length} fish)${mine&&w>=0?'':''}` };
+  },
+  lerp(a, b, k){
+    if(!a || !b || a===b) return b;
+    const out=Object.assign({}, b); const map=new Map(a.fish.map(f=>[f.i,f]));
+    out.fish=b.fish.map(f=>{ const o=map.get(f.i); if(!o) return f; return Object.assign({}, f, { x:lerp(o.x,f.x,k), z:lerp(o.z,f.z,k), d:lerp(o.d,f.d,k), h:o.h+wrapA(f.h-o.h)*k, tail:lerp(o.tail,f.tail,k) }); });
+    out.pl=b.pl.map((P,i)=>{ const o=a.pl[i]; if(!o || o.ph!==P.ph) return P; return Object.assign({}, P, { lx:lerp(o.lx,P.lx,k), lz:lerp(o.lz,P.lz,k), ld:lerp(o.ld,P.ld,k), T:lerp(o.T,P.T,k), L:lerp(o.L,P.L,k) }); });
+    return out;
+  },
+  stop(){ if(typeof fishBoothStop==='function') fishBoothStop(); },
+  draw(g, s, viewer, ui, t){ fiDrawScreen(s, viewer, t); fishTouchUI(g, s, t); },
+  attract(c, w, h, t){ fiAttract(c, w, h, t); },
+});
+
+/* =====================================================================
+   LUNKER LAKE — the big screen. A northern lake at sunrise seen from the
+   end of a dock: painted sky, pine shores, a lake bed you can see into
+   in the shallows, fish shadows, and a "lure cam" for each angler that
+   follows the lure underwater (the Sega Bass Fishing trick that makes
+   the follow, the strike and the fight readable). Drawn at 1280×720.
+   ===================================================================== */
+const FIA = { bg:null, bgK:-1, floor:null, trees:null, fx:[], lastEv:0, sc:null, att:null, ripples:null, motes:null, cardFish:null };
+const FIF = "'Bebas Neue', Impact, 'Arial Narrow', sans-serif";
+const FIW = '#f6ecd2', FIWOOD='#5a3d26', FIWD='#3b2616';
+function fiP(x, z, y=0){ const k=FI.F/(z+FI.CAM); return [FI.W/2+x*k, FI.HY+(FI.EYE-y)*k, k]; }
+function fiHex(h){ const n=parseInt(h.slice(1),16); return [(n>>16)&255,(n>>8)&255,n&255]; }
+function fiMix(a, b, k){ const A=fiHex(a), B=fiHex(b); return `rgb(${A.map((v,i)=>Math.round(v+(B[i]-v)*k)).join(',')})`; }
+function fiMixA(a, b, k, al){ const A=fiHex(a), B=fiHex(b); return `rgba(${A.map((v,i)=>Math.round(v+(B[i]-v)*k)).join(',')},${al})`; }
+const FI_SKY=[ // time of day keyframes: pre-dawn → sunrise → morning
+  { t:0,   top:'#121838', mid:'#4c3566', low:'#dc7a66', sun:'#ffae6a', wf:'#8a5e78', wn:'#142430', h1:'#4a3c5c', h2:'#2a2640', tr:'#12141f', bank:'#1a1c1e' },
+  { t:.3,  top:'#24427e', mid:'#b8706c', low:'#ffcb86', sun:'#ffe0a0', wf:'#d0a08a', wn:'#173440', h1:'#5c5878', h2:'#363850', tr:'#161e22', bank:'#22281e' },
+  { t:.65, top:'#3576c2', mid:'#80b2dc', low:'#e6e2c8', sun:'#fff3d6', wf:'#a2c4d2', wn:'#1a4650', h1:'#6884a0', h2:'#455e78', tr:'#1a2c24', bank:'#2a3a22' },
+  { t:1,   top:'#3a80d4', mid:'#88c0ea', low:'#d4eaf0', sun:'#ffffff', wf:'#a6d0e2', wn:'#1b4c56', h1:'#6e8eaa', h2:'#4a6682', tr:'#1c3426', bank:'#2e4024' } ];
+function fiSky(tod){ let i=0; while(i<FI_SKY.length-2 && tod>FI_SKY[i+1].t) i++; const A=FI_SKY[i], B=FI_SKY[i+1], k=clamp((tod-A.t)/(B.t-A.t),0,1);
+  const o={}; for(const key in A) if(key!=='t') o[key]=fiMix(A[key],B[key],k); o.k=tod; o.hex={}; for(const key in A) if(key!=='t'){ const a=fiHex(A[key]), b=fiHex(B[key]); o.hex[key]='#'+a.map((v,j)=>Math.round(v+(b[j]-v)*k).toString(16).padStart(2,'0')).join(''); } return o; }
+const fiSunXY = tod => [500+tod*150, 318-tod*250];
+function fiLen(F){ const sp=FI.SP[F.sp]; return sp.len*(.12+.26*Math.cbrt(fiKg(F.w))); }
+
+/* ---------------- the lake bed (static, made once) ---------------- */
+function fiFloor(){
+  if(FIA.floor) return FIA.floor;
+  // drawn small and scaled up, so the lake bed reads as soft colour through the water
+  const w=320, h=180, cv=document.createElement('canvas'); cv.width=w; cv.height=h; const c=cv.getContext('2d'), im=c.createImageData(w,h), D=im.data;
+  const nz=(x,z)=>.5+.22*Math.sin(x*1.3+z*.7)+.18*Math.sin(x*.37-z*1.9)+.1*Math.sin(x*3.1+z*2.3);
+  for(let y=0;y<h;y++){ const sy=(y+.5)*FI.H/h; if(sy<=FI.HY+1) continue; const k=(sy-FI.HY)/FI.EYE, z=FI.F/k-FI.CAM;
+    for(let x=0;x<w;x++){ const wx=((x+.5)*FI.W/w-FI.W/2)/k; if(!fiIn(wx,z)) continue;
+      const d=fiDepth(wx,z), C=fiCover(wx,z,.6), see=clamp(1-d/4.4,0,1), n=nz(wx,z); let col, a;
+      if(C && (C.k==='weeds'||C.k==='pads')){ col = n>.55 ? [40,74,30] : [26,56,22]; a=.4+see*.4; }
+      else if(C && C.k==='rocks'){ col=[92,92,80]; a=.25+see*.45; }
+      else { col = [lerp(104,140,n), lerp(100,124,n), lerp(60,76,n)]; a=see*see*.6; }
+      const i=(y*w+x)*4; D[i]=col[0]; D[i+1]=col[1]; D[i+2]=col[2]; D[i+3]=a*255; } }
+  c.putImageData(im,0,0);
+  return FIA.floor=cv;
+}
+/* ---------------- pines ---------------- */
+function fiPine(c, x, yb, h, col){ const w=h*.42; c.fillStyle=col; c.beginPath(); c.moveTo(x,yb-h);
+  for(let i=1;i<=4;i++){ const y=yb-h+h*i/4.3, ww=w*(.35+i*.17); c.lineTo(x+ww,y); c.lineTo(x+ww*.45,y-h*.04); } c.lineTo(x+w*.12,yb); c.lineTo(x-w*.12,yb);
+  for(let i=4;i>=1;i--){ const y=yb-h+h*i/4.3, ww=w*(.35+i*.17); c.lineTo(x-ww*.45,y-h*.04); c.lineTo(x-ww,y); } c.closePath(); c.fill(); }
+function fiShoreTrees(c, col, seed){
+  const r=prng(seed), yS=fiP(0,FI.Z1)[1];
+  for(let x=-30; x<FI.W+30; x+=7+r()*9){ const h=26+r()*34+(Math.sin(x*.011)*12); fiPine(c, x, yS+3, h, col); }
+  // side banks, nearer and bigger
+  for(const sd of [-1,1]) for(let z=FI.Z1; z>16; z-=1.4+r()*1.8){ const [sx,sy,k]=fiP(sd*(fiHW(z)+1.2+r()*2.5), z, 0); const h=(4.2+r()*3.2)*k*.9; if(sx<-200||sx>FI.W+200) continue; fiPine(c, sx, sy+2, h, col); }
+}
+/* ---------------- background: sky, shores, water (re-made as the sun climbs) ---------------- */
+function fiRenderBg(tod, cv){
+  const W=FI.W, H=FI.H, c=cv.getContext('2d'), P=fiSky(tod), yS=fiP(0,FI.Z1)[1], r=prng(11);
+  // sky
+  let g=c.createLinearGradient(0,0,0,yS+10); g.addColorStop(0,P.top); g.addColorStop(.62,P.mid); g.addColorStop(1,P.low); c.fillStyle=g; c.fillRect(0,0,W,yS+10);
+  const [sx,sy]=fiSunXY(tod);
+  g=c.createRadialGradient(sx,sy,4,sx,sy,420); g.addColorStop(0,P.hex.sun+'cc'); g.addColorStop(.18,P.hex.sun+'55'); g.addColorStop(1,P.hex.sun+'00'); c.fillStyle=g; c.fillRect(0,0,W,yS+10);
+  c.fillStyle=P.sun; c.beginPath(); c.arc(sx,sy,26,0,TAU); c.fill();
+  // clouds: long soft streaks lit from below
+  for(let i=0;i<7;i++){ const cx=r()*W, cy=40+r()*170, cw=120+r()*260; c.globalAlpha=.18+r()*.2; c.fillStyle=fiMix(P.hex.low,'#ffffff',.3);
+    for(let j=0;j<5;j++){ c.beginPath(); c.ellipse(cx+(j-2)*cw*.18, cy+r()*6, cw*(.18+r()*.14), 7+r()*7, 0, 0, TAU); c.fill(); } }
+  c.globalAlpha=1;
+  // far hills
+  for(const [col,amp,base,seed] of [[P.h1,26,yS-34,3],[P.h2,18,yS-14,5]]){ const rr=prng(seed); c.fillStyle=col; c.beginPath(); c.moveTo(0,yS+4);
+    for(let x=0;x<=W;x+=16) c.lineTo(x, base-amp*(.5+.5*Math.sin(x*.006+seed))-rr()*6); c.lineTo(W,yS+4); c.closePath(); c.fill(); }
+  // morning mist hugging the far shore
+  g=c.createLinearGradient(0,yS-40,0,yS+6); g.addColorStop(0,'rgba(255,255,255,0)'); g.addColorStop(1,fiMixA(P.hex.low,'#ffffff',.4,.35*(1-tod*.6))); c.fillStyle=g; c.fillRect(0,yS-40,W,46);
+  // banks (ground left and right of the water)
+  c.fillStyle=P.bank; for(const sd of [-1,1]){ c.beginPath(); c.moveTo(sd<0?0:W, yS); for(let z=FI.Z1; z>=-1; z-=1){ const [px,py]=fiP(sd*fiHW(z),z); c.lineTo(px,py); } c.lineTo(sd<0?-2000:W+2000,H); c.lineTo(sd<0?0:W,H); c.closePath(); c.fill(); }
+  // water body with sky reflected far away (Fresnel) and dark green-blue near
+  c.save(); c.beginPath(); for(let z=FI.Z1; z>=-1; z-=1){ const [px,py]=fiP(-fiHW(z),z); z===FI.Z1?c.moveTo(px,py):c.lineTo(px,py); } for(let z=-1; z<=FI.Z1; z+=1){ const [px,py]=fiP(fiHW(z),z); c.lineTo(px,py); } c.closePath(); c.clip();
+  g=c.createLinearGradient(0,yS,0,H); g.addColorStop(0,P.wf); g.addColorStop(.3,fiMix(P.hex.wf,P.hex.wn,.55)); g.addColorStop(1,P.wn); c.fillStyle=g; c.fillRect(0,yS-2,W,H-yS+2);
+  // the sun's path on the water
+  g=c.createLinearGradient(sx-120,0,sx+120,0); g.addColorStop(0,P.hex.sun+'00'); g.addColorStop(.5,P.hex.sun+'40'); g.addColorStop(1,P.hex.sun+'00'); c.fillStyle=g; c.fillRect(sx-140,yS,280,H-yS);
+  // lake bed in the shallows
+  c.globalAlpha=.9; c.imageSmoothingEnabled=true; c.drawImage(fiFloor(),0,0,W,H); c.globalAlpha=1;
+  // reflection of the shoreline
+  if(!FIA.trees){ FIA.trees=document.createElement('canvas'); FIA.trees.width=W; FIA.trees.height=H; }
+  const tc=FIA.trees.getContext('2d'); tc.clearRect(0,0,W,H); fiShoreTrees(tc, P.tr, 21);
+  c.save(); c.globalAlpha=.4; c.translate(0, yS*1.62+3); c.scale(1,-.62); c.drawImage(FIA.trees,0,0); c.restore();
+  c.restore();
+  // shoreline trees in front
+  c.drawImage(FIA.trees,0,0);
+  // reeds and cattails along the water's edge
+  const rr=prng(31);
+  for(const sd of [-1,1]) for(let z=FI.Z1-2; z>2; z-=.5+rr()*.5){ const x=sd*(fiHW(z)-.3+rr()*.4); const [px,py,k]=fiP(x,z); if(px<-40||px>W+40) continue; const n=2+Math.floor(rr()*3);
+    for(let i=0;i<n;i++){ const hh=(.6+rr()*.9)*k, lean=(rr()-.5)*.3*hh; c.strokeStyle=rr()<.5?'#3a4a22':'#4e5e2a'; c.lineWidth=Math.max(1,k*.035); c.beginPath(); c.moveTo(px+i*k*.06,py); c.quadraticCurveTo(px+lean*.5,py-hh*.6,px+lean+i*k*.05,py-hh); c.stroke();
+      if(rr()<.25){ c.fillStyle='#4a2e18'; c.fillRect(px+lean+i*k*.05-k*.025, py-hh-k*.02, k*.05, k*.18); } } }
+  fiCoverArt(c, P);
+  fiDock(c, P);
+}
+function fiCoverArt(c, P){
+  const r=prng(47);
+  for(const C of FI.COVER){
+    if(C.k==='pads'){ for(let i=0;i<34;i++){ const x=C.x+(r()*2-1)*C.rx, z=C.z+(r()*2-1)*C.rz; if(((x-C.x)/C.rx)**2+((z-C.z)/C.rz)**2>1) continue; const [px,py,k]=fiP(x,z); const rw=(.3+r()*.25)*k, a0=r()*TAU;
+        c.fillStyle=r()<.5?'#3e6a28':'#2e5a22'; c.beginPath(); c.ellipse(px,py,rw,rw*.36,0,a0+.25,a0+TAU-.05); c.lineTo(px,py); c.closePath(); c.fill();
+        c.strokeStyle='rgba(20,40,10,.5)'; c.lineWidth=1; c.stroke();
+        if(r()<.18){ c.fillStyle='#ffd6e8'; c.beginPath(); c.ellipse(px+rw*.2,py-rw*.08,rw*.22,rw*.12,0,0,TAU); c.fill(); c.fillStyle='#ffe066'; c.beginPath(); c.arc(px+rw*.2,py-rw*.1,rw*.06,0,TAU); c.fill(); } } }
+    else if(C.k==='weeds'){ for(let i=0;i<26;i++){ const x=C.x+(r()*2-1)*C.rx, z=C.z+(r()*2-1)*C.rz; if(((x-C.x)/C.rx)**2+((z-C.z)/C.rz)**2>1) continue; const [px,py,k]=fiP(x,z);
+        c.strokeStyle=r()<.5?'rgba(70,100,40,.75)':'rgba(40,70,26,.7)'; c.lineWidth=Math.max(1,k*.03); c.beginPath(); c.moveTo(px,py); c.quadraticCurveTo(px+k*.08,py-k*.12,px+(r()-.5)*k*.3,py-k*(.12+r()*.25)); c.stroke(); } }
+    else if(C.k==='stumps'){ for(let i=0;i<7;i++){ const x=C.x+(r()*2-1)*C.rx*.8, z=C.z+(r()*2-1)*C.rz*.8; const [px,py,k]=fiP(x,z); const w=(.16+r()*.12)*k, h=(.15+r()*.5)*k;
+        c.fillStyle='#3a2a1c'; c.fillRect(px-w/2,py-h,w,h); c.fillStyle='#5a4430'; c.beginPath(); c.ellipse(px,py-h,w/2,w*.18,0,0,TAU); c.fill(); c.fillStyle='rgba(255,255,255,.18)'; c.fillRect(px-w*.7,py-1,w*1.4,2); } }
+    else if(C.k==='rocks'){ for(let i=0;i<6;i++){ const x=C.x+(r()*2-1)*C.rx*.7, z=C.z+(r()*2-1)*C.rz*.7; const [px,py,k]=fiP(x,z); const w=(.35+r()*.5)*k;
+        c.fillStyle=r()<.5?'#6a6a62':'#57574f'; c.beginPath(); c.ellipse(px,py,w,w*.38,0,Math.PI,TAU); c.fill(); c.fillStyle='rgba(255,255,255,.12)'; c.beginPath(); c.ellipse(px-w*.2,py-w*.2,w*.4,w*.1,0,0,TAU); c.fill(); } }
+    else if(C.k==='log'){ // a fallen spruce reaching out from the right bank
+      const ca=Math.cos(C.ang), sa=Math.sin(C.ang), pts=[]; for(let u=-1;u<=1.001;u+=.1){ pts.push(fiP(C.x+u*C.rx*ca, C.z-u*C.rx*sa, .12)); }
+      c.lineCap='round'; for(let i=0;i<pts.length-1;i++){ const [ax,ay,k]=pts[i], [bx,by]=pts[i+1]; c.strokeStyle='#4a3320'; c.lineWidth=(.42-.15*(i/pts.length))*k; c.beginPath(); c.moveTo(ax,ay); c.lineTo(bx,by); c.stroke(); }
+      for(let i=1;i<pts.length-1;i+=2){ const [ax,ay,k]=pts[i]; c.strokeStyle='#3a2616'; c.lineWidth=Math.max(1,k*.05); c.beginPath(); c.moveTo(ax,ay); c.lineTo(ax+(r()-.5)*k*.9, ay-k*(.3+r()*.5)); c.stroke(); }
+      c.strokeStyle='rgba(255,240,220,.18)'; c.lineWidth=2; c.beginPath(); pts.forEach(([x,y],i)=>i?c.lineTo(x,y+2):c.moveTo(x,y+2)); c.stroke(); c.lineCap='butt'; }
+  }
+}
+function fiDock(c, P){
+  const z0=-1.2, z1=1.15, hw=3.1, y=.45;
+  const q=(x,z)=>fiP(x,z,y);
+  const [ax,ay]=q(-hw,z1), [bx]=q(hw,z1), [cx,cy]=q(hw,z0), [dx]=q(-hw,z0);
+  // posts under the end of the dock
+  for(const x of [-hw+.15,-1,1,hw-.15]){ const [px,py,k]=q(x,z1); c.fillStyle='#2a1c10'; c.fillRect(px-k*.07,py,k*.14,k*.6); }
+  c.fillStyle='#7a5a3a'; c.beginPath(); c.moveTo(ax,ay); c.lineTo(bx,ay); c.lineTo(cx,cy); c.lineTo(dx,cy); c.closePath(); c.fill();
+  // planks
+  for(let z=z1; z>z0; z-=.24){ const [l,ly]=q(-hw,z), [rr]=q(hw,z); c.strokeStyle='rgba(40,24,12,.65)'; c.lineWidth=2; c.beginPath(); c.moveTo(l,ly); c.lineTo(rr,ly); c.stroke(); }
+  c.fillStyle='rgba(255,230,190,.12)'; c.fillRect(ax,ay,bx-ax,3);
+  // spots where each angler stands
+  for(let p=0;p<2;p++){ const [px,py,k]=q(FI.BASE[p],.1); c.fillStyle=p?'rgba(255,43,214,.32)':'rgba(0,240,255,.32)'; c.beginPath(); c.ellipse(px,py,k*.55,k*.16,0,0,TAU); c.fill(); }
+  // tackle box + bucket
+  { const [px,py,k]=q(-2.55,.4); c.fillStyle='#3a6a3a'; c.fillRect(px-k*.28,py-k*.22,k*.56,k*.22); c.fillStyle='#2a4a2a'; c.fillRect(px-k*.28,py-k*.26,k*.56,k*.05); c.fillStyle='#c8c0a0'; c.fillRect(px-k*.05,py-k*.3,k*.1,k*.05); }
+  { const [px,py,k]=q(2.6,.35); c.fillStyle='#a8b0b8'; c.beginPath(); c.moveTo(px-k*.2,py-k*.36); c.lineTo(px+k*.2,py-k*.36); c.lineTo(px+k*.16,py); c.lineTo(px-k*.16,py); c.closePath(); c.fill(); c.strokeStyle='#6a7078'; c.lineWidth=2; c.beginPath(); c.arc(px,py-k*.36,k*.2,Math.PI,TAU); c.stroke(); }
+}
+function fiBg(tod){
+  const key=Math.round(tod*60);
+  if(!FIA.bg){ FIA.bg=document.createElement('canvas'); FIA.bg.width=FI.W; FIA.bg.height=FI.H; }
+  if(key!==FIA.bgK){ FIA.bgK=key; fiRenderBg(key/60, FIA.bg); }
+  return FIA.bg;
+}
+
+/* ---------------- fish art (side view, nose to the right) ---------------- */
+const FI_ART={
+  gill:   { hr:.52, back:'#22402a', side:'#4f7c4a', belly:'#ea934a', fin:'rgba(60,90,60,.75)', tail:'fan', mouth:.05, bars:7, barA:.18, ear:true, dorsal:[.18,.82,.5] },
+  perch:  { hr:.27, back:'#34421a', side:'#cdb43a', belly:'#f3ebc2', fin:'rgba(230,120,40,.8)', tail:'fork', mouth:.06, bars:6, barA:.55, dorsal:[.2,.75,.42], twoD:true },
+  lmb:    { hr:.3,  back:'#24391e', side:'#6c8a48', belly:'#ebe8cc', fin:'rgba(70,95,55,.75)', tail:'fork', mouth:.15, stripe:true, dorsal:[.22,.78,.38], twoD:true },
+  smb:    { hr:.29, back:'#463619', side:'#9c7a3e', belly:'#f0e2ba', fin:'rgba(120,90,50,.75)', tail:'fork', mouth:.11, bars:9, barA:.3, redEye:true, dorsal:[.22,.78,.36] },
+  pike:   { hr:.15, back:'#28391a', side:'#587438', belly:'#eaeed2', fin:'rgba(110,100,50,.75)', tail:'fork', mouth:.18, spots:'bean', dorsal:[.66,.9,.3], snout:true },
+  walleye:{ hr:.2,  back:'#463e1c', side:'#b29e4e', belly:'#f1edda', fin:'rgba(150,130,70,.75)', tail:'fork', mouth:.1, saddles:true, bigEye:true, dorsal:[.22,.78,.32], twoD:true, whiteTip:true },
+  cat:    { hr:.2,  back:'#364250', side:'#768898', belly:'#eaecf0', fin:'rgba(80,95,110,.8)', tail:'deep', mouth:.1, spots:'dots', barbels:true, dorsal:[.28,.44,.42], adipose:true },
+  musky:  { hr:.155,back:'#474b28', side:'#a6a66c', belly:'#efeedc', fin:'rgba(150,110,60,.75)', tail:'fork', mouth:.18, bars:14, barA:.38, dorsal:[.66,.9,.3], snout:true } };
+function fiFishSide(c, spi, L, o={}){
+  const A=FI_ART[FI.SP[spi].id], ph=o.ph||0, amp=o.amp??.5, N=22, H=A.hr*L*.5;
+  const top=[], bot=[];
+  for(let i=0;i<=N;i++){ const u=i/N, x=L*.5-u*L*.82;
+    const sh=Math.pow(Math.sin(Math.PI*Math.min(.999,Math.pow(u,A.snout?.78:.62)*.92+.04)),.85)*(1-.55*Math.pow(u,3));
+    const b=amp*L*.07*Math.sin(ph-u*2.8)*u*u;
+    top.push([x, b-H*sh*1.06]); bot.push([x, b+H*sh*.94]); }
+  const tb=amp*L*.07*Math.sin(ph-2.8), tx=-L*.32, tH=H*(A.tail==='fan'?1.05:A.tail==='deep'?1.25:1.1);
+  const tAng=amp*.35*Math.cos(ph-2.8);
+  c.save(); if(o.alpha!=null) c.globalAlpha*=o.alpha;
+  // tail fin
+  c.fillStyle=A.fin; c.save(); c.translate(tx,tb); c.rotate(tAng); c.beginPath(); c.moveTo(0,-H*.12);
+  if(A.tail==='fan'){ c.quadraticCurveTo(-L*.12,-tH,-L*.17,-tH*.7); c.quadraticCurveTo(-L*.15,0,-L*.17,tH*.7); c.quadraticCurveTo(-L*.12,tH,0,H*.12); }
+  else { c.lineTo(-L*.2,-tH); c.quadraticCurveTo(-L*.12,-tH*.1,-L*(A.tail==='deep'?.11:.13),0); c.quadraticCurveTo(-L*.12,tH*.1,-L*.2,tH); c.lineTo(0,H*.12); }
+  c.closePath(); c.fill(); if(A.whiteTip){ c.fillStyle='rgba(255,255,255,.85)'; c.beginPath(); c.arc(-L*.19,tH*.93,L*.02,0,TAU); c.fill(); } c.restore();
+  // dorsal + other fins
+  const fin=(u0,u1,hh,up)=>{ const i0=Math.round(u0*N), i1=Math.round(u1*N), arr=up?top:bot; c.beginPath(); c.moveTo(arr[i0][0],arr[i0][1]); for(let i=i0;i<=i1;i++){ const k=(i-i0)/Math.max(1,i1-i0); c.lineTo(arr[i][0], arr[i][1]+(up?-1:1)*H*hh*Math.sin(Math.PI*Math.min(1,k*1.15))); } c.lineTo(arr[i1][0],arr[i1][1]); c.closePath(); c.fill(); };
+  c.fillStyle=A.fin; const [d0,d1,dh]=A.dorsal;
+  if(A.twoD){ fin(d0,(d0+d1)/2-.03,dh*1.1,true); fin((d0+d1)/2,d1,dh*.8,true); } else fin(d0,d1,dh,true);
+  if(A.adipose) fin(.72,.8,.15,true);
+  fin(.62,.78,.32,false); fin(.32,.4,.3,false);
+  // body
+  c.beginPath(); c.moveTo(top[0][0],top[0][1]); for(const p of top) c.lineTo(p[0],p[1]); for(let i=bot.length-1;i>=0;i--) c.lineTo(bot[i][0],bot[i][1]); c.closePath();
+  const g=c.createLinearGradient(0,-H,0,H); g.addColorStop(0,A.back); g.addColorStop(.45,A.side); g.addColorStop(.78,A.belly); g.addColorStop(1,A.belly); c.fillStyle=g; c.fill();
+  c.save(); c.clip();
+  const bend=u=>amp*L*.07*Math.sin(ph-u*2.8)*u*u;
+  if(A.bars){ c.fillStyle=`rgba(20,26,10,${A.barA})`; for(let i=0;i<A.bars;i++){ const u=.22+i*(.62/A.bars), x=L*.5-u*L*.82; c.beginPath(); c.ellipse(x,bend(u)-H*.25,L*.022,H*.75,0,0,TAU); c.fill(); } }
+  if(A.stripe){ c.fillStyle='rgba(22,32,14,.6)'; for(let i=0;i<10;i++){ const u=.18+i*.075, x=L*.5-u*L*.82; c.beginPath(); c.ellipse(x,bend(u)+H*.05,L*.045,H*.17,0,0,TAU); c.fill(); } }
+  if(A.saddles){ c.fillStyle='rgba(30,26,10,.35)'; for(let i=0;i<5;i++){ const u=.25+i*.13, x=L*.5-u*L*.82; c.beginPath(); c.ellipse(x,bend(u)-H*.6,L*.05,H*.5,0,0,TAU); c.fill(); } }
+  if(A.spots==='bean'){ c.fillStyle='rgba(235,240,190,.6)'; const r=prng(5); for(let i=0;i<34;i++){ const u=.2+r()*.72, x=L*.5-u*L*.82; c.beginPath(); c.ellipse(x,bend(u)+(r()-.6)*H*1.2,L*.02,L*.008,0,0,TAU); c.fill(); } }
+  if(A.spots==='dots'){ c.fillStyle='rgba(20,24,30,.55)'; const r=prng(9); for(let i=0;i<22;i++){ const u=.25+r()*.6, x=L*.5-u*L*.82; c.beginPath(); c.arc(x,bend(u)+(r()-.7)*H*.9,L*.009,0,TAU); c.fill(); } }
+  c.fillStyle='rgba(255,255,255,.12)'; c.beginPath(); c.ellipse(L*.05,-H*.35,L*.3,H*.12,0,0,TAU); c.fill();
+  c.restore();
+  // gill cover, eye, mouth
+  const gx=L*.5-L*.82*.24, ey=-H*.22, ex=L*.5-L*.82*.1;
+  c.strokeStyle='rgba(20,20,10,.4)'; c.lineWidth=Math.max(1,L*.008); c.beginPath(); c.arc(gx+L*.07,0,H*.75,Math.PI*.62,Math.PI*1.38); c.stroke();
+  if(A.ear){ c.fillStyle='#10140c'; c.beginPath(); c.ellipse(gx+L*.005,-H*.05,L*.035,H*.16,0,0,TAU); c.fill(); c.strokeStyle='rgba(80,140,220,.7)'; c.stroke(); }
+  const er=L*(A.bigEye?.05:.032);
+  c.fillStyle=A.redEye?'#b8401c':A.bigEye?'#e8e2c8':'#e8c04a'; c.beginPath(); c.arc(ex,ey,er,0,TAU); c.fill();
+  c.fillStyle='#0a0a08'; c.beginPath(); c.arc(ex+er*.15,ey,er*.55,0,TAU); c.fill(); c.fillStyle='rgba(255,255,255,.85)'; c.beginPath(); c.arc(ex+er*.35,ey-er*.35,er*.22,0,TAU); c.fill();
+  c.strokeStyle='rgba(20,10,5,.7)'; c.lineWidth=Math.max(1,L*.01); c.beginPath(); c.moveTo(L*.5,H*.05); c.lineTo(L*.5-L*A.mouth,H*.12+(o.open?H*.25:0)); c.stroke();
+  if(A.barbels){ c.strokeStyle='rgba(40,40,50,.8)'; c.lineWidth=Math.max(1,L*.006); for(const [dy,len] of [[-.1,.16],[.1,.13],[.18,.1]]){ c.beginPath(); c.moveTo(L*.49,H*dy); c.quadraticCurveTo(L*.56,H*dy+L*.02,L*.5+L*len*.6,H*dy+L*len*.4); c.stroke(); } }
+  c.restore();
+}
+/* fish seen from above, as a shadow under the surface */
+function fiShadow(c, F, sx, sy, k, alpha){
+  const L=fiLen(F)*k*1.12; if(L<3) return; const A=FI_ART[FI.SP[F.sp].id];
+  const [ox,oy]=fiP(F.x,F.z), [hx,hy]=fiP(F.x+Math.sin(F.h)*.5, F.z+Math.cos(F.h)*.5); const ang=Math.atan2(hy-oy,hx-ox), fs=clamp(Math.hypot(hx-ox,hy-oy)/(k*.5),.38,1);
+  const W=L*Math.max(.11,A.hr*.32), wag=Math.sin(F.tail)*.35;
+  c.save(); c.translate(sx,sy); c.rotate(ang); c.scale(fs,1); c.globalAlpha=alpha;
+  c.fillStyle='#08140f';
+  c.beginPath(); c.moveTo(L*.5,0); c.quadraticCurveTo(L*.3,-W,-L*.1,-W*.8); c.quadraticCurveTo(-L*.3,-W*.4,-L*.36,0); c.quadraticCurveTo(-L*.3,W*.4,-L*.1,W*.8); c.quadraticCurveTo(L*.3,W,L*.5,0); c.fill();
+  c.translate(-L*.34,0); c.rotate(wag); c.beginPath(); c.moveTo(0,0); c.lineTo(-L*.18,-W*.9); c.lineTo(-L*.13,0); c.lineTo(-L*.18,W*.9); c.closePath(); c.fill();
+  c.restore();
+}
+
+/* ---------------- particles (splashes, rings) anchored in the lake ---------------- */
+function fiFx(k, x, z, o={}){ FIA.fx.push(Object.assign({ k, x, z, y:0, vx:0, vz:0, vy:0, t:0, life:1, r:0 }, o)); }
+function fiSplash(x, z, size=1, col='#ffffff'){
+  fiFx('ring',x,z,{life:1.4+size*.4, r0:.15*size, gr:.9+size*.5});
+  if(size>.6) fiFx('ring',x,z,{life:1.8, r0:.05, gr:.55+size*.3, t:-.15});
+  for(let i=0;i<6+size*12;i++){ const a=rnd(0,TAU), s=rnd(.4,1.6)*Math.sqrt(size); fiFx('drop',x,z,{ vx:Math.cos(a)*s*.6, vz:Math.sin(a)*s*.6, vy:rnd(1.5,3.5)*Math.sqrt(size), life:1.2, col }); }
+}
+function fiEvents(s){
+  if((s.evn||0)<FIA.lastEv) FIA.lastEv=0;
+  for(const e of s.ev){ if(e.i<=FIA.lastEv) continue; FIA.lastEv=e.i;
+    if(e.k==='splash') fiSplash(e.x,e.z, e.a===0?.55:.45);
+    else if(e.k==='pop'){ fiSplash(e.x,e.z,.4); fiFx('ring',e.x,e.z,{life:1.2,r0:.1,gr:1.2}); }
+    else if(e.k==='strike'){ fiSplash(e.x,e.z,1.3+Math.min(1.2,e.a*.1)); }
+    else if(e.k==='jump') fiSplash(e.x,e.z,1+Math.min(1.5,e.a*.08));
+    else if(e.k==='reentry') fiSplash(e.x,e.z,1.3+Math.min(1.5,e.a*.1));
+    else if(e.k==='land') fiSplash(e.x,e.z,1.1);
+    else if(e.k==='bite'||e.k==='nib') fiFx('ring',e.x,e.z,{life:.9,r0:.05,gr:e.k==='bite'?1:.5});
+    else if(e.k==='loondive'||e.k==='loonup') fiFx('ring',e.x,e.z,{life:2,r0:.1,gr:.8});
+    else if(e.k==='frenzy') fiFx('label',e.x,e.z,{life:3});
+  }
+}
+function fiFxDraw(c, dt){
+  for(let i=FIA.fx.length-1;i>=0;i--){ const f=FIA.fx[i]; f.t+=dt; if(f.t>f.life){ FIA.fx.splice(i,1); continue; } if(f.t<0) continue;
+    const k=f.t/f.life;
+    if(f.k==='ring'){ const R=f.r0+f.gr*f.t; const [px,py,kk]=fiP(f.x,f.z); c.strokeStyle=`rgba(235,245,255,${.55*(1-k)})`; c.lineWidth=Math.max(1,kk*.03*(1-k)+1); c.beginPath(); c.ellipse(px,py,R*kk,R*kk*.3,0,0,TAU); c.stroke(); }
+    else if(f.k==='drop'){ f.vy-=9.8*dt; f.y+=f.vy*dt; f.x+=f.vx*dt; f.z+=f.vz*dt; if(f.y<0){ f.t=f.life; continue; } const [px,py,kk]=fiP(f.x,f.z,f.y); c.fillStyle=`rgba(240,248,255,${.85*(1-k*.5)})`; const r=Math.max(1.2,kk*.035); c.beginPath(); c.arc(px,py,r,0,TAU); c.fill(); }
+    else if(f.k==='label'){ const [px,py]=fiP(f.x,f.z,2.5); c.globalAlpha=clamp(Math.min(f.t*3,(f.life-f.t)*2),0,1); fiLabel(c,'FEEDING FRENZY!',px,py-k*30,30,NEON.yellow); c.globalAlpha=1; }
+  }
+}
+function fiLabel(c, txt, x, y, size, col, align='center'){
+  c.save(); c.font=`400 ${size}px ${FIF}`; c.textAlign=align; c.textBaseline='middle'; c.lineJoin='round';
+  c.lineWidth=size*.18; c.strokeStyle='rgba(20,12,6,.85)'; c.strokeText(txt,x,y); c.fillStyle=col; c.fillText(txt,x,y); c.restore(); }
+
+/* ---------------- the per-frame screen ---------------- */
+function fiDrawScreen(s, viewer, t){
+  const cv=FIA.sc; if(!cv) return; const c=cv.getContext('2d');
+  const dt=clamp(t-(FIA.lastT||t),0,.1); FIA.lastT=t;
+  c.setTransform(cv.width/FI.W,0,0,cv.height/FI.H,0,0);
+  const P0=fiSky(s.tod);
+  c.drawImage(fiBg(s.tod),0,0);
+  fiWater(c, s, t, P0);
+  fiEvents(s);
+  // fish shadows, far to near
+  const fish=s.fish.slice().sort((a,b)=>b.z-a.z);
+  for(const F of fish){ if(F.air>0) continue; const vis=clamp(1-F.d/3.4,0,1)*(F.st==='hooked'?1:.85); if(vis<=.02) continue; const [px,py,k]=fiP(F.x,F.z); fiShadow(c,F,px,py,k,.68*Math.pow(vis,1.1)); }
+  // hooked fish thrashing near the surface
+  for(const F of s.fish){ if(F.st==='hooked' && F.air<=0 && F.d<.5 && Math.random()<.5){ fiFx('drop',F.x,F.z,{vx:rnd(-.5,.5),vz:rnd(-.5,.5),vy:rnd(1,2.4),life:.8}); if(Math.random()<.15) fiFx('ring',F.x,F.z,{life:1,r0:.2,gr:.7}); } }
+  fiBirds(c, s, t);
+  fiLoon(c, s, t);
+  // lines and lures
+  for(const P of s.pl) fiLine(c, s, P, t);
+  // fish in the air
+  for(const F of s.fish){ if(F.air>0){ const [px,py,k]=fiP(F.x,F.z,-F.d); const L=fiLen(F)*k*1.05; const up=(F.avy||0);
+      c.save(); c.translate(px,py); c.rotate(-clamp(up*.28,-1.1,1.1)); fiFishSide(c,F.sp,L,{ph:F.tail*1.6,amp:1.1,open:true}); c.restore();
+      const [qx,qy,qk]=fiP(F.x,F.z); c.fillStyle='rgba(8,20,15,.35)'; c.beginPath(); c.ellipse(qx,qy,L*.45,L*.1,0,0,TAU); c.fill(); } }
+  fiFxDraw(c, dt);
+  for(const P of s.pl) fiAim(c, s, P, t);
+  fiHud(c, s, t, P0);
+  if(FIA.tex) FIA.tex.needsUpdate=true;
+}
+function fiWater(c, s, t, P0){
+  if(!FIA.ripples){ const r=prng(3); FIA.ripples=[]; for(let i=0;i<110;i++){ const z=2+Math.pow(r(),.8)*(FI.Z1-4); FIA.ripples.push({ x:(r()*2-1)*fiHW(z), z, ph:r()*TAU, w:.6+r()*1.6 }); } }
+  const [sx]=fiSunXY(s.tod), yS=fiP(0,FI.Z1)[1];
+  c.lineCap='round';
+  for(const R of FIA.ripples){ const zz=R.z, x=R.x+Math.sin(t*.12+R.ph)*.8; if(!fiIn(x,zz)) continue; const [px,py,k]=fiP(x,zz); const a=.5+.5*Math.sin(t*.9+R.ph);
+    const near=Math.abs(px-sx)<170*(1-(py-yS)/700);
+    c.strokeStyle = near ? `rgba(255,248,225,${.55*a})` : `rgba(220,235,245,${.12*a})`; c.lineWidth=Math.max(1,k*.025);
+    c.beginPath(); c.moveTo(px-R.w*k*.5,py); c.quadraticCurveTo(px,py-k*.03,px+R.w*k*.5,py); c.stroke(); }
+  // glitter on the sun's path
+  const r=prng((t*8)|0);
+  for(let i=0;i<26;i++){ const y=yS+6+Math.pow(r(),1.6)*300, w=(1-(y-yS)/500)*150, x=sx+(r()*2-1)*w; c.fillStyle=`rgba(255,250,230,${.35+r()*.5})`; c.fillRect(x,y,2+r()*6,1.5); }
+  c.lineCap='butt';
+}
+function fiBirds(c, s, t){
+  if(!s.fz) return; const f=s.fz, fade=clamp(Math.min(f.t, 22-f.t)/2,0,1);
+  // baitfish dimpling the surface
+  const r=prng(((t*3)|0)+7);
+  for(let i=0;i<5;i++){ if(r()<.6){ const x=f.x+(r()*2-1)*3, z=f.z+(r()*2-1)*2.5; if(Math.random()<.06) fiFx('ring',x,z,{life:.9,r0:.03,gr:.5}); } }
+  // gulls wheeling overhead
+  c.save(); c.globalAlpha=fade; c.strokeStyle='#f4f2ea'; c.lineCap='round';
+  for(let i=0;i<4;i++){ const a=t*(.6+i*.13)+i*1.7, rr=2.2+i*.6; const [px,py,k]=fiP(f.x+Math.cos(a)*rr, f.z+Math.sin(a)*rr*.6, 3.2+Math.sin(t*1.3+i)*.6); const w=k*.45, fl=Math.sin(t*9+i*2)*.5;
+    c.lineWidth=Math.max(1.5,k*.06); c.beginPath(); c.moveTo(px-w,py-w*fl); c.quadraticCurveTo(px-w*.4,py-w*.35,px,py); c.quadraticCurveTo(px+w*.4,py-w*.35,px+w,py-w*fl); c.stroke(); }
+  c.restore();
+}
+function fiLoon(c, s, t){
+  const L=s.loon; if(!L || L.dive>0) return; const [px,py,k]=fiP(L.x,L.z); const w=k*.55;
+  c.fillStyle='#0c0e10'; c.beginPath(); c.ellipse(px,py-w*.12,w*.5,w*.16,0,0,TAU); c.fill();
+  c.beginPath(); c.ellipse(px+w*.45,py-w*.36,w*.12,w*.1,0,0,TAU); c.fill(); c.fillRect(px+w*.36,py-w*.36,w*.08,w*.24);
+  c.fillStyle='#e8e8e0'; for(let i=0;i<4;i++){ c.fillRect(px-w*.3+i*w*.12,py-w*.2,w*.04,w*.04); }
+  c.strokeStyle='rgba(230,240,250,.3)'; c.lineWidth=1; c.beginPath(); c.ellipse(px,py,w*.7,w*.12,0,0,TAU); c.stroke();
+}
+/* where the line comes from: a point below the screen, under the angler's rod */
+function fiVTip(P){ const ry=FISH_LOC[P.p] ? FISH_LOC[P.p].ry : P.ry; return fiP(P.bx+Math.sin(ry)*1.4, -1.6, -1.2); }
+function fiLine(c, s, P, t){
+  if(P.ph==='ready' || P.ph==='lost' || (P.ph==='land' && P.pt<1.6)) return;
+  const col=PC[P.p], [ax,ay]=fiVTip(P);
+  const air=P.ld<0, [lx,ly,k]=fiP(P.lx,P.lz,air?-P.ld:0);
+  const slack=clamp(P.slack||0,0,3);
+  const mx=(ax+lx)/2, my=(ay+ly)/2+slack*k*.6+(P.ph==='fly'?40:0);
+  c.save(); c.lineCap='round';
+  c.strokeStyle=col; c.globalAlpha=.35; c.lineWidth=4; c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(mx,my,lx,ly); c.stroke();
+  c.globalAlpha=.95; c.lineWidth=1.6; c.strokeStyle='#ffffff'; c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(mx,my,lx,ly); c.stroke();
+  c.restore();
+  if(P.ph==='fight'){ // line slicing through the water, spray where it enters
+    if(Math.random()<.3*(P.T/FI.BREAK+.2)) fiFx('drop',P.lx,P.lz,{vx:rnd(-.3,.3),vz:rnd(-.3,.3),vy:rnd(.6,1.6),life:.6});
+    const [px,py]=fiP(P.lx,P.lz); c.strokeStyle='rgba(240,250,255,.55)'; c.lineWidth=2; c.beginPath(); c.moveTo(px-k*.25,py+k*.05); c.lineTo(px,py); c.lineTo(px+k*.25,py+k*.05); c.stroke();
+    return;
+  }
+  // the lure itself
+  const lt=FI.LURES[P.lure];
+  if(air){ c.fillStyle=lt.col; c.beginPath(); c.arc(lx,ly,Math.max(3,k*.07),0,TAU); c.fill(); return; }
+  const [px,py]=fiP(P.lx,P.lz);
+  if(P.lure===0 || P.ld<.15){ const bob=Math.sin(t*5+P.p)*k*.012; c.fillStyle=lt.col; c.beginPath(); c.ellipse(px,py-k*.03+bob,Math.max(3,k*.09),Math.max(2,k*.05),0,0,TAU); c.fill(); c.fillStyle='#ffffff'; c.beginPath(); c.arc(px+k*.03,py-k*.05+bob,Math.max(1,k*.025),0,TAU); c.fill();
+    if(P.lv>.15 && Math.random()<.2) fiFx('ring',P.lx,P.lz,{life:.8,r0:.05,gr:.4}); }
+  else { c.globalAlpha=clamp(1-P.ld/3,.25,.8); c.fillStyle=lt.col; c.beginPath(); c.arc(px,py,Math.max(2,k*.05),0,TAU); c.fill(); c.globalAlpha=1; }
+  // a marker in the angler's colour so each player can track their lure
+  const bob=Math.sin(t*4)*3; c.fillStyle=col; c.beginPath(); c.moveTo(px,py-14+bob); c.lineTo(px-7,py-26+bob); c.lineTo(px+7,py-26+bob); c.closePath(); c.fill();
+  if(P.ld>.2) fiLabel(c, `${P.ld.toFixed(1)} m`, px, py-36+bob, 18, '#ffffff');
+}
+/* aiming ring while winding up a cast */
+function fiAim(c, s, P, t){
+  const loc=FISH_LOC[P.p], ch = loc ? loc.ch : P.ch; if(P.ph!=='ready' || !(ch>=0)) return;
+  const ry = loc ? loc.ry : P.ry, lt=FI.LURES[P.lure], dist=4+ch*lt.range;
+  let tx=P.bx+Math.sin(ry)*dist, tz=clamp(FI.ROD_Z+1.4+Math.cos(ry)*dist, 2.5, FI.Z1-1.2);
+  const [px,py,k]=fiP(tx,tz), [ax,ay]=fiVTip(P), col=PC[P.p];
+  c.save(); c.setLineDash([6,8]); c.strokeStyle=col; c.globalAlpha=.75; c.lineWidth=2; c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo((ax+px)/2,Math.min(ay,py)-120-ch*80,px,py); c.stroke(); c.setLineDash([]);
+  c.globalAlpha=1; c.lineWidth=3; c.beginPath(); c.ellipse(px,py,Math.max(10,k*.8),Math.max(4,k*.25),0,0,TAU); c.stroke(); c.restore();
+}
+
+/* ---------------- HUD ---------------- */
+function fiPlaque(c, x, y, w, h, edge){
+  c.save(); c.shadowColor='rgba(0,0,0,.45)'; c.shadowBlur=10; c.shadowOffsetY=3;
+  const g=c.createLinearGradient(0,y,0,y+h); g.addColorStop(0,'#6e4c2e'); g.addColorStop(1,'#4a301c'); c.fillStyle=g; c.beginPath(); rrect(c,x,y,w,h,10); c.fill(); c.restore();
+  c.save(); c.beginPath(); rrect(c,x,y,w,h,10); c.clip(); c.strokeStyle='rgba(30,18,8,.35)'; c.lineWidth=1.2; for(let yy=y+6; yy<y+h; yy+=7){ c.beginPath(); c.moveTo(x,yy); c.bezierCurveTo(x+w*.3,yy+2,x+w*.6,yy-2,x+w,yy+1); c.stroke(); } c.restore();
+  c.strokeStyle=edge||'rgba(255,230,190,.35)'; c.lineWidth=edge?3:2; c.beginPath(); rrect(c,x+1.5,y+1.5,w-3,h-3,9); c.stroke();
+  for(const [nx,ny] of [[x+9,y+9],[x+w-9,y+9],[x+9,y+h-9],[x+w-9,y+h-9]]){ c.fillStyle='#c8a868'; c.beginPath(); c.arc(nx,ny,2.6,0,TAU); c.fill(); }
+}
+function fiHud(c, s, t, P0){
+  const W=FI.W, n=s.pl.length;
+  // clock
+  { const x=W/2-110, y=12; fiPlaque(c,x,y,220,74);
+    const tm = s.time>0 ? `${Math.floor(Math.ceil(s.time)/60)}:${String(Math.ceil(s.time)%60).padStart(2,'0')}` : 'FINAL FISH';
+    const low = s.time>0 && s.time<=20 && Math.floor(t*2)%2===0;
+    fiLabel(c, tm, W/2, y+40, s.time>0?52:40, low?'#ff6a4a':FIW);
+    // the sun climbing in a little arc
+    const k=s.tod; c.strokeStyle='rgba(255,230,190,.35)'; c.lineWidth=2; c.beginPath(); c.arc(W/2,y+78,96,Math.PI*1.12,Math.PI*1.88); c.stroke();
+    const a=Math.PI*(1.12+.76*k); c.fillStyle='#ffd27a'; c.beginPath(); c.arc(W/2+Math.cos(a)*96,y+78+Math.sin(a)*96,6,0,TAU); c.fill(); }
+  for(const P of s.pl){ const right = P.p===1; const x= right ? W-20-340 : 20, y=12; fiPlaque(c,x,y,340,98,PC[P.p]);
+    const nm=(s.names&&s.names[P.p])||`Player ${P.p+1}`;
+    c.save(); c.font=`700 22px ${BODY}`; c.textBaseline='middle'; c.textAlign='left'; c.fillStyle=PC[P.p]; c.shadowColor=PC[P.p]; c.shadowBlur=8; c.fillText(nm.slice(0,14), x+18, y+24); c.restore();
+    fiLabel(c, fiLb(fiTot(P)), x+322, y+28, 40, FIW, 'right');
+    // the five fish that count
+    for(let i=0;i<FI.BAG;i++){ const bx=x+16+i*64, by=y+50; c.fillStyle='rgba(20,12,6,.45)'; c.beginPath(); rrect(c,bx,by,58,40,6); c.fill();
+      const f=P.bag[i]; if(f){ c.save(); c.translate(bx+29,by+16); fiFishSide(c,f.sp,46,{amp:0}); c.restore(); c.save(); c.font=`700 13px ${BODY}`; c.textAlign='center'; c.fillStyle=FIW; c.fillText(f.w.toFixed(1),bx+29,by+35); c.restore(); }
+      else { c.strokeStyle='rgba(255,230,190,.18)'; c.setLineDash([4,4]); c.beginPath(); rrect(c,bx+3,by+3,52,34,5); c.stroke(); c.setLineDash([]); } }
+    if(P.bag.length>FI.BAG){ c.save(); c.font=`700 13px ${BODY}`; c.fillStyle='rgba(246,236,210,.7)'; c.textAlign='right'; c.fillText(`+${P.bag.length-FI.BAG} released`, x+330, y+94); c.restore(); }
+  }
+  // lure cams + tension gauges
+  for(const P of s.pl){ const right=P.p===1, cw=340, ch=196, cx= right ? W-20-cw : 20, cy=122;
+    fiCam(c, s, P, cx, cy, cw, ch, t, right);
+    fiGauge(c, s, P, right ? cx-40 : cx+cw+10, cy, 30, ch); }
+  // prompts, messages, catch cards
+  for(const P of s.pl){ const mx = n===1 ? W/2 : (P.p ? W*.73 : W*.27);
+    if(P.card){ fiCard(c, s, P, mx, 470, t); continue; }
+    const cue=P.cue, blink=Math.floor(t*6)%2===0;
+    const big = { bite:['BITE! SET THE HOOK!', NEON.yellow], jump:['JUMP! ROD DOWN!', '#ff6a4a'], rub:['LINE RUBBING — STEER IT OUT!', NEON.orange], tight:['TOO TIGHT!', '#ff4a4a'], slack:['SLACK — REEL!', NEON.yellow], tired:['TIRED — BRING IT IN!', NEON.green] }[cue];
+    if(big){ const sz = cue==='bite' ? 62 : 44; c.save(); if(cue==='bite'){ const sc=1+.06*Math.sin(t*20); c.translate(mx,420); c.scale(sc,sc); c.translate(-mx,-420); } fiLabel(c, big[0], mx, 420, sz, big[1]); c.restore(); }
+    if(P.msgT>0 && P.msg){ c.globalAlpha=clamp(P.msgT*2,0,1); fiLabel(c, P.msg, mx, big?470:440, 30, P.mc||FIW); c.globalAlpha=1; }
+    if(P.ph==='ready' && s.go<=0 && s.time>0 && !(P.msgT>0)){ const loc=FISH_LOC[P.p]; const hint = loc&&loc.hint && S.local.includes(P.p) && S.cpu!==P.p ? loc.hint : '';
+      if(hint){ c.globalAlpha=.6+.3*Math.sin(t*3); fiLabel(c, hint, mx, 470, 26, FIW); c.globalAlpha=1; } }
+  }
+  // countdown + final
+  if(s.go>0){ const txt = s.go>1 ? 'READY…' : 'FISH!'; const sc=1+(s.go%1)*.15; c.save(); c.translate(W/2,330); c.scale(sc,sc); fiLabel(c, txt, 0, 0, 120, s.go>1?FIW:NEON.yellow); c.restore(); }
+  else if(s.time<=0 && !s.over){ fiLabel(c, 'TIME! LAND THAT LAST FISH!', W/2, 140, 44, NEON.yellow); }
+}
+function fiGauge(c, s, P, x, y, w, h){
+  const B=FI.BREAK, T=P.ph==='fight'||P.snag ? (P.Tpk||P.T) : P.T, k=clamp(T/B,0,1.05), dk=P.drag;
+  c.fillStyle='rgba(16,10,6,.75)'; c.beginPath(); rrect(c,x,y,w,h,8); c.fill();
+  const iy=y+26, ih=h-52;
+  const g=c.createLinearGradient(0,iy+ih,0,iy); g.addColorStop(0,'#3ad06a'); g.addColorStop(.55,'#e8d24a'); g.addColorStop(.85,'#ff7a3a'); g.addColorStop(1,'#ff2a2a');
+  c.fillStyle='rgba(255,255,255,.07)'; c.fillRect(x+6,iy,w-12,ih);
+  c.fillStyle=g; const fh=ih*Math.min(1,k); c.fillRect(x+6,iy+ih-fh,w-12,fh);
+  // drag mark: where the reel starts to give line
+  const dy=iy+ih*(1-clamp(dk,0,1)); c.fillStyle='#ffffff'; c.fillRect(x+2,dy-1.5,w-4,3);
+  c.save(); c.font=`700 11px ${BODY}`; c.textAlign='center'; c.fillStyle=FIW; c.fillText('DRAG',x+w/2,dy-6); c.restore();
+  if(k>.86 && Math.floor(performance.now()/90)%2===0){ c.strokeStyle='#ff3030'; c.lineWidth=3; c.beginPath(); rrect(c,x+1,y+1,w-2,h-2,8); c.stroke(); }
+  c.save(); c.font=`400 18px ${FIF}`; c.textAlign='center'; c.fillStyle=FIW; c.fillText('LINE',x+w/2,y+16); c.fillText(`${(T/4.448).toFixed(1)}`,x+w/2,y+h-12); c.restore();
+}
+function fiCam(c, s, P, x, y, w, h, t, right){
+  c.save(); c.shadowColor='rgba(0,0,0,.5)'; c.shadowBlur=12; c.fillStyle='#0c0a08'; c.beginPath(); rrect(c,x-4,y-4,w+8,h+8,14); c.fill(); c.restore();
+  c.save(); c.beginPath(); rrect(c,x,y,w,h,10); c.clip();
+  const inWater = (P.ph==='water' || P.ph==='fight') && P.ld>=0;
+  if(!inWater){ fiCamIdle(c, s, P, x, y, w, h, t); c.restore(); fiCamFrame(c,P,x,y,w,h,'TACKLE'); return; }
+  const Psky=fiSky(s.tod);
+  const ax0=P.lx-P.bx, az0=P.lz, al=Math.hypot(ax0,az0)||1, ux=ax0/al, uz=az0/al, u0=al;
+  const bot0=fiDepth(P.lx,P.lz), Dm=Math.max(3.2, Math.min(bot0+.8, 12)), ppm=w/7.5, sy0=y+h*.17, ppd=(h*.83-6)/Dm;
+  const X=u=> right ? x+w*.55-(u-u0)*ppm : x+w*.45+(u-u0)*ppm, Y=d=>sy0+d*ppd;
+  // sky slice + water column
+  c.fillStyle=Psky.low; c.fillRect(x,y,w,sy0-y);
+  const g=c.createLinearGradient(0,sy0,0,y+h); g.addColorStop(0,fiMix(Psky.hex.wf,'#4aa0a0',.5)); g.addColorStop(.4,'#1e5a5c'); g.addColorStop(1,'#08201e'); c.fillStyle=g; c.fillRect(x,sy0,w,h);
+  // light shafts
+  c.save(); c.globalCompositeOperation='lighter'; for(let i=0;i<5;i++){ const bx=x+((i*97+t*14)%(w+120))-60; c.fillStyle=`rgba(180,240,220,${.05+.03*Math.sin(t+i)})`; c.beginPath(); c.moveTo(bx,sy0); c.lineTo(bx+26,sy0); c.lineTo(bx-40,y+h); c.lineTo(bx-90,y+h); c.closePath(); c.fill(); } c.restore();
+  // surface line
+  c.strokeStyle='rgba(220,250,255,.6)'; c.lineWidth=2; c.beginPath(); for(let xx=x; xx<=x+w; xx+=8) c.lineTo(xx, sy0+Math.sin(xx*.05+t*2)*1.5); c.stroke();
+  // motes
+  const r=prng(17); c.fillStyle='rgba(220,255,240,.25)'; for(let i=0;i<26;i++){ const mx=x+((r()*w+t*(4+r()*6))%w), my=sy0+((r()*h+t*3*r())%(h-sy0+y)); c.fillRect(mx,my,1.5,1.5); }
+  // lake bed under the lure
+  c.beginPath(); c.moveTo(x-10,y+h+10);
+  for(let px=x-10; px<=x+w+10; px+=8){ const u=u0+(right?-(px-(x+w*.55)):(px-(x+w*.45)))/ppm, d=fiDepth(P.bx+ux*u, uz*u); c.lineTo(px, Y(d)); }
+  c.lineTo(x+w+10,y+h+10); c.closePath(); const gb=c.createLinearGradient(0,Y(bot0)-20,0,y+h); gb.addColorStop(0,'#6a6040'); gb.addColorStop(1,'#2a2614'); c.fillStyle=gb; c.fill();
+  // cover on the bed
+  for(let px=x; px<=x+w; px+=14){ const u=u0+(right?-(px-(x+w*.55)):(px-(x+w*.45)))/ppm, wx=P.bx+ux*u, wz=uz*u, C=fiCover(wx,wz); if(!C) continue; const d=fiDepth(wx,wz), by=Y(d);
+    if(C.k==='weeds'||C.k==='pads'){ c.strokeStyle=C.k==='pads'?'rgba(70,120,40,.85)':'rgba(50,100,40,.8)'; c.lineWidth=3; const top=C.k==='pads'?sy0:by-ppd*Math.min(d,1.6); c.beginPath(); c.moveTo(px,by); c.bezierCurveTo(px+8*Math.sin(t*1.4+px),(by+top)/2,px-8*Math.sin(t*1.1+px),(by+top)/2,px+4*Math.sin(t+px),top); c.stroke(); if(C.k==='pads'){ c.fillStyle='#3e6a28'; c.fillRect(px-9,sy0-2,18,4); } }
+    else if(C.k==='stumps'){ c.fillStyle='#3a2a1c'; c.fillRect(px-7,by-ppd*Math.min(d,2.4),14,ppd*Math.min(d,2.4)); }
+    else if(C.k==='rocks'){ c.fillStyle='#55554c'; c.beginPath(); c.ellipse(px,by,12,8,0,Math.PI,TAU); c.fill(); }
+    else if(C.k==='log'){ c.fillStyle='#3e2a18'; c.fillRect(px-8,sy0+2,16,ppd*.5); } }
+  // fish near the lure
+  const hooked = P.ph==='fight' ? s.fish.find(f=>f.i===P.fish) : null;
+  for(const F of s.fish){ const rx=F.x-P.bx, rz=F.z, uF=rx*ux+rz*uz, lat=Math.abs(rx*uz-rz*ux);
+    if(Math.abs(uF-u0)>5 || lat>3.2) continue;
+    const a=F===hooked?1:clamp(1-lat/3.4,0,1)*.95; const hd=Math.sin(F.h)*ux+Math.cos(F.h)*uz; const face = (hd>=0) !== right ? 1 : -1;
+    const L=fiLen(F)*ppm*1.15, fx=X(uF), fy=Y(Math.max(-1.5,F.d));
+    c.save(); c.translate(fx,fy); c.scale(face,1); if(F===hooked){ const fl=F.air>0?-.5:F.beh==='shake'?Math.sin(t*26)*.25:0; c.rotate(fl); }
+    if(F.st==='bite' && F.tg===P.p) c.translate(-L*.05,0);
+    fiFishSide(c, F.sp, L, { ph:F.tail*1.4, amp: F===hooked ? (F.beh==='shake'?1.2:.8) : .5, alpha:a, open: F.st==='bite' }); c.restore();
+    if(F.st==='follow' && F.tg===P.p){ c.fillStyle=NEON.yellow; c.globalAlpha=.6+.4*Math.sin(t*8); c.beginPath(); c.arc(fx,fy-L*.3,4,0,TAU); c.fill(); c.globalAlpha=1; } }
+  // the line and the lure
+  const lxp=X(u0), lyp=Y(Math.max(0,P.ld));
+  c.strokeStyle='rgba(255,255,255,.75)'; c.lineWidth=1.4; c.beginPath(); c.moveTo(lxp,lyp); c.lineTo(right?x+w+20:x-20, y-20); c.stroke();
+  if(!hooked){ const lt=FI.LURES[P.lure], wob=Math.sin(t*(P.lv>.1?22:3))*(P.lure===1?.25:.08);
+    c.save(); c.translate(lxp,lyp); c.scale(right?1:-1,1); c.rotate(wob);
+    if(P.lure===0){ c.fillStyle=lt.col; c.beginPath(); c.ellipse(0,0,14,6,0,0,TAU); c.fill(); c.fillStyle='#ffffff'; c.beginPath(); c.arc(-8,-2,2.5,0,TAU); c.fill(); c.fillStyle='#ff4a2a'; c.fillRect(8,-2,6,6); }
+    else if(P.lure===1){ c.fillStyle=lt.col; c.beginPath(); c.ellipse(0,0,15,7,0,0,TAU); c.fill(); c.fillStyle='#ffe6a0'; c.beginPath(); c.ellipse(1,3,11,3,0,0,TAU); c.fill(); c.fillStyle='rgba(220,240,255,.8)'; c.beginPath(); c.moveTo(-14,0); c.lineTo(-24,6); c.lineTo(-14,5); c.closePath(); c.fill(); c.fillStyle='#000'; c.beginPath(); c.arc(-9,-2,2,0,TAU); c.fill(); }
+    else { c.fillStyle='#d8d0b0'; c.beginPath(); c.arc(-6,0,5,0,TAU); c.fill(); c.fillStyle=lt.col; for(let i=0;i<6;i++){ c.beginPath(); c.moveTo(-2,0); c.quadraticCurveTo(8,-6+i*2.4+Math.sin(t*6+i)*2,18,-4+i*1.8); c.lineTo(-2,1); c.fill(); } }
+    c.restore(); }
+  c.restore();
+  fiCamFrame(c, P, x, y, w, h, 'LURE CAM');
+  // readouts
+  c.save(); c.font=`700 15px ${BODY}`; c.textBaseline='middle'; c.fillStyle='rgba(10,8,6,.6)'; c.fillRect(x,y+h-24,w,24);
+  c.fillStyle=FIW; c.textAlign='left'; c.fillText(`${FI.LURES[P.lure].name.toUpperCase()} · ${Math.max(0,P.ld).toFixed(1)} m deep`, x+10, y+h-12);
+  c.textAlign='right'; c.fillText(`${P.L.toFixed(0)} m out · drag ${(P.drag*FI.BREAK/4.448).toFixed(1)} lb`, x+w-10, y+h-12); c.restore();
+  if(hooked){ // fish energy
+    const bw=120, bx=x+w-bw-12, by=y+30; c.fillStyle='rgba(10,8,6,.6)'; c.beginPath(); rrect(c,bx-6,by-14,bw+12,28,6); c.fill();
+    c.fillStyle='#2a2a2a'; c.fillRect(bx,by-3,bw,8); c.fillStyle=hooked.St<.33?NEON.green:'#ff9a3a'; c.fillRect(bx,by-3,bw*hooked.St,8);
+    c.save(); c.font=`700 11px ${BODY}`; c.fillStyle=FIW; c.textAlign='left'; c.fillText('FISH ENERGY',bx,by-7); c.restore(); }
+}
+function fiCamFrame(c, P, x, y, w, h, label){
+  c.strokeStyle=PC[P.p]; c.lineWidth=3; c.beginPath(); rrect(c,x,y,w,h,10); c.stroke();
+  c.save(); c.font=`400 18px ${FIF}`; c.textBaseline='middle'; c.fillStyle='rgba(10,8,6,.65)'; const tw=c.measureText(label).width; c.fillRect(x+8,y+7,tw+26,22);
+  c.fillStyle='#ff3a2a'; c.beginPath(); c.arc(x+17,y+18,4,0,TAU); c.fill(); c.fillStyle=FIW; c.textAlign='left'; c.fillText(label,x+26,y+19); c.restore();
+}
+function fiCamIdle(c, s, P, x, y, w, h, t){
+  const g=c.createLinearGradient(0,y,0,y+h); g.addColorStop(0,'#4a3220'); g.addColorStop(1,'#2a1a10'); c.fillStyle=g; c.fillRect(x,y,w,h);
+  // tackle tray: the three lures
+  for(let i=0;i<FI.LURES.length;i++){ const L=FI.LURES[i], bx=x+14+i*(w-28)/3, bw=(w-28)/3-8, by=y+36, on=i===P.lure;
+    c.fillStyle=on?'rgba(255,230,160,.22)':'rgba(0,0,0,.25)'; c.beginPath(); rrect(c,bx,by,bw,84,8); c.fill(); if(on){ c.strokeStyle=PC[P.p]; c.lineWidth=2.5; c.stroke(); }
+    c.save(); c.translate(bx+bw/2,by+34); c.scale(1.5,1.5);
+    if(i===0){ c.fillStyle=L.col; c.beginPath(); c.ellipse(0,0,14,6,0,0,TAU); c.fill(); c.fillStyle='#ff4a2a'; c.fillRect(-14,-3,6,6); }
+    else if(i===1){ c.fillStyle=L.col; c.beginPath(); c.ellipse(0,0,15,7,0,0,TAU); c.fill(); c.fillStyle='rgba(220,240,255,.8)'; c.beginPath(); c.moveTo(14,0); c.lineTo(24,6); c.lineTo(14,5); c.closePath(); c.fill(); }
+    else { c.fillStyle='#d8d0b0'; c.beginPath(); c.arc(6,0,5,0,TAU); c.fill(); c.fillStyle=L.col; for(let k=0;k<6;k++){ c.beginPath(); c.moveTo(2,0); c.quadraticCurveTo(-8,-6+k*2.4,-18,-4+k*1.8); c.lineTo(2,1); c.fill(); } }
+    c.restore();
+    c.save(); c.font=`400 ${Math.min(19,bw*.17)}px ${FIF}`; c.textAlign='center'; c.fillStyle=on?FIW:'rgba(246,236,210,.6)'; c.fillText(L.name.toUpperCase(),bx+bw/2,by+74); c.restore(); }
+  const L=FI.LURES[P.lure], loc=FISH_LOC[P.p], ch = loc ? loc.ch : P.ch;
+  if(ch>=0){ // cast power
+    const bx=x+14, by=y+h-58, bw=w-28; c.fillStyle='rgba(0,0,0,.5)'; c.beginPath(); rrect(c,bx,by,bw,30,6); c.fill();
+    const gg=c.createLinearGradient(bx,0,bx+bw,0); gg.addColorStop(0,'#3ad06a'); gg.addColorStop(.7,'#e8d24a'); gg.addColorStop(1,'#ff5a2a'); c.fillStyle=gg; c.fillRect(bx+3,by+3,(bw-6)*ch,24);
+    fiLabel(c, `CAST ${Math.round(4+ch*L.range)} m`, x+w/2, by+16, 22, FIW); }
+  else { c.save(); c.font=`700 13px ${BODY}`; c.textAlign='center'; c.fillStyle='rgba(246,236,210,.88)'; c.fillText(L.tip, x+w/2, y+140);
+    c.fillStyle='rgba(246,236,210,.62)'; c.fillText(loc && loc.lureKey ? loc.lureKey : '', x+w/2, y+160); c.restore(); }
+  if(P.ph==='land' || P.ph==='lost'){ c.fillStyle='rgba(0,0,0,.45)'; c.fillRect(x,y,w,h); fiLabel(c, P.ph==='land'?'NICE!':'RE-TYING…', x+w/2, y+h/2, 40, FIW); }
+}
+function fiCard(c, s, P, mx, my, t){
+  const k=clamp(P.card.t*3,0,1), e=1-Math.pow(1-k,3), w=430, h=250, x=mx-w/2, y=my-h/2+(1-e)*40;
+  c.save(); c.globalAlpha=e; fiPlaque(c,x,y,w,h,PC[P.p]);
+  const sp=FI.SP[P.card.sp];
+  fiLabel(c, P.card.rank || 'CAUGHT!', mx, y+32, 34, P.card.rank==='TROPHY!'?NEON.yellow:FIW);
+  c.save(); c.translate(mx, y+112); fiFishSide(c, P.card.sp, 300, { ph:t*6, amp:.35 }); c.restore();
+  fiLabel(c, sp.name.toUpperCase(), mx, y+190, 30, FIW);
+  fiLabel(c, fiLb(P.card.w), mx, y+226, 40, NEON.yellow);
+  c.restore();
+}
+
+/* ---------------- attract screen on the cabinet ---------------- */
+function fiAttract(c, w, h, t){
+  if(!FIA.att){ FIA.att=document.createElement('canvas'); FIA.att.width=FI.W; FIA.att.height=FI.H; fiRenderBg(.22, FIA.att); }
+  c.save(); c.scale(w/FI.W, h/FI.H);
+  c.drawImage(FIA.att,0,0);
+  // a few fish cruising in the shallows
+  for(let i=0;i<5;i++){ const a=t*.18+i*1.3, F={ sp:[2,4,0,3,1][i], w:[4,9,.6,3,1][i], x:Math.sin(a)*(5+i*2), z:10+i*4+Math.cos(a*1.3)*2, h:a+Math.PI/2, tail:t*4+i }; const [px,py,k]=fiP(F.x,F.z); fiShadow(c,F,px,py,k,.4); }
+  // a bass leaping
+  const jp=(t*.5)%4; if(jp<1){ const [px,py,k]=fiP(-2,12,Math.sin(jp*Math.PI)*1.5); c.save(); c.translate(px,py); c.rotate(-(1-jp*2)*.8); fiFishSide(c,2,k*.55,{ph:t*10,amp:1,open:true}); c.restore(); }
+  c.fillStyle='rgba(10,6,2,.35)'; c.fillRect(0,70,FI.W,250);
+  fiLabel(c,'LUNKER LAKE',FI.W/2,170,190,'#ffe9b0');
+  fiLabel(c,'2-ROD FISHING DERBY',FI.W/2,270,56,'#2fe0c0');
+  c.restore();
+}
+
+/* =====================================================================
    3D WORLD — lobby + arcade room (same walking interface as the gallery)
    ===================================================================== */
 const canvas = $('#c');
@@ -4909,6 +5931,7 @@ function buildRoom2(){
   // Pop Pals cabinet against the wall by the door
   uprightCab(GAMES.find(g=>g.id==='pop'), R.x1-.45, -13.2, -1);
   uprightCab(GAMES.find(g=>g.id==='track'), R.x1-.45, -14.4, -1);
+  buildFishBooth();
   // benches facing the alleys
   for(const x of [cx-2.4,cx+2.4]){ box(2.2,.45,.7,x,.225,-9.6,darkMat); box(2.24,.06,.74,x,.47,-9.6,velvetMat); tubeX(x-1.1,x+1.1,.06,-9.95,NEON.violet,.025); collide(x-1.1,x+1.1,-9.95,-9.25); }
 }
@@ -4975,6 +5998,7 @@ function stepAuto(dt){
 function viewSpot(cab){
   if(cab.kind==='hockey') return { x:cab.x, z:cab.z+2.35, yaw:0, pitch:-.42 };
   if(cab.kind==='cocktail') return { x:cab.x-1.35, z:cab.z, yaw:Math.atan2(-1,0), pitch:-.55 };
+  if(cab.kind==='booth') return { x:cab.x, z:cab.z-4.1, yaw:Math.PI, pitch:-.08 };
   const d=1.45; return { x:cab.x+cab.nx*d, z:cab.z+cab.nz*d, yaw:Math.atan2(cab.nx,cab.nz), pitch:-.12 };
 }
 let cur=-1;
@@ -4986,7 +6010,7 @@ function step(dir){
   goTo(list[(i+dir+list.length)%list.length]);
 }
 function fwd(){ return { x:-Math.sin(player.yaw), z:-Math.cos(player.yaw) }; }
-function updateCounter(cab){ const list=ORDER(); $('#counter').textContent = cab ? `${cab.def.name} · ${list.indexOf(cab)+1} / ${list.length}` : ({ lobby:'Lobby · arcade ahead', arcade:`Arcade · ${CABS.filter(c=>roomOf(c.x,c.z)==='arcade').length} machines · Arcade 2 on the left`, room2:`Arcade 2 · ${ALLEYS.length} Glow Roll alleys · Pop Pals · Track Meet · Shootin' Gallery` })[roomOf(player.x,player.z)]; }
+function updateCounter(cab){ const list=ORDER(); $('#counter').textContent = cab ? `${cab.def.name} · ${list.indexOf(cab)+1} / ${list.length}` : ({ lobby:'Lobby · arcade ahead', arcade:`Arcade · ${CABS.filter(c=>roomOf(c.x,c.z)==='arcade').length} machines · Arcade 2 on the left`, room2:`Arcade 2 · ${ALLEYS.length} Glow Roll alleys · Pop Pals · Track Meet · Lunker Lake · Shootin' Gallery` })[roomOf(player.x,player.z)]; }
 
 /* =====================================================================
    AVATARS — 1980s neon people
@@ -6107,6 +7131,7 @@ function addTicketSlots(){
     const a=new THREE.Group();
     if(cab.kind==='upright'){ a.position.set(0,.84,.385); }
     else if(cab.kind==='hockey'){ a.position.set(0,.62,1.27); }
+    else if(cab.kind==='booth'){ a.position.set(0,.6,1.8); }
     else { a.position.set(-.42,.52,0); a.rotation.y=-Math.PI/2; }
     cab.group.add(a);
     const s=new THREE.Mesh(new THREE.BoxGeometry(.2,.035,.03), slotM); a.add(s);
@@ -7363,6 +8388,369 @@ function galOnNet(m){
 function galSnapshot(){ return GALST.filter(s=>s.who==='me').map(s=>({ s:s.i, score:s.score, shots:s.shots })); }
 
 /* =====================================================================
+   LUNKER LAKE booth — Arcade 2, south-west corner. A big screen in a
+   lodge-wood frame, a little dock to stand on and two real-looking rod
+   and reel controllers on pedestals. While you play, the camera stands
+   behind the rods; the rods swing, bend under load, the reel handles
+   spin and the glowing line runs from each rod tip into the screen.
+   Local frame of the booth group: +x = right as you face the screen,
+   +z = toward the player, y up.
+   ===================================================================== */
+const FB = { g:null, cab:null, rods:[], led:[], ledT:0, bx:-18.2, bz:-1.12, cam:false, partnerVis:false, amb:0, clickA:[0,0], slipT:[0,0], lastEv:0 };
+const FISH_LOC=[null,null], FISH_LC=[null,null];
+const FT={ ptr:new Map(), crank:[null,null], crankW:[0,0], crankA:[0,0], crankT:[0,0], stick:[null,null], flick:[null,null], btn:[] };
+const fbV=new THREE.Vector3(), fbV2=new THREE.Vector3();
+
+function fbMat(c, r=.8, m=0, e){ const o=new THREE.MeshStandardMaterial({ color:c, roughness:r, metalness:m }); if(e) o.emissive=new THREE.Color(e); return o; }
+function fbCyl(rt, rb, h, m, parent, seg=12){ const o=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,seg), m); parent.add(o); return o; }
+function fbFishShape(s=1){ const sh=new THREE.Shape(); sh.moveTo(.5*s,0); sh.quadraticCurveTo(.25*s,.22*s,-.18*s,.12*s); sh.lineTo(-.42*s,.24*s); sh.lineTo(-.34*s,0); sh.lineTo(-.42*s,-.24*s); sh.lineTo(-.18*s,-.12*s); sh.quadraticCurveTo(.25*s,-.22*s,.5*s,0); return sh; }
+
+function buildFishBooth(){
+  const def=GAMES.find(g=>g.id==='fish'); if(!def) return;
+  const g=new THREE.Group(); g.position.set(FB.bx,0,FB.bz); g.rotation.y=Math.PI; scene.add(g); FB.g=g;
+  const wood=new THREE.MeshStandardMaterial({ map:gwPlanks('#5c4028',{n:9,vert:false,seed:5}), roughness:.85 });
+  const dark=new THREE.MeshStandardMaterial({ map:gwPlanks('#3a2818',{n:6,vert:true,seed:9}), roughness:.9 });
+  const teal='#2fe0c0';
+  // back wall of the booth: lodge planks + a big screen
+  box(3.5,2.95,.1,0,1.475,.05,wood,g);
+  const sc=screenCanvas(IS_TOUCH?960:1280, IS_TOUCH?540:720), tex=canvasTex(sc); const sm=new THREE.MeshBasicMaterial({map:tex}); sm.color.setScalar(1.18);
+  const scr=new THREE.Mesh(new THREE.PlaneGeometry(2.8,1.575), sm); scr.position.set(0,1.56,.14); g.add(scr);
+  FIA.sc=sc; FIA.tex=tex;
+  // heavy log frame around the screen
+  const logM=fbMat('#5a3c22',.85); for(const [w,h,x,y] of [[3.06,.13,0,2.41],[3.06,.13,0,.71],[.13,1.83,-1.47,1.56],[.13,1.83,1.47,1.56]]) box(w,h,.16,x,y,.13,logM,g);
+  tubeX(-1.42,1.42,2.36,.22,teal,.026,g); tubeX(-1.42,1.42,.76,.22,teal,.026,g); tubeY(.76,2.36,-1.42,.22,teal,.026,g); tubeY(.76,2.36,1.42,.22,teal,.026,g);
+  // marquee
+  const mq=signPlane(signTex([{t:'LUNKER LAKE', c:'#ffe2a0', size:150, font:HEAD, weight:900}],1024,200,{frame:teal}), 2.2,.43, 0, 2.72, .2, 0, 1.7, g);
+  for(const sd of [-1,1]){ const f=new THREE.Mesh(new THREE.ShapeGeometry(fbFishShape(.42)), neonMat(NEON.orange,2.2)); f.position.set(sd*1.42,2.72,.21); f.scale.x=-sd; g.add(f);
+    const e=new THREE.Mesh(new THREE.CircleGeometry(.018,10), neonMat('#1a1a1a',1)); e.position.set(sd*1.42-sd*.14,2.74,.215); g.add(e); }
+  // dock to stand on
+  const dock=new THREE.MeshStandardMaterial({ map:gwPlanks('#8a6a46',{n:10,vert:true,seed:13}), roughness:.9 }); dock.map.repeat.set(1.4,1);
+  box(3.5,.07,2.5,0,.035,1.35,dock,g);
+  for(const sd of [-1,1]) for(const z of [.25,1.35,2.5]){ const p=fbCyl(.06,.07,.55,dark,g,10); p.position.set(sd*1.72,.28,z); const cap=fbCyl(.065,.065,.02,fbMat('#2a1a0e'),g,10); cap.position.set(sd*1.72,.56,z); }
+  // rope rail between the posts
+  for(const sd of [-1,1]){ const pts=[]; for(let i=0;i<=16;i++){ const u=i/16, z=.25+u*2.25; pts.push(new THREE.Vector3(sd*1.72,.52-.06*Math.sin(Math.PI*((z-.25)%1.1)/1.1),z)); }
+    const rope=new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),40,.014,6,false), fbMat('#b89a68',.95)); g.add(rope); }
+  // a strip of lit "water" in front of the screen, where the lines go in
+  box(3.0,.34,.42,0,.2,.36,dark,g);
+  const wm=new THREE.MeshStandardMaterial({ color:'#0d4a46', emissive:'#0a5a52', emissiveIntensity:.8, roughness:.15, metalness:.2 });
+  box(2.9,.02,.36,0,.38,.36,wm,g); tubeX(-1.45,1.45,.385,.56,teal,.02,g);
+  // cattails at the sides of the booth
+  const reedM=fbMat('#4a5a28',.9), tailM=fbMat('#4a2c16',.9); const rr=prng(5);
+  for(const sd of [-1,1]) for(let i=0;i<9;i++){ const x=sd*(1.52+rr()*.18), z=.25+rr()*.3, h=.7+rr()*.75; const st=fbCyl(.006,.009,h,reedM,g,5); st.position.set(x,.38+h/2,z); st.rotation.z=(rr()-.5)*.2;
+    if(rr()<.6){ const tl=fbCyl(.022,.022,.12,tailM,g,8); tl.position.set(x+st.rotation.z*-h*.5,.38+h-.02,z); } }
+  // centre console: "weigh-in" with the ticket slot
+  box(.46,.84,.34,0,.42,1.62,dark,g);
+  signPlane(signTex([{t:'WEIGH-IN', c:NEON.orange, size:110, font:HEAD, weight:900}],512,128),.4,.1,0,.8,1.795,0,1.6,g);
+  // two rods
+  for(let p=0;p<2;p++) FB.rods.push(fbRod(g, p?.78:-.78, p));
+  const cab={ def, x:FB.bx, z:FB.bz, nx:0, nz:-1, sc, tex, phase:1.7, kind:'booth', sy:1.56, group:g };
+  addHit(cab, 3.4, 2.9, 2.7, 0, 1.45, 1.3, g);
+  // colliders (world): the screen wall + trough, both pedestals, the console
+  const W2=(lx,lz)=>[FB.bx-lx, FB.bz-lz];
+  { const [a,b]=W2(-1.75,0), [c2,d]=W2(1.75,.6); collide(a,c2,b,d); }
+  for(const x of [-.78,.78,0]){ const [a,b]=W2(x-.2,1.42), [c2,d]=W2(x+.2,1.8); collide(a,c2,b,d); }
+  CABS.push(cab); FB.cab=cab;
+  paintScreen(cab,0); fiInputs();
+}
+function fbRod(g, x, p){
+  const col=PC[p];
+  // pedestal
+  const ped=new THREE.Group(); ped.position.set(x,0,1.55); g.add(ped);
+  const steel=fbMat('#8a8e98',.35,.8), black=fbMat('#141418',.5,.3);
+  fbCyl(.22,.25,.05,black,ped,24).position.y=.095;
+  fbCyl(.045,.055,1.0,steel,ped,14).position.y=.6;
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(.065,.012,8,24), neonMat(col,2)); ring.rotation.x=Math.PI/2; ring.position.y=.55; ped.add(ring);
+  // little LED readout facing the player
+  const lc=document.createElement('canvas'); lc.width=256; lc.height=128; const lt=canvasTex(lc);
+  const led=new THREE.Mesh(new THREE.PlaneGeometry(.26,.13), new THREE.MeshBasicMaterial({map:lt})); led.material.color.setScalar(1.3);
+  const lb=new THREE.Group(); lb.position.set(0,.86,.07); lb.rotation.x=-.5; ped.add(lb); box(.29,.16,.03,0,0,-.017,black,lb); lb.add(led); led.position.z=.001;
+  FB.led[p]={ c:lc, t:lt };
+  // yoke (gimbal) at the top
+  const yaw=new THREE.Group(); yaw.position.set(x,1.12,1.55); g.add(yaw);
+  box(.1,.04,.08,0,-.03,0,steel,yaw); for(const sd of [-1,1]) box(.015,.1,.05,sd*.05,.02,0,steel,yaw);
+  const pitch=new THREE.Group(); yaw.add(pitch);
+  // the rod lies along -z (toward the screen); butt behind the pivot toward the player
+  const cork=fbMat('#c8a272',.95), seat=fbMat('#2a2a30',.3,.7), blankM=fbMat(p?'#3a1030':'#0c2a3a',.35,.2), wrap=fbMat(col,.4,.1,col);
+  const along=(m,r0,r1,z0,z1,parent=pitch,seg=14)=>{ const o=new THREE.Mesh(new THREE.CylinderGeometry(r1,r0,Math.abs(z1-z0),seg), m); o.rotation.x=Math.PI/2; o.position.z=(z0+z1)/2; parent.add(o); return o; };
+  along(seat,.019,.019,.44,.42); along(cork,.017,.016,.42,.12); along(seat,.013,.013,.12,-.02); along(cork,.014,.012,-.02,-.16); along(wrap,.0115,.0115,-.16,-.19);
+  // the blank, as a chain of segments that can bend
+  const segs=[]; let parent=pitch, z=-.19; const N=9, LEN=1.4;
+  for(let i=0;i<N;i++){ const sg=new THREE.Group(); sg.position.z = i===0 ? z : -LEN/N; parent.add(sg);
+    const r0=.0105-.0075*(i/N), r1=.0105-.0075*((i+1)/N); const m=new THREE.Mesh(new THREE.CylinderGeometry(r1,r0,LEN/N,8), blankM); m.rotation.x=Math.PI/2; m.position.z=-LEN/N/2; sg.add(m);
+    if(i%2===1){ const gd=new THREE.Mesh(new THREE.TorusGeometry(.009-.004*(i/N),.0018,5,10), steel); gd.position.set(0,-.016,-LEN/N*.6); sg.add(gd); const ft=new THREE.Mesh(new THREE.BoxGeometry(.002,.012,.002),steel); ft.position.set(0,-.009,-LEN/N*.6); sg.add(ft); }
+    segs.push(sg); parent=sg; }
+  const tip=new THREE.Object3D(); tip.position.z=-LEN/N; segs[N-1].add(tip);
+  const tipGlow=new THREE.Mesh(new THREE.SphereGeometry(.007,8,6), neonMat(col,2.4)); tip.add(tipGlow);
+  // spinning reel under the seat
+  const reel=new THREE.Group(); reel.position.set(0,-.02,.05); pitch.add(reel);
+  box(.012,.06,.02,0,-.03,0,seat,reel);
+  const body=new THREE.Mesh(new THREE.SphereGeometry(.035,14,10), fbMat('#2a2c34',.3,.75)); body.scale.set(.8,1,1.2); body.position.set(0,-.085,.015); reel.add(body);
+  const rotor=new THREE.Group(); rotor.position.set(0,-.085,-.03); reel.add(rotor);
+  const rotM=fbMat('#1c1c22',.3,.8); const rt=new THREE.Mesh(new THREE.CylinderGeometry(.03,.026,.03,16),rotM); rt.rotation.x=Math.PI/2; rotor.add(rt);
+  const spool=new THREE.Mesh(new THREE.CylinderGeometry(.026,.026,.026,18), fbMat('#c8ccd8',.3,.85)); spool.rotation.x=Math.PI/2; spool.position.z=-.03; rotor.add(spool);
+  const line=new THREE.Mesh(new THREE.CylinderGeometry(.0235,.0235,.02,18), neonMat(col,1.2)); line.rotation.x=Math.PI/2; line.position.z=-.03; rotor.add(line);
+  const bail=new THREE.Mesh(new THREE.TorusGeometry(.032,.0025,5,20,Math.PI), steel); bail.rotation.y=Math.PI/2; bail.position.z=-.035; rotor.add(bail);
+  const handle=new THREE.Group(); handle.position.set(-.032,-.085,.02); reel.add(handle);
+  { const arm=new THREE.Mesh(new THREE.BoxGeometry(.006,.07,.008), fbMat('#c8ccd8',.3,.85)); arm.position.y=-.035; handle.add(arm); const knob=new THREE.Mesh(new THREE.CylinderGeometry(.011,.011,.03,10), fbMat('#e8e0d0',.6)); knob.rotation.z=Math.PI/2; knob.position.set(-.016,-.07,0); handle.add(knob); }
+  // glowing line from the tip into the screen
+  const n=22, pos=new Float32Array(n*3), lg=new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  const lm=new THREE.LineBasicMaterial({ color:new THREE.Color(col).multiplyScalar(2) }); const ln=new THREE.Line(lg,lm); ln.frustumCulled=false; g.add(ln);
+  return { p, yaw, pitch, segs, tip, rotor, handle, line:ln, lpos:pos, n, ry:0, rp:.5, bend:0, hAng:0, rAng:0, whip:0, guide:new THREE.Vector3(x*.66,.4,.44) };
+}
+const fbTipW=new THREE.Vector3(), fbTipL=new THREE.Vector3();
+function fbPoseRod(R, P, loc, dt, t){
+  // pose: from this device's own controller when it's yours, otherwise from the shared game state
+  const ry = loc ? loc.ry : (P ? P.ry : Math.sin(t*.4+R.p)*.05), rp = loc ? loc.rp : (P ? P.rp : .45+Math.sin(t*.6+R.p*2)*.03);
+  const ch = loc ? loc.ch : (P ? P.ch : -1);
+  let pitch=-.04+clamp(rp,-.35,1.35)*.34, yaw=-clamp(ry,-.9,.9)*.5;
+  if(ch>=0) pitch+=.25+ch*.7;                                  // winding up the cast: rod back over the shoulder
+  if(P && P.ph==='fly'){ R.whip=Math.max(R.whip, 1); }
+  R.whip=Math.max(0,R.whip-dt*2.4); if(R.whip>0) pitch-=Math.sin(R.whip*Math.PI)*.45;
+  const k=1-Math.exp(-dt*18); R.ry+=(yaw-R.ry)*k; R.rp+=(pitch-R.rp)*k;
+  R.yaw.rotation.y=R.ry; R.pitch.rotation.x=R.rp;
+  // bend: the more load on the line, the deeper the curve, worst at the tip
+  let load = P ? clamp((P.ph==='fight' ? (P.T||0) : P.snag ? P.T : (P.T||0)*.6)/FI.BREAK,0,1.15) : 0;
+  if(P && P.bite>=0) load+=.18+.12*Math.sin(t*30);
+  if(P && P.nib>0) load+=.08*Math.sin(t*40);
+  const target=load*1.15+.03;
+  R.bend+=(target-R.bend)*(1-Math.exp(-dt*(target>R.bend?16:8)));
+  const shake = P && P.ph==='fight' ? Math.sin(t*23)*.02*load : 0;
+  R.segs.forEach((sg,i)=>{ const w=Math.pow((i+1)/R.segs.length,1.6); sg.rotation.x=-(R.bend*w*.28+shake*w); sg.rotation.y=(R.ry*.0); });
+  // reel: handle turns with the cranking, the rotor with it
+  const reel=P ? (P.reel||0) : 0; R.hAng+=reel*dt*TAU*1.6; R.handle.rotation.z=R.hAng; R.rotor.rotation.z=-R.hAng*5.2;
+  // the line: tip → into the screen's water strip
+  R.tip.getWorldPosition(fbTipW); FB.g.worldToLocal(fbTipL.copy(fbTipW));
+  const slack = P ? clamp(P.slack||0,0,2) : .4, tight = P && P.ph==='fight' ? clamp(P.T/FI.BREAK,0,1) : 0;
+  const gx=R.guide.x + (P ? clamp(P.ry,-.9,.9)*.25 : 0);
+  const show = !P || P.ph!=='ready';
+  R.line.visible=true;
+  for(let i=0;i<R.n;i++){ const u=i/(R.n-1);
+    const tx = show ? gx : fbTipL.x, ty = show ? R.guide.y : fbTipL.y-.28, tz = show ? R.guide.z : fbTipL.z;
+    const sag=(show ? (.06+slack*.18)*(1-tight) : 0)*4*u*(1-u);
+    R.lpos[i*3]=lerp(fbTipL.x,tx,u); R.lpos[i*3+1]=lerp(fbTipL.y,ty,u)-sag; R.lpos[i*3+2]=lerp(fbTipL.z,tz,u); }
+  R.line.geometry.attributes.position.needsUpdate=true;
+}
+function fbLed(p, P, s){
+  const L=FB.led[p]; if(!L) return; const c=L.c.getContext('2d'), w=256, h=128, col=PC[p];
+  c.fillStyle='#050608'; c.fillRect(0,0,w,h); c.fillStyle='rgba(255,255,255,.04)'; for(let x=3;x<w;x+=6) for(let y=3;y<h;y+=6) c.fillRect(x,y,4,4);
+  c.textBaseline='middle'; c.shadowColor=col; c.shadowBlur=10; c.fillStyle=col;
+  if(!P){ c.font=`900 30px ${HEAD}`; c.textAlign='center'; c.fillText(p?'ROD 2':'ROD 1', w/2, 44); c.font=`700 22px ${BODY}`; c.fillText('PICK ME UP', w/2, 92); }
+  else { c.font=`700 20px ${BODY}`; c.textAlign='left'; c.fillText('LINE', 12, 24); c.textAlign='right'; c.font=`900 34px ${HEAD}`; c.fillText(`${Math.round(P.L||0)}m`, w-12, 28);
+    const k=clamp((P.T||0)/FI.BREAK,0,1); c.shadowBlur=0; c.fillStyle='#222'; c.fillRect(12,62,w-24,22);
+    c.fillStyle= k>.86?'#ff3030':k>P.drag?'#ffb830':'#30e070'; c.fillRect(12,62,(w-24)*k,22);
+    c.fillStyle='#fff'; c.fillRect(12+(w-24)*clamp(P.drag,0,1)-1.5,58,3,30);
+    c.fillStyle=col; c.font=`700 20px ${BODY}`; c.textAlign='left'; c.fillText(FI.LURES[P.lure].name.toUpperCase(), 12, 106); c.textAlign='right'; c.fillText(`${fiLb(fiTot(P))}`, w-12, 106); }
+  c.shadowBlur=0; L.t.needsUpdate=true;
+}
+/* ---------------- per frame ---------------- */
+function fishIdle(dt, t){
+  if(!FB.g) return;
+  FB.g.visible = roomOf(player.x,player.z)!=='lobby';
+  if(!FB.g.visible) return;
+  for(const R of FB.rods) fbPoseRod(R, null, null, dt, t);
+  FB.ledT-=dt; if(FB.ledT<=0){ FB.ledT=1; for(let p=0;p<2;p++) fbLed(p,null,null); }
+}
+function fishBoothFrame(dt, t){
+  if(!FB.g) return;
+  FB.g.visible=true;
+  if(!FB.cam){ FB.cam=true; document.body.classList.add('booth'); if(partner){ FB.partnerVis=partner.g.visible; partner.g.visible=false; } if(HELD.view) HELD.view.visible=false; }
+  const s=S.state;
+  // camera: behind the rods (online: a little behind your own rod)
+  const asp=innerWidth/innerHeight, vx = S.mode==='online' ? (S.me ? .3 : -.3) : 0;
+  const cz = asp<1 ? 2.7 : 3.25, vf = asp<1 ? 2*Math.atan(1.46/(cz*asp)) : Math.max(2*Math.atan(1.56/(cz*asp)), 2*Math.atan(1.02/cz)), fov=vf*180/Math.PI; if(Math.abs(camera.fov-fov)>.01){ camera.fov=fov; camera.aspect=asp; camera.updateProjectionMatrix(); }
+  const sway=RM?0:Math.sin(t*.5)*.006;
+  camera.position.copy(FB.g.localToWorld(fbV.set(vx+sway, asp<1?1.5:1.8, cz)));
+  camera.lookAt(FB.g.localToWorld(fbV2.set(vx*.4, asp<1?1.25:1.5, 0))); camera.updateMatrixWorld();
+  if(!s) return;
+  for(const R of FB.rods){ const P=s.pl[R.p] || null; const loc = S.local.includes(R.p) && S.cpu!==R.p ? FISH_LOC[R.p] : null; fbPoseRod(R, P, loc, dt, t); }
+  FB.ledT-=dt; if(FB.ledT<=0){ FB.ledT=.12; for(let p=0;p<2;p++) fbLed(p, s.pl[p]||null, s); }
+  fishSounds(s, dt, t);
+}
+function fishBoothStop(){
+  for(let p=0;p<2;p++){ FISH_LOC[p]=null; FISH_LC[p]=null; FT.crank[p]=null; FT.stick[p]=null; FT.flick[p]=null; FT.crankW[p]=0; }
+  FT.ptr.clear();
+  if(FB.cam){ FB.cam=false; document.body.classList.remove('booth'); if(partner) partner.g.visible=FB.partnerVis; resize(); }
+  FIA.fx.length=0; FIA.lastEv=0; FB.lastEv=0;
+}
+
+/* ---------------- controls ---------------- */
+function fiRead(p){
+  const two=S.local.length>1, o={ x:0, y:0, a:false, b:false, rt:0, lure:false, dUp:false, dDn:false, pad:false };
+  const sets = two ? [KEYSET[p]] : KEYSET;
+  for(const k of sets){ if(kd(k.left)) o.x-=1; if(kd(k.right)) o.x+=1; if(kd(k.up)) o.y-=1; if(kd(k.down)) o.y+=1; if(kd(k.a)) o.a=true; if(kd(k.b)) o.b=true; }
+  if(!two || p===0){ if(keys.has('KeyR')||keys.has('Tab')) o.lure=true; if(keys.has('KeyE')) o.dUp=true; if(keys.has('KeyQ')) o.dDn=true; }
+  o.x=clamp(o.x,-1,1); o.y=clamp(o.y,-1,1);
+  const P=pads(); let mine=[]; if(two){ if(P.length>=2) mine=[P[p]]; else if(P.length===1 && p===1) mine=[P[0]]; } else mine=P;
+  for(const gp of mine){ if(!gp) continue; const b=i=>!!(gp.buttons[i]&&gp.buttons[i].pressed), v=i=>gp.buttons[i]?Math.max(gp.buttons[i].value||0, b(i)?1:0):0;
+    const sx=Math.abs(gp.axes[0]||0)>.15?gp.axes[0]:0, sy=Math.abs(gp.axes[1]||0)>.15?gp.axes[1]:0; if(sx||sy){ o.x=sx; o.y=sy; }
+    if(b(14)) o.x=-1; if(b(15)) o.x=1; if(b(12)) o.y=-1; if(b(13)) o.y=1;
+    if(b(0)) o.a=true; o.rt=Math.max(o.rt, v(7)); if(b(2)||b(3)) o.lure=true; if(b(5)) o.dUp=true; if(b(4)) o.dDn=true; o.pad=true; }
+  return o;
+}
+function fiTouchLayout(p, w, h, two){
+  const r=Math.min(78, Math.min(w,h)*.14), sr=Math.min(66, Math.min(w,h)*.12);
+  const m=two?(p?-1:1):1, ox=two&&p?w:0;
+  const crank = two ? { x:w/2-m*(r+40), y:h-r-36, r } : { x:w-r-30, y:h-r-36, r };
+  const row=crank.y-r-56, dx=Math.max(56,r*.9);
+  return { stick:{ x:ox+m*(sr+(two?24:28)), y:h-sr-36, r:sr }, crank, lure: two ? { x:ox+m*(sr*2+70), y:h-44, r:28 } : { x:crank.x-r-58, y:h-40, r:30 },
+    dDn:{ x:crank.x-dx, y:row, r:21 }, dUp:{ x:crank.x+dx, y:row, r:21 } };
+}
+const fiPP = t=>{ const k=(t%2.5)/1.25; return k<=1?k:2-k; };   // cast power swings up and back
+Object.assign(GAMES.find(g=>g.id==='fish'), {
+  cont(v, p, s){
+    const P=s.pl[p]; if(!P) return {};
+    const now=performance.now()/1000;
+    const lc=FISH_LC[p]||(FISH_LC[p]={ ry:0, rp:.5, vy:0, vp:0, cn:0, ln:0, jn:0, js:0, drag:.45, ch:-1, chT:0, cp:0, ca:0, armed:false, latch:false, peak:0, wheel:0, t:now, pb:{}, ph:'' });
+    const dt=clamp(now-lc.t,0,.05); lc.t=now;
+    const R=fiRead(p), touch=FT.stick[p];
+    let tx=R.x, ty=R.y;
+    if(touch){ const L=fiTouchLayout(p,S.w,S.h,S.local.length>1).stick; tx=clamp((touch.x-L.x)/L.r,-1,1); ty=clamp((touch.y-L.y)/L.r,-1,1); }
+    // b held + up/down adjusts the drag instead of moving the rod
+    const edge=(k,on)=>{ const was=lc.pb[k]; lc.pb[k]=on; return on&&!was; };
+    if(R.b && !R.pad){ if(edge('bu', ty<-.5)) lc.drag=clamp(lc.drag+.05,.15,1.1); if(edge('bd', ty>.5)) lc.drag=clamp(lc.drag-.05,.15,1.1); if(ty<-.5||ty>.5) lc.bUsed=true; ty=0; }
+    else { lc.pb.bu=lc.pb.bd=false; }
+    if(edge('du',R.dUp)) lc.drag=clamp(lc.drag+.05,.15,1.1); if(edge('dd',R.dDn)) lc.drag=clamp(lc.drag-.05,.15,1.1);
+    // the rod follows the stick through a stiff spring, so a quick flick of the stick is a quick sweep of the rod
+    const tRy=tx*.85, tRp=.5-ty*.78, w=11;
+    lc.vy+=(w*w*(tRy-lc.ry)-2*w*lc.vy)*dt; lc.ry+=lc.vy*dt;
+    lc.vp+=(w*w*(tRp-lc.rp)-2*w*lc.vp)*dt; lc.rp+=lc.vp*dt;
+    lc.ry=clamp(lc.ry,-.9,.9); lc.rp=clamp(lc.rp,-.35,1.35);
+    // a sharp upward sweep = hookset / twitch (strength = peak speed)
+    if(!lc.latch && lc.vp>2.0){ lc.latch=true; lc.peak=lc.vp; }
+    if(lc.latch){ lc.peak=Math.max(lc.peak,lc.vp); if(lc.vp<lc.peak*.8 || lc.vp<1){ lc.latch=false; lc.jn++; lc.js=+lc.peak.toFixed(2); } }
+    // reel: button, trigger, thumb on the crank, or the mouse wheel
+    lc.wheel*=Math.exp(-dt*5);
+    if(now-FT.crankT[p]>.12) FT.crankW[p]*=Math.exp(-dt*10);
+    const crank=clamp(Math.abs(FT.crankW[p])/(TAU*1.3),0,1);
+    let reel=0;
+    if(P.ph==='ready'){
+      if(lc.ph!=='ready'){ lc.armed=!(R.a||R.rt>.5); lc.ch=-1; }
+      const hold=R.a||R.rt>.5;
+      if(!hold) lc.armed=true;
+      if(hold && lc.armed && s.go<=0 && s.time>0){ lc.chT+=dt; lc.ch=fiPP(lc.chT); }
+      else if(lc.ch>=0 && !hold){ lc.cn++; lc.cp=+lc.ch.toFixed(3); lc.ca=+lc.ry.toFixed(3); lc.ch=-1; lc.chT=0; }
+      else if(!hold){ lc.ch=-1; lc.chT=0; }
+      const fl=FT.flick[p]; if(fl){ FT.flick[p]=null; if(s.go<=0 && s.time>0){ lc.ry=fl.aim; lc.vy=0; lc.cn++; lc.cp=fl.pow; lc.ca=fl.aim; } }
+      if(edge('lure', R.lure || (R.b && !lc.bUsed && false))) lc.ln++;
+    } else { lc.ch=-1; lc.chT=0; FT.flick[p]=null; reel=Math.max(R.a?1:0, R.rt, crank, Math.min(1,lc.wheel)); edge('lure',R.lure); }
+    // b on its own (pressed and released without touching up/down) changes the lure
+    if(edge('b',R.b)) lc.bUsed=false;
+    if(!R.b && lc.pb.bHeldPrev && !lc.bUsed && P.ph==='ready') lc.ln++;
+    lc.pb.bHeldPrev=R.b;
+    lc.ph=P.ph;
+    // what this device shows straight away (no network lag on your own rod)
+    const kb = S.local.length>1 ? (p ? 'Hold ENTER to wind up, let go to cast' : 'Hold SPACE to wind up, let go to cast') : 'Hold SPACE to wind up, let go to cast';
+    FISH_LOC[p]={ ry:lc.ry, rp:lc.rp, ch:lc.ch, hint: IS_TOUCH && !R.pad ? 'Flick up on the lake to cast' : R.pad ? 'Hold Ⓐ to wind up, let go to cast' : kb,
+      lureKey: IS_TOUCH && !R.pad ? 'Tap LURE to switch' : R.pad ? 'Ⓧ switches lure · LB / RB drag' : S.local.length>1 ? (p?'Tap Shift (right) to switch · hold it + ↑/↓ for drag':'Tap G to switch · hold G + W/S for drag') : 'R switches lure · Q / E drag' };
+    return { ry:+lc.ry.toFixed(3), rp:+lc.rp.toFixed(3), reel:+reel.toFixed(2), cn:lc.cn, cp:lc.cp, ca:lc.ca, ln:lc.ln, jn:lc.jn, js:lc.js, dr:+lc.drag.toFixed(2), ch:+lc.ch.toFixed(3) };
+  },
+});
+/* touch: rod stick, reel crank, flick-to-cast, buttons */
+function fiTouchP(x){ if(S.local.length>1) return x<S.w/2?0:1; return S.local[0]; }
+function fiTouchStart(e){
+  if(!S.open || !S.def || !S.def.booth || !S.state) return;
+  const r=gc.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top, p=fiTouchP(x), two=S.local.length>1;
+  if(S.cpu===p) return;
+  const L=fiTouchLayout(p,S.w,S.h,two), P=S.state.pl[p]; if(!P) return;
+  const hit=o=>Math.hypot(x-o.x,y-o.y)<o.r+14;
+  const touchy = e.pointerType!=='mouse';
+  if(touchy){
+    if(hit(L.lure)){ const lc=FISH_LC[p]; if(lc && P.ph==='ready'){ lc.ln++; sfx('tick'); } return; }
+    if(hit(L.dUp)){ const lc=FISH_LC[p]; if(lc){ lc.drag=clamp(lc.drag+.05,.15,1.1); sfx('tick'); } return; }
+    if(hit(L.dDn)){ const lc=FISH_LC[p]; if(lc){ lc.drag=clamp(lc.drag-.05,.15,1.1); sfx('tick'); } return; }
+    if(Math.hypot(x-L.crank.x,y-L.crank.y)<L.crank.r*1.35){ FT.crank[p]={ id:e.pointerId, a:Math.atan2(y-L.crank.y,x-L.crank.x), t:performance.now()/1000 }; FT.ptr.set(e.pointerId,{k:'crank',p}); return; }
+    if(Math.hypot(x-L.stick.x,y-L.stick.y)<L.stick.r*1.6 && P.ph!=='ready'){ FT.stick[p]={ id:e.pointerId, x, y }; FT.ptr.set(e.pointerId,{k:'stick',p}); return; }
+  }
+  FT.ptr.set(e.pointerId,{ k:'flick', p, pts:[[x,y,performance.now()]] });
+  if(touchy && P.ph!=='ready'){ FT.stick[p]={ id:e.pointerId, x:L.stick.x, y:L.stick.y, ox:x, oy:y, rel:true }; FT.ptr.get(e.pointerId).k='stickrel'; }
+}
+function fiTouchMove(e){
+  const q=FT.ptr.get(e.pointerId); if(!q) return; const r=gc.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top, p=q.p;
+  if(q.k==='crank'){ const L=fiTouchLayout(p,S.w,S.h,S.local.length>1).crank, C=FT.crank[p]; if(!C) return; const a=Math.atan2(y-L.y,x-L.x), now=performance.now()/1000; const da=wrapA(a-C.a), dt=Math.max(.008,now-C.t);
+    FT.crankW[p]=lerp(FT.crankW[p], da/dt, .35); FT.crankA[p]+=da; FT.crankT[p]=now; C.a=a; C.t=now; return; }
+  if(q.k==='stick'){ const S2=FT.stick[p]; if(S2){ S2.x=x; S2.y=y; } return; }
+  if(q.k==='stickrel'){ const S2=FT.stick[p], L=fiTouchLayout(p,S.w,S.h,S.local.length>1).stick; if(S2){ S2.x=L.x+(x-S2.ox); S2.y=L.y+(y-S2.oy); } }
+  if(q.pts){ q.pts.push([x,y,performance.now()]); if(q.pts.length>12) q.pts.shift(); }
+}
+function fiTouchEnd(e){
+  const q=FT.ptr.get(e.pointerId); if(!q) return; FT.ptr.delete(e.pointerId); const p=q.p;
+  if(q.k==='crank'){ FT.crank[p]=null; return; }
+  if(q.k==='stick' || q.k==='stickrel'){ FT.stick[p]=null; }
+  if(q.pts && e.type==='pointerup' && S.state && S.state.pl[p] && S.state.pl[p].ph==='ready'){
+    const now=performance.now(), pts=q.pts.filter(a=>now-a[2]<110); const a=pts[0]||q.pts[0], b=q.pts[q.pts.length-1]; const dtm=Math.max(16,b[2]-a[2])/1000;
+    const vx=(b[0]-a[0])/dtm, vy=(b[1]-a[1])/dtm, sc=900/Math.max(500,Math.min(S.w,S.h)*1.4);
+    if(-vy*sc>420){ const pow=clamp((-vy*sc-420)/2600,.03,1), aim=clamp(Math.atan2(vx,-vy)*1.15,-.9,.9); FT.flick[p]={ pow:+pow.toFixed(3), aim:+aim.toFixed(3) }; }
+  }
+}
+function fiInputs(){ gc.addEventListener('pointerdown', fiTouchStart); gc.addEventListener('pointermove', fiTouchMove); gc.addEventListener('pointerup', fiTouchEnd); gc.addEventListener('pointercancel', fiTouchEnd);
+gc.addEventListener('wheel', e=>{ if(!S.open || !S.def || !S.def.booth) return; e.preventDefault(); const p=S.local.length>1?0:S.local[0], lc=FISH_LC[p]; if(lc) lc.wheel=Math.min(1.6, lc.wheel+Math.abs(e.deltaY)/(e.deltaMode?3:120)*.35); }, { passive:false }); }
+function fishTouchUI(g, s, t){
+  const c=g.ctx; c.clearRect(0,0,g.w,g.h);
+  if(!IS_TOUCH) return;
+  const two=S.local.length>1;
+  for(const p of S.local){ if(S.cpu===p) continue; const P=s.pl[p]; if(!P) continue; const L=fiTouchLayout(p,g.w,g.h,two), col=PC[p], lc=FISH_LC[p];
+    c.save();
+    // rod stick
+    if(P.ph!=='ready'){ const st=FT.stick[p]; c.globalAlpha=.75; glowStroke(c,col,3,()=>c.arc(L.stick.x,L.stick.y,L.stick.r,0,TAU));
+      let kx=L.stick.x, ky=L.stick.y; if(st){ let dx=st.x-L.stick.x, dy=st.y-L.stick.y; const d=Math.hypot(dx,dy); if(d>L.stick.r){ dx*=L.stick.r/d; dy*=L.stick.r/d; } kx+=dx; ky+=dy; }
+      c.fillStyle=PCD[p]+'.45)'; c.beginPath(); c.arc(kx,ky,L.stick.r*.42,0,TAU); c.fill();
+      c.globalAlpha=.8; c.fillStyle='#fff'; c.font=`700 14px ${BODY}`; c.textAlign='center'; c.fillText('ROD', L.stick.x, L.stick.y-L.stick.r-10); }
+    // reel crank
+    c.globalAlpha=.8; c.fillStyle='rgba(0,0,0,.35)'; c.beginPath(); c.arc(L.crank.x,L.crank.y,L.crank.r,0,TAU); c.fill();
+    glowStroke(c,col,3,()=>c.arc(L.crank.x,L.crank.y,L.crank.r,0,TAU));
+    const a=FT.crankA[p]; c.strokeStyle='#e8eef8'; c.lineWidth=6; c.lineCap='round'; c.beginPath(); c.moveTo(L.crank.x,L.crank.y); c.lineTo(L.crank.x+Math.cos(a)*L.crank.r*.72, L.crank.y+Math.sin(a)*L.crank.r*.72); c.stroke();
+    c.fillStyle=col; c.beginPath(); c.arc(L.crank.x+Math.cos(a)*L.crank.r*.72, L.crank.y+Math.sin(a)*L.crank.r*.72, 15,0,TAU); c.fill();
+    c.fillStyle='#c8ccd8'; c.beginPath(); c.arc(L.crank.x,L.crank.y,9,0,TAU); c.fill();
+    c.fillStyle='#fff'; c.font=`700 14px ${BODY}`; c.textAlign='center'; c.fillText(P.ph==='ready'?'REEL':'SPIN TO REEL', L.crank.x, L.crank.y-L.crank.r-10);
+    // lure + drag buttons
+    const btn=(o,txt,fill)=>{ c.fillStyle=fill||'rgba(0,0,0,.45)'; c.beginPath(); c.arc(o.x,o.y,o.r,0,TAU); c.fill(); glowStroke(c,col,2,()=>c.arc(o.x,o.y,o.r,0,TAU)); c.fillStyle='#fff'; c.font=`700 ${Math.round(o.r*.6)}px ${BODY}`; c.textBaseline='middle'; c.fillText(txt,o.x,o.y+1); c.textBaseline='alphabetic'; };
+    if(P.ph==='ready') btn(L.lure,'LURE',FI.LURES[P.lure].col+'66');
+    btn(L.dDn,''); btn(L.dUp,''); c.strokeStyle='#fff'; c.lineWidth=3.5; c.lineCap='round'; c.beginPath(); c.moveTo(L.dDn.x-8,L.dDn.y); c.lineTo(L.dDn.x+8,L.dDn.y); c.moveTo(L.dUp.x-8,L.dUp.y); c.lineTo(L.dUp.x+8,L.dUp.y); c.moveTo(L.dUp.x,L.dUp.y-8); c.lineTo(L.dUp.x,L.dUp.y+8); c.stroke();
+    c.fillStyle='#fff'; c.textAlign='center'; c.font=`700 11px ${BODY}`; c.fillText('DRAG', L.crank.x, L.dDn.y-5); c.font=`700 13px ${BODY}`; c.fillText(`${((lc?lc.drag:P.drag)*FI.BREAK/4.448).toFixed(1)} lb`, L.crank.x, L.dDn.y+10);
+    // flick hint
+    if(P.ph==='ready' && s.go<=0 && s.time>0){ const hx= two ? (p? g.w*.75 : g.w*.25) : g.w/2, hy=g.h*.62+Math.sin(t*4)*8; c.globalAlpha=.7; c.strokeStyle='#fff'; c.lineWidth=4; c.beginPath(); c.moveTo(hx,hy+40); c.lineTo(hx,hy-30); c.moveTo(hx-14,hy-14); c.lineTo(hx,hy-30); c.lineTo(hx+14,hy-14); c.stroke(); c.font=`700 16px ${BODY}`; c.fillStyle='#fff'; c.fillText('FLICK UP TO CAST', hx, hy+64); }
+    c.restore(); }
+}
+/* ---------------- sound ---------------- */
+function fiWhoosh(v=.12){ if(!SND.on) return; const c=audio(); if(!c) return; const t=c.currentTime, n=(c.sampleRate*.5)|0, b=c.createBuffer(1,n,c.sampleRate), d=b.getChannelData(0); for(let i=0;i<n;i++) d[i]=(Math.random()*2-1);
+  const s=c.createBufferSource(); s.buffer=b; const f=c.createBiquadFilter(); f.type='bandpass'; f.Q.value=1.2; f.frequency.setValueAtTime(500,t); f.frequency.exponentialRampToValueAtTime(2600,t+.18); f.frequency.exponentialRampToValueAtTime(700,t+.45);
+  const g=c.createGain(); g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(v,t+.12); g.gain.exponentialRampToValueAtTime(.0001,t+.48); s.connect(f); f.connect(g); g.connect(SND.master); s.start(t); s.stop(t+.5); }
+function fiPlop(size=1){ noise(.18+size*.25,.1+size*.12,600+size*300); tone(320/Math.sqrt(size),.12,'sine',.12,.45); if(size>1) noise(.6,.12,1600,.05); }
+function fiLoonCall(){ if(!SND.on) return; const c=audio(); if(!c) return; const t=c.currentTime, o=c.createOscillator(), g=c.createGain(); o.type='sine';
+  o.frequency.setValueAtTime(640,t); o.frequency.linearRampToValueAtTime(1040,t+.6); o.frequency.setValueAtTime(1040,t+1.4); o.frequency.linearRampToValueAtTime(820,t+1.9);
+  const l=c.createOscillator(), lg=c.createGain(); l.frequency.value=5.5; lg.gain.value=14; l.connect(lg); lg.connect(o.frequency);
+  g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(.035,t+.25); g.gain.setValueAtTime(.035,t+1.6); g.gain.exponentialRampToValueAtTime(.0001,t+2.1);
+  o.connect(g); g.connect(SND.master); o.start(t); l.start(t); o.stop(t+2.2); l.stop(t+2.2); }
+function fishSounds(s, dt, t){
+  if((s.evn||0)<FB.lastEv) FB.lastEv=0;
+  for(const e of s.ev){ if(e.i<=FB.lastEv) continue; FB.lastEv=e.i;
+    switch(e.k){
+      case 'cast': fiWhoosh(.08+e.a*.1); break;
+      case 'splash': fiPlop(.6); break;
+      case 'pop': noise(.12,.12,900); tone(260,.08,'sine',.1,.6); break;
+      case 'nib': tone(180,.05,'sine',.12,.8); break;
+      case 'bite': tone(130,.09,'sine',.22,.7); tone(130,.09,'sine',.2,.7,.13); break;
+      case 'strike': fiPlop(2); break;
+      case 'hook': [392,523,659].forEach((f,i)=>tone(f,.1,'triangle',.11,1,i*.06)); break;
+      case 'jump': fiPlop(1.6); break;
+      case 'reentry': fiPlop(2.2); break;
+      case 'miss': tone(300,.18,'triangle',.08,.6); break;
+      case 'snag': tone(160,.12,'square',.05,.8); break;
+      case 'snap': noise(.08,.35,5000); tone(1400,.05,'square',.08,.3); [330,262,196].forEach((f,i)=>tone(f,.18,'triangle',.1,1,.1+i*.14)); break;
+      case 'lost': [392,330,262].forEach((f,i)=>tone(f,.18,'triangle',.1,1,i*.14)); break;
+      case 'land': fiPlop(1); [523,659,784,1046,1319].forEach((f,i)=>tone(f,.14,'square',.08,1,.15+i*.09)); break;
+      case 'frenzy': for(let i=0;i<4;i++) tone(1500+Math.random()*500,.12,'sawtooth',.03,.6,i*.18); break;
+      case 'looncall': fiLoonCall(); break;
+    } }
+  // reel clicks and the drag's scream
+  for(const P of s.pl){ const p=P.p;
+    if(P.reel>.05 && (P.ph==='water'||P.ph==='fight')){ FB.clickA[p]+=P.reel*dt*1.6*6; if(FB.clickA[p]>1){ FB.clickA[p]-=1; tone(2600+p*200,.012,'square',.018); } }
+    if(P.vs>.12 && P.ph==='fight'){ FB.slipT[p]-=dt; if(FB.slipT[p]<=0){ FB.slipT[p]=.045; tone(1700+Math.min(P.vs,3)*350,.05,'sawtooth',.025,1.05); noise(.04,.03,4000); } } }
+  // the lake: lapping water and the odd bird
+  FB.amb-=dt; if(FB.amb<=0){ FB.amb=rnd(2.5,6); noise(.6,.012,380); if(Math.random()<.35){ const f=rnd(2600,3600); for(let i=0;i<3;i++) tone(f*(1+i*.06),.06,'sine',.018,1.1,i*.09); } }
+}
+
+/* =====================================================================
    ONLINE — PeerJS (WebRTC data channel, free public broker, no key)
    ?net=tab swaps in a BroadcastChannel so two tabs can test it offline.
    ===================================================================== */
@@ -7524,7 +8912,7 @@ const S = { def:null, mode:null, me:0, host:true, state:null, local:[], cpu:-1, 
   sendT:0, inT:0, lastIn:'', cpuT:0, dirty:false, fxq:[], paused:false, menu:false, statusKey:'', remoteInp:{}, kb:false, t:0, w:0, h:0 };
 
 function emit(name){ if(!S.host) return; sfx(name); S.fxq.push(name); }
-const ser = st => JSON.stringify(st, (k,v)=> k[0]==='_' ? undefined : v);
+const ser = st => { const r=S.def&&S.def.netRound; return JSON.stringify(st, (k,v)=> k[0]==='_' ? undefined : (r && typeof v==='number' && !Number.isInteger(v)) ? +v.toFixed(r) : v); };
 
 /* ---------- screen ---------- */
 function sizeGame(){
@@ -7874,7 +9262,7 @@ function gameFrame(dt, t){
   sizeGame(); S.t=t;
   const def=S.def, w=S.w, h=S.h, c=gx;
   pollGamePads(dt);
-  c.setTransform(S.dpr,0,0,S.dpr,0,0); c.fillStyle='#030208'; c.fillRect(0,0,w,h);
+  c.setTransform(S.dpr,0,0,S.dpr,0,0); if(def && def.booth) c.clearRect(0,0,w,h); else { c.fillStyle='#030208'; c.fillRect(0,0,w,h); }
   if(!def || !S.state){ mouseG.click=false; return; }
   let st=S.state;
   const viewer = S.mode==='online' ? S.me : (S.mode==='cpu' ? 0 : (def.hidden ? boardActor() : 0));
@@ -7894,7 +9282,7 @@ function gameFrame(dt, t){
       if(S.cpu>=0 && !S.paused && !st.over){ const cp=def.canAct?def.canAct(st,S.cpu):def.toMove(st)===S.cpu;
         if(cp){ S.cpuT+=dt; if(S.cpuT>(def.id==='four'?.7:.9)){ S.cpuT=0; const a=def.cpu(st,S.cpu,dt,S.mem[S.cpu]); if(a && def.act(st,S.cpu,a)) S.dirty=true; } } else S.cpuT=0; }
     }
-    if(S.mode==='online'){ S.sendT-=dt; if(def.kind==='field' ? S.sendT<=0 : (S.dirty || S.sendT<=0)){ netSend('st',{ s:ser(st), fx:S.fxq, w:S.wins }); S.fxq=[]; S.dirty=false; S.sendT = def.kind==='field' ? 1/30 : 1; } }
+    if(S.mode==='online'){ S.sendT-=dt; if(def.kind==='field' ? S.sendT<=0 : (S.dirty || S.sendT<=0)){ netSend('st',{ s:ser(st), fx:S.fxq, w:S.wins }); S.fxq=[]; S.dirty=false; S.sendT = def.kind==='field' ? (def.netDt||1/30) : 1; } }
     else { S.fxq=[]; S.dirty=false; }
   }
   // guest: interpolate between the last two snapshots
@@ -7911,7 +9299,7 @@ function gameFrame(dt, t){
   else if(def.kind==='field'){
     c.setTransform(new DOMMatrix().scale(S.dpr).multiply(V.m)); def.draw(g, st, viewer, S.ui, t, V);
     c.setTransform(S.dpr,0,0,S.dpr,0,0);
-    if(IS_TOUCH && def.touch==='pad') drawPads(c,V);
+    if(IS_TOUCH && def.touch==='pad' && !def.booth) drawPads(c,V);
     if(def.overlay) def.overlay(c, st, V, viewer);
     if(st.banner) glowText(c, st.banner, w/2, h*(V.portrait?.5:.46), clamp(Math.min(w,h)*.11,30,84), NEON.yellow, {font:HEAD, weight:900});
   } else { ui_reset(S.ui); const top=boardTop(); if(top){ c.translate(0,top); g.h=h-top; } def.draw(g, st, viewer, S.ui, t); c.setTransform(S.dpr,0,0,S.dpr,0,0); }
@@ -8206,7 +9594,9 @@ const clock=new THREE.Clock(); let hintT=0, lastHint='', posT=0, scrIdx=0, perf=
 function frame(){
   const dt=Math.min(.1, clock.getDelta()), t=clock.elapsedTime;
   if(BLD.open){ try{ builderFrame(dt,t); voiceFrame(); }catch(e){ console.error(e); } requestAnimationFrame(frame); return; }
-  if(S.open){ try{ gameFrame(dt,t); }catch(e){ console.error(e); toast('Game error: '+e.message, 5000); } requestAnimationFrame(frame); return; }
+  if(S.open){ try{ gameFrame(dt,t); }catch(e){ console.error(e); toast('Game error: '+e.message, 5000); }
+    if(S.def && S.def.booth){ try{ fishBoothFrame(dt,t); }catch(e){ console.error(e); } if(bloomOn && composer) composer.render(); else renderer.render(scene,camera); }
+    requestAnimationFrame(frame); return; }
   pollPad();
   if(!overlayOpen()){
     if(auto) stepAuto(dt);
@@ -8229,7 +9619,7 @@ function frame(){
   placeCamera(dt,t,bob);
   voiceFrame();
   if(me.av) animateAvatar(me.av, dt, { speed:spd, dance:myDance, beat:musicBeat(t), level:Voice.level, hold:!!HELD.kind, use:HELD.use>0?1-HELD.use/HELD.useDur:0, useKind:HELD.useKind });
-  itemsFrame(dt,t); boardFrame(); alleyFrame(dt,t); galFrame(dt,t);
+  itemsFrame(dt,t); boardFrame(); alleyFrame(dt,t); galFrame(dt,t); fishIdle(dt,t);
   animateJukebox(t);
   // attract screens: refresh the nearest ones every frame, the rest in turn
   const near=CABS.map(c=>[c,Math.hypot(c.x-player.x,c.z-player.z)]).sort((a,b)=>a[1]-b[1]);
