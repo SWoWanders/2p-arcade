@@ -4864,9 +4864,23 @@ function itemMesh(kind, stage=0){
       add(new THREE.ConeGeometry(.016,.04,10), iglow('#ffe600',1.6), 0,0,.13).rotation.x=Math.PI/2; add(new THREE.BoxGeometry(.282,.007,.012), iglow('#00f0ff',2), 0,0,.035); break; }
     case 'ball': { const t=stripeTex(['#ff2e4d','#ffe14a','#2f7bff','#ffffff','#7dff3a','#ff7a1a']); add(new THREE.SphereGeometry(.22,22,16), new THREE.MeshStandardMaterial({map:t,roughness:.35})); add(new THREE.SphereGeometry(.03,8,6), imat('#ffffff'), 0,.215,0); break; }
     case 'super': { add(new THREE.SphereGeometry(.03,16,12), iglow('#ff2bd6',2.6)).name='core'; add(new THREE.SphereGeometry(.045,14,10), new THREE.MeshBasicMaterial({color:'#ff2bd6',transparent:true,opacity:.4,depthWrite:false})).name='halo'; break; }
-    case 'chicken': { const b=add(new THREE.CapsuleGeometry(.025,.11,4,10), imat('#ffe14a')); b.rotation.z=Math.PI/2; b.name='body';
-      add(new THREE.SphereGeometry(.03,10,8), imat('#ffe14a'), .08,.02,0); add(new THREE.ConeGeometry(.012,.03,6), imat('#ff8a00'), .115,.02,0).rotation.z=-Math.PI/2;
-      for(let k=0;k<3;k++) add(new THREE.SphereGeometry(.01,8,6), iglow('#ff3355',1.4), .07+k*.012,.05,0); add(new THREE.SphereGeometry(.005,6,4), imat('#000'), .09,.03,.022); break; }
+    case 'chicken': { /* classic plucked rubber chicken: plump body, long limp neck, squawking head, dangly legs */
+      const skin=imat('#f3d64e',{roughness:.45}), red=imat('#e8262e',{roughness:.5}), org=imat('#ff8a1a',{roughness:.45});
+      const b=add(new THREE.SphereGeometry(.04,16,12), skin, 0,0,0); b.scale.set(1.25,.85,.8); b.name='body';
+      for(const s of [-1,1]){ const w=add(new THREE.SphereGeometry(.022,10,8), skin, -.004,.006,s*.03); w.scale.set(1.4,.55,.35); w.rotation.z=.35; }   // stubby wings
+      for(let k=0;k<3;k++){ const t=add(new THREE.ConeGeometry(.006,.022,5), skin, -.052-k*.002,.016+k*.006,(k-1)*.008); t.rotation.z=.9+k*.15; }   // tail nub
+      const neck=new THREE.CatmullRomCurve3([new THREE.Vector3(.04,.012,0), new THREE.Vector3(.07,.04,0), new THREE.Vector3(.095,.035,0), new THREE.Vector3(.11,.005,0)]);
+      add(new THREE.TubeGeometry(neck,16,.0085,8,false), skin);
+      const hx=.115, hy=-.004; add(new THREE.SphereGeometry(.017,12,10), skin, hx,hy,0).scale.set(1.15,1,.9);
+      for(let k=0;k<4;k++){ const c=add(new THREE.SphereGeometry(.0065+(k===1||k===2?.002:0),8,6), red, hx-.012+k*.007,hy+.017+(k===1||k===2?.003:0),0); c.scale.set(1,1.6,.5); }   // comb
+      const up=add(new THREE.ConeGeometry(.007,.026,6), org, hx+.026,hy+.006,0); up.rotation.z=-Math.PI/2-.35;   // open beak
+      const lo=add(new THREE.ConeGeometry(.006,.022,6), org, hx+.024,hy-.008,0); lo.rotation.z=-Math.PI/2+.45;
+      add(new THREE.SphereGeometry(.006,8,6), red, hx+.012,hy-.019,0).scale.set(.7,1.4,.5);   // wattle
+      for(const s of [-1,1]){ add(new THREE.SphereGeometry(.0048,8,6), imat('#ffffff'), hx+.006,hy+.006,s*.013); add(new THREE.SphereGeometry(.0026,6,4), imat('#111'), hx+.008,hy+.006,s*.0165); }
+      for(const s of [-1,1]){ const leg=new THREE.CatmullRomCurve3([new THREE.Vector3(.005,-.026,s*.014), new THREE.Vector3(.012,-.05,s*.018), new THREE.Vector3(.004,-.075,s*.02)]);
+        add(new THREE.TubeGeometry(leg,8,.0035,5,false), org);
+        for(const a of [-.6,0,.6]){ const toe=add(new THREE.CylinderGeometry(.0022,.0022,.016,4), org, .004+Math.cos(a)*.007,-.076,s*.02+Math.sin(a)*.007); toe.rotation.set(0,-a,Math.PI/2); } }
+      break; }
     case 'glow': { add(new THREE.CylinderGeometry(.008,.008,.19,10), iglow('#39ff14',2.4)).name='stick'; add(new THREE.CylinderGeometry(.009,.009,.012,10), imat('#222'), 0,.1,0); break; }
     case 'hotdog': case 'tray': { const tray=add(new THREE.BoxGeometry(.07,.02,.2), imat('#f2f2f7')); tray.position.y=-.015;
       if(kind==='hotdog'){ const L=.17*left; add(new THREE.CapsuleGeometry(.024,L,4,10), imat('#e0a860'), 0,.012,(.17-L)/2).rotation.x=Math.PI/2;
