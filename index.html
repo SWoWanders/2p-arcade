@@ -537,6 +537,7 @@ const HEAD = "'Orbitron', 'Chakra Petch', system-ui, sans-serif";
 const BODY = "'Chakra Petch', system-ui, sans-serif";
 const MONO = "'Monoton', 'Orbitron', system-ui, sans-serif";
 if(IS_TOUCH) document.body.classList.add('touch');
+const PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;   // phone-sized touch screen (tablets keep same-device 2P)
 function store(k,v){ try{ if(v===undefined) return localStorage.getItem('arcade-'+k); localStorage.setItem('arcade-'+k, v); }catch(e){ return null; } }
 
 let toastT=0;
@@ -7587,6 +7588,8 @@ function openLaunch(cab){
   $('#lPanel').style.borderColor=def.color; $('#lPanel').style.boxShadow=`0 0 24px ${def.color}88, inset 0 0 30px ${def.color}22`;
   $('#lDesc').textContent=def.blurb; $('#lHow').innerHTML=howHTML(def);
   $('#mLocalSub').textContent = def.hidden ? 'Take turns on one screen — it hides your cards/fleet between turns' : (def.kind==='field' ? 'Share the screen, keyboard, or plug in two controllers' : 'Take turns on one screen');
+  const noShare = PHONE && def.kind==='field';   // simultaneous play is too cramped on one phone
+  $('#mLocal').hidden=noShare;
   $('#mSolo').hidden=!def.solo;
   $('#mCpu').innerHTML = def.cpuText ? def.cpuText : def.coop ? '🤖 Fly with the computer<small>A computer wingman flies beside you</small>' : '🤖 Play the computer<small>Practice round</small>';
   $('#mSolo').innerHTML = def.soloText ? def.soloText : def.coop ? '🚀 Solo flight<small>Just you — beat your high score</small>' : '⏱️ Solo time run<small>Just you against the clock — beat your best time</small>';
@@ -7594,9 +7597,9 @@ function openLaunch(cab){
   if(def.id==='girder'){ const lab=document.createElement('div'); lab.className='lab'; lab.textContent='Track'; LT.appendChild(lab);
     GR.TRACKS.forEach((T,i)=>{ const b=document.createElement('button'); b.className='chip'+(i===girderTrack?' on':''); const best=(grBest[T.id]||{}).race; b.textContent=T.name+(best?` · best ${GR.fmt(best)}`:''); b.onclick=()=>{ girderTrack=i; store('girdertrack',String(i)); sfx('tick'); [...LT.querySelectorAll('.chip')].forEach((x,j)=>x.classList.toggle('on',j===i)); }; LT.appendChild(b); }); }
   netUI(); $('#mOnline').disabled=false;
-  $('#launch').hidden=false; setTimeout(()=>$('#mLocal').focus({preventScroll:true}),30); keys.clear();
+  $('#launch').hidden=false; setTimeout(()=>(noShare?$('#mOnline'):$('#mLocal')).focus({preventScroll:true}),30); keys.clear();
 }
-function howHTML(def){ const h=def.how; return [ IS_TOUCH?`<b>Touch:</b> ${h.touch}`:`<b>Keyboard &amp; mouse:</b> ${h.keys}`, `<b>Two on one device:</b> ${h.keys2}`, `<b>Controller:</b> ${h.pad}`, IS_TOUCH?`<b>Keyboard:</b> ${h.keys}`:`<b>Touch:</b> ${h.touch}` ].map(x=>`<div>${x}</div>`).join(''); }
+function howHTML(def){ const h=def.how; return [ IS_TOUCH?`<b>Touch:</b> ${h.touch}`:`<b>Keyboard &amp; mouse:</b> ${h.keys}`, ...(PHONE&&def.kind==='field'?[]:[`<b>Two on one device:</b> ${h.keys2}`]), `<b>Controller:</b> ${h.pad}`, IS_TOUCH?`<b>Keyboard:</b> ${h.keys}`:`<b>Touch:</b> ${h.touch}` ].map(x=>`<div>${x}</div>`).join(''); }
 function closeLaunch(){ $('#launch').hidden=true; canvas.focus({preventScroll:true}); }
 function launchOnline(def){
   if(!Net.connected){ closeLaunch(); openNet(); toast(Net.role?'Waiting for the other player to join your room.':'Make a room or join one first.'); return; }
@@ -8288,7 +8291,7 @@ function frame(){
   window.__arcadeReady=true;
   requestAnimationFrame(frame);
 })();
-window.__arcade = { pick, infoOf, handleTap, GAL, GALST, GT, GW, openGallery, closeGallery, galFire, galAimAt, blocked, ALLEY, ALLEYS, openAlley, closeAlley, rollBall, hitList, camera, BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
+window.__arcade = { openLaunch, pick, infoOf, handleTap, GAL, GALST, GT, GW, openGallery, closeGallery, galFire, galAimAt, blocked, ALLEY, ALLEYS, openAlley, closeAlley, rollBall, hitList, camera, BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
 addEventListener('pagehide', ()=>{ if(Net.connected) leaveRoom(); });
 </script>
 </body>
