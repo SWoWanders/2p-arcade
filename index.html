@@ -6828,7 +6828,7 @@ function gwTNT(){
 }
 /* ---- 12. skunk: turns tail and sprays ---- */
 function gwSkunk(){
-  const o=gGrp(1.62,GF,-.62);
+  const o=gGrp(1.5,GF,-.62);
   const bar=gGrp(.55,0,.05,o); const bm=new THREE.MeshStandardMaterial({ map:gwPlanks('#6e5236',{w:256,h:256,n:8,seed:91,nails:false}), roughness:.9 });
   const barrel=gLathe([[.0,0],[.17,0],[.2,.12],[.21,.25],[.2,.38],[.17,.5],[0,.5]],bm,20); bar.add(barrel); for(const y of [.06,.44]){ const h=new THREE.Mesh(new THREE.TorusGeometry(.185,.008,4,24), gwM('#3a3530',.5,.6)); h.rotation.x=Math.PI/2; h.position.y=y; bar.add(h); }
   gSign([{t:'XXX',size:90,c:'#ece0c2'}],.2,.09,0,.28,.205,{pw:256,boards:1,wood:'#5a4030'},bar);
@@ -6840,7 +6840,7 @@ function gwSkunk(){
   const tail=gGrp(0,.17,-.14,body); [[0,.05,-.04,.06],[0,.12,-.07,.07],[0,.2,-.06,.075],[0,.27,-.02,.065]].forEach(([x,y,z,r],i)=>gS(r,x,y,z,i===3?wht:blk,tail,10,8)); gS(.04,0,.16,-.11,wht,tail,8,6);
   tail.rotation.x=.45;
   IDLE.skunk=(tt)=>{ if(Ts.t<0) tail.rotation.z=Math.sin(tt*1.3)*.15; };
-  const Ts=gwTarget('Skunk', .45,.3,.26, 300, 3.8, t=>{
+  const Ts=gwTarget('Skunk', 0,.42,.225, 300, 3.8, t=>{
     const tn=gwSeg(t,0,.45)-gwSeg(t,3.0,3.5); sk.rotation.y=Math.PI*tn;
     const lf=gwSeg(t,.35,.6)-gwSeg(t,2.75,3.05); tail.rotation.x=.45-lf*.75; tail.rotation.z=0;
     body.rotation.z=(t>.7&&t<2.4)?Math.sin(t*28)*.06:0;
@@ -6862,7 +6862,7 @@ function gwSkullWeed(){
 }
 /* ---- 14. frying pan hanging up front: clang! ---- */
 function gwPan(){
-  const o=gGrp(-2.92,GW.TOP+.02,-.45);
+  const o=gGrp(-2.55,GW.TOP+.02,-.5);
   gC(.004,.004,.32,0,-.16,0,gwM('#8a7a5a'),o,4);
   const pan=gGrp(0,-.32,0,o); const pm=gwM('#2c2a28',.45,.75);
   const d=gC(.13,.11,.035,0,-.13,0,pm,pan,22); d.rotation.x=Math.PI/2; const hd=gB(.03,.16,.015,0,.02,0,pm,pan);
@@ -7027,7 +7027,7 @@ function galFrame(dt,t){
   const asp=innerWidth/innerHeight;
   let hf = asp<1 ? .8 : clamp(1.06+(asp-1.3)*.22, 1.0, 1.32); let vf=clamp(2*Math.atan(Math.tan(hf/2)/asp),.6,1.75); hf=2*Math.atan(Math.tan(vf/2)*asp); GAL.h=hf;
   const fk=vf.toFixed(3); if(fk!==gwFovKey){ gwFovKey=fk; camera.fov=vf*180/Math.PI; camera.updateProjectionMatrix(); }
-  const cx=st.x*.45, D=3.7, aL=Math.atan2(-3.25-cx,D), aR=Math.atan2(3.25-cx,D); GAL.ylo=aL+hf/2; GAL.yhi=aR-hf/2; if(GAL.ylo>GAL.yhi){ GAL.ylo=GAL.yhi=(GAL.ylo+GAL.yhi)/2; }
+  const cx=st.x*.45, D=3.7, DL=2.45, aL=Math.atan2(-3.1-cx,DL), aR=Math.atan2(3.1-cx,DL); GAL.ylo=aL+hf/2; GAL.yhi=aR-hf/2; if(GAL.ylo>GAL.yhi){ GAL.ylo=GAL.yhi=(GAL.ylo+GAL.yhi)/2; }
   GAL.yaw=clamp(GAL.yaw,GAL.ylo,GAL.yhi);
   const sh=GAL.shake*.02;
   const cz=asp<1?1.75:2.05;
