@@ -154,6 +154,15 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
 #side{position:fixed; z-index:5; left:max(10px, env(safe-area-inset-left)); top:calc(max(10px, env(safe-area-inset-top)) + 64px); display:grid; gap:8px; grid-template-columns:52px}
 #side .btn{padding:0; font-size:24px}
 #side [hidden], .dmenu[hidden]{display:none}
+.micwrap{position:relative}
+.micviz{position:absolute; left:calc(100% + 8px); top:50%; transform:translateY(-50%); display:flex; flex-direction:column; align-items:center; gap:2px; padding:5px 8px 4px; background:rgba(5,4,10,.86); border:2px solid #2c3550; border-radius:10px; pointer-events:none}
+.micviz canvas{width:64px; height:24px; display:block}
+.micviz span{font-size:11px; font-weight:700; color:var(--dim); white-space:nowrap; letter-spacing:.03em}
+.micviz.hear{border-color:var(--green); box-shadow:0 0 10px rgba(57,255,20,.35)} .micviz.hear span{color:var(--green)}
+.micviz.muted span{color:#ff8a7a}
+.gbar .micg{display:flex; align-items:center; gap:6px; padding:0 10px}
+.gbar .micg canvas{width:48px; height:24px; display:block}
+.gbar .micg[hidden]{display:none}
 #side .btn.live{border-color:var(--green); box-shadow:0 0 14px rgba(57,255,20,.7); animation:pulse 1.4s infinite}
 @keyframes pulse{ 50%{ box-shadow:0 0 4px rgba(57,255,20,.3) } }
 @media (max-height:520px){ #side{grid-template-columns:52px 52px} }
@@ -320,7 +329,8 @@ body.gal-on .hud.bottom, body.gal-on .stick-hint, body.gal-on #side, body.gal-on
   <button class="btn pink" id="meBtn" title="Make your avatar (C)" aria-label="Make your avatar">🧍</button>
   <button class="btn" id="danceBtn" title="Dance (G)" aria-label="Dance">💃</button>
   <button class="btn" id="viewBtn" title="See yourself (V)" aria-label="Switch to third-person view" aria-pressed="false">👁</button>
-  <button class="btn green" id="micBtn" title="Turn on voice chat (T)" aria-label="Turn on voice chat" hidden>🎙️</button>
+  <div class="micwrap" id="micWrap" hidden><button class="btn green" id="micBtn" title="Turn on voice chat (T)" aria-label="Turn on voice chat">🎙️</button>
+    <div class="micviz" id="micViz" hidden aria-live="polite"><canvas width="128" height="48"></canvas><span>Talk to test</span></div></div>
 </div>
 <div class="dmenu" id="dmenu" hidden><h3>Dance</h3></div>
 <div id="alleyHud" hidden>
@@ -509,6 +519,7 @@ body.gal-on .hud.bottom, body.gal-on .stick-hint, body.gal-on #side, body.gal-on
       <div class="mid" id="gC"></div>
       <div class="side r p1" id="gR"></div>
     </div>
+    <button class="btn ghost micg" id="gMic" hidden title="Mute your mic" aria-label="Mute your mic"><span>🎤</span><canvas width="96" height="48"></canvas></button>
     <button class="btn ghost" id="gFull" aria-label="Full screen" title="Full screen">⛶</button>
     <button class="btn ghost" id="gHelp" aria-label="How to play" title="How to play">?</button>
   </div>
@@ -7050,8 +7061,12 @@ function levelOf(an){
   an.getFloatTimeDomainData(Voice.buf); let s=0; for(let i=0;i<Voice.buf.length;i++) s+=Voice.buf[i]*Voice.buf[i];
   const rms=Math.sqrt(s/Voice.buf.length); return clamp((rms-.005)*13,0,1);
 }
+const MICV={ hist:new Array(14).fill(0), t:0, heard:-1, since:0, txt:'', cls:'' };
 function voiceUI(){
-  const b=$('#micBtn'); if(!b) return; b.hidden=!Net.connected;
+  const b=$('#micBtn'); if(!b) return; $('#micWrap').hidden=!Net.connected;
+  $('#micViz').hidden = Voice.state==='off'; $('#gMic').hidden = Voice.state==='off' || !Net.connected;
+  $('#gMic').firstElementChild.textContent = Voice.state==='muted' ? '🔇' : '🎤'; $('#gMic').title = $('#gMic').ariaLabel = Voice.state==='muted' ? 'Unmute your mic' : 'Mute your mic';
+  if(Voice.state==='on' && MICV.heard<0) MICV.since=performance.now();
   b.textContent = Voice.state==='on' ? '🎤' : Voice.state==='muted' ? '🔇' : '🎙️';
   b.classList.toggle('live', Voice.state==='on'); b.setAttribute('aria-pressed', String(Voice.state==='on'));
   b.title = Voice.state==='off' ? 'Turn on voice chat (T)' : Voice.state==='on' ? 'Mute your mic (T)' : 'Unmute (T)';
@@ -7092,13 +7107,38 @@ function voiceStop(){
   try{ if(Voice.out) Voice.out.close(); }catch(e){} Voice.inCalls.forEach(c=>{ try{ c.close(); }catch(e){} });
   if(Voice.stream) Voice.stream.getTracks().forEach(t=>t.stop());
   Object.assign(Voice,{ state:'off', stream:null, out:null, inCalls:[], localAn:null, remoteAn:null, level:0, plevel:0, partnerOn:false });
+  MICV.heard=-1; MICV.hist.fill(0);
   if(Voice.remoteEl) Voice.remoteEl.srcObject=null; voiceUI();
+}
+/* little live meter beside the mic button: bars scroll along with your voice */
+function micBars(cv, hist, muted, n){
+  const c=cv.getContext('2d'), W=cv.width, H=cv.height; c.clearRect(0,0,W,H);
+  const h=hist.slice(-n), bw=W/n;
+  h.forEach((v,i)=>{ const bh=Math.max(H*.08, v*H*.94), x=i*bw+bw*.18, y=(H-bh)/2;
+    c.fillStyle = muted ? '#4a4f66' : v>.8 ? '#ffe600' : v>.06 ? '#39ff14' : '#2f6a3a';
+    c.beginPath(); c.roundRect ? c.roundRect(x,y,bw*.64,bh,bw*.3) : c.rect(x,y,bw*.64,bh); c.fill(); });
+  if(muted){ c.strokeStyle='#ff6a5a'; c.lineWidth=H*.08; c.beginPath(); c.moveTo(W*.1,H*.85); c.lineTo(W*.9,H*.15); c.stroke(); }
+}
+function micVizFrame(){
+  if(Voice.state==='off') return;
+  const now=performance.now(), muted=Voice.state==='muted';
+  if(now-MICV.t>55){ MICV.t=now; MICV.hist.push(muted?0:Math.sqrt(Voice.level)); MICV.hist.shift(); }
+  if(!muted && Voice.level>.06) MICV.heard=now;
+  const v=$('#micViz'), g=$('#gMic');
+  if(v && !v.hidden && v.offsetParent) micBars(v.firstElementChild, MICV.hist, muted, 10);
+  if(g && !g.hidden && g.offsetParent) micBars(g.lastElementChild, MICV.hist, muted, 7);
+  const hearing = !muted && MICV.heard>0 && now-MICV.heard<1200;
+  const txt = muted ? 'Muted' : hearing ? 'Hearing you' : MICV.heard<0 ? (now-MICV.since>8000 ? 'No sound yet' : 'Talk to test') : 'Mic on';
+  const cls = muted ? 'muted' : hearing ? 'hear' : '';
+  if(v && (txt!==MICV.txt || cls!==MICV.cls)){ MICV.txt=txt; MICV.cls=cls; v.lastElementChild.textContent=txt; v.className='micviz'+(cls?' '+cls:''); }
 }
 function voiceFrame(){
   Voice.level = Voice.state==='on' ? levelOf(Voice.localAn) : 0;
+  micVizFrame();
   Voice.plevel = levelOf(Voice.remoteAn);
   duckMusic(Math.max(Voice.level, Voice.plevel));
 }
+$('#gMic').onclick=()=>{ sfx('blip'); voiceToggle(); };
 // make sure audio can start on phones after any tap
 addEventListener('pointerdown', ()=>{ if(Voice.remoteEl && Voice.remoteEl.paused && Voice.remoteEl.srcObject) Voice.remoteEl.play().catch(()=>{}); }, { passive:true });
 
@@ -10816,7 +10856,8 @@ const clock=new THREE.Clock(); let hintT=0, lastHint='', posT=0, scrIdx=0, perf=
 function frame(){
   const dt=Math.min(.1, clock.getDelta()), t=clock.elapsedTime;
   if(BLD.open){ try{ builderFrame(dt,t); voiceFrame(); }catch(e){ console.error(e); } requestAnimationFrame(frame); return; }
-  if(S.open){ try{ gameFrame(dt,t); }catch(e){ console.error(e); toast('Game error: '+e.message, 5000); }
+  if(S.open){ try{ voiceFrame(); }catch(e){}
+    try{ gameFrame(dt,t); }catch(e){ console.error(e); toast('Game error: '+e.message, 5000); }
     if(S.def && S.def.booth){ try{ (S.def.frame3d||fishBoothFrame)(dt,t); }catch(e){ console.error(e); } if(bloomOn && composer) composer.render(); else renderer.render(scene,camera); }
     requestAnimationFrame(frame); return; }
   pollPad();
