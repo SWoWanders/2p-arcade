@@ -3444,7 +3444,7 @@ Object.assign(GAMES.find(g=>g.id==='agents'), {
     const kn=pose.kneel||0, mv=pose.mv||0, w=pose.walk||0;
     const hip=-64+kn*20+(pose.bob||0), top=hip-62;
     // legs
-    const leg=(dx,ph,front)=>{ const sw=mv?Math.sin(ph)*.45:0; const lift=mv?Math.max(0,-Math.cos(ph))*9:0;
+    const leg=(dx,ph,front)=>{ const sw=mv?Math.sin(ph)*.45:0; const lift=mv?Math.max(0,Math.cos(ph))*9:0;   // lift the foot while it swings forward
       let kx,ky,fx,fy; if(kn){ if(front){ kx=dx+26; ky=hip+8; fx=dx+28; fy=0; } else { kx=dx-10; ky=-6; fx=dx-34; fy=-2; } }
       else { fx=dx+Math.sin(sw)*40; fy=-lift; kx=(dx+fx)/2+6*Math.abs(sw); ky=(hip+fy)/2; }
       daLine(c,pal.pants,11,()=>{ c.moveTo(dx,hip); c.lineTo(kx,ky); c.lineTo(fx,fy); }); daE(c,fx+6,fy-3,12,5.5,pal.shoe,2.5); };
