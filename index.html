@@ -83,6 +83,13 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
 /* ---------- panels ---------- */
 .overlay{position:fixed; inset:0; z-index:20; display:grid; place-items:center; padding:max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom)); overflow:auto; background:rgba(3,2,8,.82)}
 .overlay[hidden]{display:none}
+.slotlist{display:grid; gap:10px; margin:14px 0}
+.slotcard{display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px 14px; border:2px solid #3a3f6e; border-radius:14px; background:#0c0a24; text-align:left}
+.slotcard.on{border-color:var(--cyan); box-shadow:0 0 16px rgba(0,240,255,.35)}
+.slotcard .info{flex:1; min-width:180px}
+.slotcard .info b{font-size:19px} .slotcard .info small{display:block; color:var(--dim); font-size:15px; margin-top:2px}
+.slotcard .btn{min-height:46px}
+.slotcard .btn.warn{border-color:#ff5a3a; color:#ffb0a0}
 .panel{width:min(820px,100%); background:var(--panel); color:var(--ink); border:3px solid var(--pink); border-radius:16px; box-shadow:0 0 24px rgba(255,43,214,.45), inset 0 0 30px rgba(157,77,255,.15); padding:clamp(18px,4vw,32px); margin:auto}
 .panel.cyan{border-color:var(--cyan); box-shadow:0 0 24px rgba(0,240,255,.4), inset 0 0 30px rgba(0,240,255,.1)}
 .panel .kicker{display:inline-block; color:var(--yellow); font-family:var(--head); font-weight:800; font-size:14px; letter-spacing:.2em; text-transform:uppercase; text-shadow:0 0 8px rgba(255,230,0,.7)}
@@ -371,9 +378,23 @@ body.gal-on .hud.bottom, body.gal-on .stick-hint, body.gal-on #side, body.gal-on
       <button class="btn big pink" id="enter" disabled>Loading…</button>
       <button class="btn big" id="introOnline">📡 Play online</button>
       <button class="btn big yellow" id="introMe">🧍 My avatar</button>
+      <button class="btn big ghost" id="introSlots">💾 Save slots</button>
     </div>
+    <p class="note" id="slotNow" style="margin:4px 0 0"></p>
     <div class="load" aria-hidden="true"><i id="bar"></i></div>
     <div class="status" id="status">Switching on the machines…</div>
+  </div>
+</div>
+
+<!-- save slots -->
+<div class="overlay" id="slots" hidden role="dialog" aria-modal="true" aria-labelledby="slotsTitle">
+  <div class="panel">
+    <span class="kicker">Four separate arcades</span>
+    <h2 id="slotsTitle">Save slots</h2>
+    <p>Each slot keeps its own tickets, prizes, high scores, the things lying around the floor, the doodle board and the list of recent winners. Your name and avatar come with you to every slot.</p>
+    <div id="slotList" class="slotlist"></div>
+    <p class="note" id="slotNet" style="color:var(--yellow); font-weight:700"></p>
+    <div class="row"><button class="btn big" id="slotsClose">Back</button></div>
   </div>
 </div>
 
@@ -542,7 +563,22 @@ const BODY = "'Chakra Petch', system-ui, sans-serif";
 const MONO = "'Monoton', 'Orbitron', system-ui, sans-serif";
 if(IS_TOUCH) document.body.classList.add('touch');
 const PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;   // phone-sized touch screen (tablets keep same-device 2P)
-function store(k,v){ try{ if(v===undefined) return localStorage.getItem('arcade-'+k); localStorage.setItem('arcade-'+k, v); }catch(e){ return null; } }
+/* ---------- saving: four save slots ----------
+   Things about YOU (name, avatar, sound, map) are shared by every slot.
+   Everything about the arcade itself — tickets, prizes you bought, high
+   scores, what's lying on the floor, the doodle board, recent winners —
+   lives in the current slot. Slot 1 uses the original keys, so a save
+   from before slots existed simply becomes slot 1. */
+const SLOT_SHARED = new Set(['name','p2','look','sound','map','seen','jukevol','girdertrack','slot']);
+const SLOT = (()=>{ try{ const n=parseInt(localStorage.getItem('arcade-slot')); return n>=1 && n<=4 ? n : 1; }catch(e){ return 1; } })();
+const slotKey = (k, n=SLOT) => 'arcade-' + (SLOT_SHARED.has(k) || n===1 ? '' : `s${n}-`) + k;
+function store(k,v){ try{ if(v===undefined) return localStorage.getItem(slotKey(k)); localStorage.setItem(slotKey(k), v); }catch(e){ return null; } }
+function slotRead(n, k){ try{ return localStorage.getItem(slotKey(k,n)); }catch(e){ return null; } }
+function slotKeys(n){ const out=[]; try{ for(let i=0;i<localStorage.length;i++){ const key=localStorage.key(i); if(!key || !key.startsWith('arcade-')) continue; const k=key.slice(7);
+    if(n===1){ if(!/^s[2-4]-/.test(k) && !SLOT_SHARED.has(k)) out.push(key); } else if(k.startsWith(`s${n}-`)) out.push(key); } }catch(e){} return out; }
+function slotUsed(n){ return slotKeys(n).length>0; }
+function slotErase(n){ for(const key of slotKeys(n)) try{ localStorage.removeItem(key); }catch(e){} }
+function slotSwitch(n){ try{ localStorage.setItem('arcade-slot', String(n)); }catch(e){} location.reload(); }
 
 let toastT=0;
 function toast(msg, ms=2800){ const t=$('#toast'); t.textContent=msg; t.classList.add('on'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('on'), ms); }
@@ -6463,7 +6499,10 @@ function cleanLook(l){
     else o[k] = Number.isInteger(v)&&v>=0&&v<spec ? v : d[k]; }
   return o;
 }
-function myLook(){ try{ const s=store('look'); if(s) return cleanLook(JSON.parse(s)); }catch(e){} return null; }
+function myLook(){ try{ const s=store('look'); if(s){ const L=cleanLook(JSON.parse(s));
+  // prizes are bought per save slot: in a slot where you haven't bought it, you aren't wearing it
+  try{ for(const k of ['mask','funhat']) if(L[k] && L[k]!=='none' && !OWNED.has(k+':'+L[k])) L[k]='none'; }catch(e){}
+  return L; } }catch(e){} return null; }
 
 /* ---------- neon rim material ---------- */
 function rimMat(rim, params){
@@ -10478,7 +10517,7 @@ let pointerStart=null, dragging=false, introOpen=true, exitArm=0;
 const mouse={ x:0, y:0, has:false };
 const ray=new THREE.Raycaster(), ndc=new THREE.Vector2();
 function setKb(on){ document.body.classList.toggle('kb', on); }
-function overlayOpen(){ return ALLEY.open || GAL.open || BOARD.open || introOpen || S.open || BLD.open || !$('#shop').hidden || !$('#launch').hidden || !$('#netPanel').hidden || !$('#invite').hidden || !$('#jukebox').hidden; }
+function overlayOpen(){ return ALLEY.open || GAL.open || BOARD.open || introOpen || S.open || BLD.open || !$('#shop').hidden || !$('#launch').hidden || !$('#netPanel').hidden || !$('#invite').hidden || !$('#jukebox').hidden || !$('#slots').hidden; }
 function pick(cx,cy){ ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1); ray.setFromCamera(ndc,camera); ray.far=40;
   const h=ray.intersectObjects([...hitList, ...itemHits, lobbyFloor, roomFloor, room2Floor, ...wallHits], false); return h[0]||null; }
 const wallHits=[];
@@ -10556,6 +10595,7 @@ addEventListener('keydown', e=>{
   if(!$('#invite').hidden){ if(k==='Escape') answerInvite(false); return; }
   if(!$('#launch').hidden){ if(k==='Escape'){ e.preventDefault(); closeLaunch(); } return; }
   if(!$('#netPanel').hidden){ if(k==='Escape'){ e.preventDefault(); closeNet(); } return; }
+  if(!$('#slots').hidden){ if(k==='Escape'){ e.preventDefault(); closeSlots(); } return; }
   if(introOpen){ if(k==='Escape' && !$('#enter').disabled){ e.preventDefault(); closeIntro(); } return; }
   const onUI = document.activeElement && document.activeElement!==document.body && document.activeElement!==canvas;
   if((k==='Enter'||k===' ') && onUI) return;
@@ -10643,6 +10683,37 @@ $('#helpBtn').onclick=openIntro;
 $('#hUse').onclick=()=>useHeld(); $('#hThrow').onclick=()=>throwHeld(); $('#hDrop').onclick=()=>dropHeld(); $('#catchBtn').onclick=()=>catchIncoming();
 $('#shopClose').onclick=closeShop; $('#bdClose').onclick=closeBoard; $('#tixChip').onclick=()=>toast(`🎟️ You have ${WALLET.n} tickets. Win games to earn more, then visit the prize counter or snack bar in the lobby.`,3200);
 $('#meBtn').onclick=()=>{ sfx('blip'); openBuilder(); };
+/* ---------- save slots ---------- */
+const BESTS=['alley-best','bb-best','cs-best','da-best','fish-best','gal-best','girderbest','lr-best','mole-best','pool-best','pop-best','tm-best'];
+function slotSummary(n){
+  if(!slotUsed(n)) return { used:false, line:'Empty — a brand-new arcade with 50 tickets' };
+  const tix=parseInt(slotRead(n,'tickets')); const t=Number.isFinite(tix)?tix:50;
+  let floor=0, prizes=0; try{ floor=JSON.parse(slotRead(n,'room')||'[]').length; }catch(e){} try{ prizes=JSON.parse(slotRead(n,'owned')||'[]').length; }catch(e){}
+  const scores=BESTS.filter(k=>{ const v=slotRead(n,k); return v && v!=='0' && v!=='{}' && v!=='null'; }).length;
+  const when=+slotRead(n,'played'), ago = when ? new Date(when).toLocaleDateString(undefined,{ month:'short', day:'numeric' }) : '';
+  const bits=[`🎟 ${t} tickets`, `${scores} high score${scores===1?'':'s'}`, `${floor} thing${floor===1?'':'s'} on the floor`]; if(prizes) bits.push(`${prizes} prize${prizes===1?'':'s'}`);
+  return { used:true, line:bits.join(' · ')+(ago?` · last played ${ago}`:'') };
+}
+let slotArm=0, slotArmT=0;
+function renderSlots(){
+  const L=$('#slotList'); L.innerHTML='';
+  for(let n=1;n<=4;n++){ const sm=slotSummary(n), on=n===SLOT, d=document.createElement('div'); d.className='slotcard'+(on?' on':'');
+    d.innerHTML=`<div class="info"><b>Slot ${n}${on?' · playing now':''}</b><small>${sm.line}</small></div>`;
+    if(!on){ const b=document.createElement('button'); b.className='btn'+(sm.used?'':' green'); b.textContent=sm.used?'Load':'Start'; b.onclick=()=>{ sfx('sel'); slotSwitch(n); }; d.appendChild(b); }
+    if(sm.used || on){ const w=document.createElement('button'); const armed=slotArm===n && performance.now()-slotArmT<4000;
+      w.className='btn warn'; w.textContent = armed ? 'Tap again to erase' : 'Start fresh';
+      w.onclick=()=>{ if(slotArm===n && performance.now()-slotArmT<4000){ slotErase(n); slotArm=0; sfx('sel'); if(n===SLOT){ location.reload(); return; } toast(`Slot ${n} is empty now.`); renderSlots(); }
+        else { slotArm=n; slotArmT=performance.now(); sfx('blip'); renderSlots(); setTimeout(()=>{ if(slotArm===n){ slotArm=0; if(!$('#slots').hidden) renderSlots(); } },4100); } };
+      d.appendChild(w); }
+    L.appendChild(d); }
+  $('#slotNet').textContent = Net.connected ? 'Loading another slot or starting fresh reloads the arcade, which ends your online room — you can rejoin with a new code.' : '';
+}
+function openSlots(){ slotArm=0; renderSlots(); $('#slots').hidden=false; keys.clear(); setTimeout(()=>{ const b=$('#slotList button'); (b||$('#slotsClose')).focus({preventScroll:true}); },30); }
+function closeSlots(){ $('#slots').hidden=true; if(introOpen) setTimeout(()=>$('#enter').focus({preventScroll:true}),30); else canvas.focus({preventScroll:true}); }
+$('#introSlots').onclick=()=>{ sfx('blip'); openSlots(); };
+$('#slotsClose').onclick=()=>{ sfx('blip'); closeSlots(); };
+$('#slotNow').textContent = SLOT===1 && !slotUsed(2) && !slotUsed(3) && !slotUsed(4) ? '' : `Playing save slot ${SLOT}`;
+store('played', String(Date.now()));
 $('#introMe').onclick=()=>{ closeIntro(); setTimeout(()=>openBuilder(!myLook()),180); };
 $('#danceBtn').onclick=()=>{ sfx('blip'); $('#dmenu').hidden ? openDanceMenu() : closeDanceMenu(); };
 $('#viewBtn').onclick=()=>{ sfx('blip'); toggleView(); };
