@@ -6231,8 +6231,8 @@ game({
    ===================================================================== */
 const AN_LOOK = {
   walt:  { w:1.2,  h:1.04, skin:'#e2a982', hair:'short', hairC:'#6a4426', beard:'#6a4426', top:'#b8262a', plaid:'#3a0e12', pants:'#2c4a8a', shoe:'#5a3418', wpn:'stick', toque:'#1f6fd0' },
-  nadia: { w:.95,  h:1.0,  skin:'#8d5a3b', hair:'curls', hairC:'#1e120c', top:'#7a3cff', num:'7', shorts:'#1a1622', socks:'#ff2bd6', skates:true, shoe:'#f4f4f4', wpn:'fist', pads:'#ff2bd6' },
-  theo:  { w:.9,   h:.95,  skin:'#6a4128', hair:'twists', hairC:'#120a06', top:'#ff8a1a', hood:true, phones:'#3ad0ff', pants:'#3a4a6a', shoe:'#ececec', wpn:'yoyo' },
+  nadia: { w:.95,  h:1.0,  skin:'#f2c6a6', hair:'curls', hairC:'#7a3418', top:'#7a3cff', num:'7', shorts:'#1a1622', socks:'#ff2bd6', skates:true, shoe:'#f4f4f4', wpn:'fist', pads:'#ff2bd6' },
+  theo:  { w:.9,   h:.95,  skin:'#efc29e', hair:'mop', hairC:'#6a4022', top:'#ff8a1a', hood:true, phones:'#3ad0ff', pants:'#3a4a6a', shoe:'#ececec', wpn:'yoyo' },
   bea:   { w:.92,  h:.84,  skin:'#f1c9ac', hair:'bun', hairC:'#ececf4', glasses:true, top:'#b48ad8', cardigan:true, skirt:'#2a8a8a', shoe:'#5a2a4a', wpn:'umbrella', pearls:true },
   goon:  { w:1.0,  h:1.0,  skin:'#c89070', hair:'slick', hairC:'#1a1a1a', top:'#5a2a8a', stripe:'#ffd23a', pants:'#5a2a8a', shoe:'#111', shades:true },
   brute: { w:1.42, h:1.12, skin:'#a0705a', hair:'bandana', hairC:'#7a2ad0', top:'#2a2a3a', tank:true, pants:'#3a2a5a', shoe:'#111', stubble:true },
@@ -6278,6 +6278,7 @@ function anHead(c, L, hx, hy, R, t, hurt){
   if(L.hair==='short'){ c.beginPath(); c.ellipse(hx-R*.1,hy-R*.55,R*.95,R*.55,-.1,Math.PI,TAU); c.fill(); c.fillRect(hx-R*.95,hy-R*.6,R*.45,R*.55); }
   if(L.hair==='curls'){ c.beginPath(); c.ellipse(hx-R*.05,hy-R*.62,R*.95,R*.5,0,Math.PI,TAU); c.fill(); }
   if(L.hair==='twists'){ c.beginPath(); c.ellipse(hx-R*.05,hy-R*.6,R*.98,R*.55,0,Math.PI,TAU); c.fill(); for(let k=0;k<6;k++){ c.beginPath(); c.arc(hx-R*.85+k*R*.34,hy-R*.95-(k%2)*3,R*.2,0,TAU); c.fill(); } }
+  if(L.hair==='mop'){ c.beginPath(); c.ellipse(hx-R*.1,hy-R*.55,R*1.02,R*.62,0,Math.PI*.9,TAU+.15); c.fill(); for(let k=0;k<5;k++){ c.beginPath(); c.ellipse(hx-R*.75+k*R*.36,hy-R*.95+(k%2)*3,R*.26,R*.2,-.4+k*.2,0,TAU); c.fill(); } c.beginPath(); c.moveTo(hx+R*.2,hy-R*.75); c.quadraticCurveTo(hx+R*.85,hy-R*.6,hx+R*.75,hy-R*.2); c.lineTo(hx+R*.35,hy-R*.55); c.fill(); }
   if(L.hair==='bun'){ c.beginPath(); c.ellipse(hx-R*.08,hy-R*.55,R*.95,R*.52,0,Math.PI,TAU); c.fill(); }
   if(L.hair==='slick'){ c.beginPath(); c.ellipse(hx-R*.12,hy-R*.58,R*.95,R*.48,-.15,Math.PI*.95,TAU+.1); c.fill(); }
   if(L.hair==='bandana'){ c.fillStyle=L.hairC; c.beginPath(); c.ellipse(hx-R*.05,hy-R*.55,R*1.0,R*.55,0,Math.PI,TAU); c.fill(); c.beginPath(); c.moveTo(hx-R*.9,hy-R*.5); c.lineTo(hx-R*1.5,hy-R*.2); c.lineTo(hx-R*1.35,hy-R*.65); c.fill(); }
