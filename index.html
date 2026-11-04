@@ -408,7 +408,7 @@ body.gal-on .hud.bottom, body.gal-on .stick-hint, body.gal-on #side, body.gal-on
     <h2 id="netTitle">Online room</h2>
     <div id="netIdle">
       <p class="note" id="netErr" style="color:var(--yellow); font-weight:700"></p>
-      <p>One of you makes a room and the other joins it with the 4-letter code. Then you'll see each other walking around the arcade.</p>
+      <p>One of you makes a room and the other joins it with the <span id="codeWord">4-letter</span> code. Then you'll see each other walking around the arcade.</p>
       <div class="field"><label for="netName">Your name</label><input id="netName" maxlength="14" autocomplete="off" placeholder="Player 1"></div>
       <div class="row" style="margin-bottom:16px"><button class="btn big pink" id="mkRoom">Make a room</button></div>
       <div class="field"><label for="joinCode">Join with a code</label>
@@ -545,6 +545,14 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
    ===================================================================== */
 const EXIT_URL = 'https://www.swow.ca/';
 const ROOM_PREFIX = 'swowarcade-';
+// Room codes: the website uses short 4-letter codes. The Android app build
+// sets  window.ARCADE_CONFIG = { app:true, codeDigits:6 }  (android-app/inject.html)
+// for 6-digit number codes instead.
+const ARCADE_CFG = window.ARCADE_CONFIG || {};
+const IS_APP = !!ARCADE_CFG.app;
+const CODE_NUMERIC = !!ARCADE_CFG.codeDigits;
+const CODE_LEN = ARCADE_CFG.codeDigits || 4;
+const CODE_WORD = CODE_NUMERIC ? `${CODE_LEN}-digit` : `${CODE_LEN}-letter`;
 
 const $ = s => document.querySelector(s);
 const TAU = Math.PI*2;
@@ -11880,7 +11888,8 @@ function buildWakeCabs(){
 const Net = { role:null, code:'', peer:null, conn:null, bc:null, id:'', other:'', connected:false, partner:'', joinTimer:0 };
 const TAB_MODE = QS.get('net')==='tab';
 const CODE_ABC='ABCDEFGHJKLMNPQRSTUVWXYZ';
-const newCode = () => Array.from({length:4},()=>CODE_ABC[ri(CODE_ABC.length)]).join('');
+const newCode = () => CODE_NUMERIC ? Array.from({length:CODE_LEN},()=>ri(10)).join('') : Array.from({length:CODE_LEN},()=>CODE_ABC[ri(CODE_ABC.length)]).join('');
+const cleanCode = c => CODE_NUMERIC ? String(c||'').replace(/[^0-9]/g,'').slice(0,CODE_LEN) : String(c||'').toUpperCase().replace(/[^A-Z]/g,'').slice(0,CODE_LEN);
 function myName(){ return (store('name')||'').trim() || 'Player 1'; }
 
 async function loadPeer(){
@@ -11899,7 +11908,7 @@ function netUI(){
   const b=$('#netBtn'); b.classList.toggle('on', Net.connected); b.classList.toggle('wait', !!Net.role && !Net.connected);
   b.querySelector('.lbl').textContent = Net.connected ? (Net.partner||'Connected') : Net.role ? `Room ${Net.code}` : 'Offline';
   $('#netIdle').hidden = !!Net.role; $('#netLive').hidden = !Net.role;
-  $('#netCode').textContent = Net.code || '----';
+  $('#netCode').textContent = Net.code || '-'.repeat(CODE_LEN);
   $('#netRole').textContent = Net.role==='host' ? 'Your room code' : 'Room';
   $('#netMsg').textContent = Net.connected ? `Connected to ${Net.partner||'the other player'}! Close this and walk up to a machine, then choose Online.` :
     Net.role==='host' ? 'Tell the other player this code, or send them the link. Waiting for them to join…' : 'Joining…';
@@ -11928,8 +11937,8 @@ async function makeRoom(){
   tryOpen(0);
 }
 async function joinRoom(code){
-  code=(code||'').toUpperCase().replace(/[^A-Z]/g,'').slice(0,4);
-  if(code.length!==4){ toast('Room codes are 4 letters.'); return; }
+  code=cleanCode(code);
+  if(code.length!==CODE_LEN){ toast(`Room codes are ${CODE_LEN} ${CODE_NUMERIC?'numbers':'letters'}.`); return; }
   leaveRoom(true); $('#netErr').textContent='';
   Net.role='guest'; Net.code=code; netUI(); netStatus(`Looking for room ${code}…`);
   if(TAB_MODE) return tabJoin();
@@ -12621,7 +12630,7 @@ function interactCentre(){ const info=centreTarget(); if(info){ interactWith(inf
 /* ---------- intro / panels ---------- */
 function openIntro(){ introOpen=true; $('#intro').hidden=false; keys.clear(); $('#enter').textContent='Back to the arcade'; setTimeout(()=>$('#enter').focus({preventScroll:true}),30); }
 function closeIntro(){ const n=$('#myName').value.trim(); if(n) store('name',n.slice(0,14)); const n2=$('#p2Name').value.trim(); store('p2',n2.slice(0,14)); introOpen=false; $('#intro').hidden=true; audio(); ambience(); canvas.focus({preventScroll:true}); store('seen','1'); if(!myLook()) setTimeout(()=>openBuilder(true),150);
-  if(QS.get('room') && !Net.role){ $('#joinCode').value=QS.get('room').toUpperCase(); openNet(); setTimeout(()=>joinRoom(QS.get('room')),200); } }
+  if(QS.get('room') && !Net.role){ $('#joinCode').value=cleanCode(QS.get('room')); openNet(); setTimeout(()=>joinRoom(QS.get('room')),200); } }
 function openNet(){ $('#netName').value=myName()==='Player 1'&&!store('name')?'':myName(); netUI(); $('#netPanel').hidden=false; keys.clear(); setTimeout(()=>(Net.role?$('#leaveRoom'):$('#mkRoom')).focus({preventScroll:true}),30); }
 function closeNet(){ const n=$('#netName').value.trim(); if(n){ store('name',n.slice(0,14)); $('#myName').value=n; if(Net.connected) netSend('hello',{name:n}); } $('#netPanel').hidden=true; canvas.focus({preventScroll:true}); }
 $('#enter').onclick=()=>{ sfx('coin'); closeIntro(); };
@@ -12631,7 +12640,11 @@ $('#netClose').onclick=closeNet;
 $('#mkRoom').onclick=()=>{ const n=$('#netName').value.trim(); if(n) store('name',n.slice(0,14)); sfx('sel'); makeRoom(); };
 $('#joinRoom').onclick=()=>{ const n=$('#netName').value.trim(); if(n) store('name',n.slice(0,14)); sfx('sel'); joinRoom($('#joinCode').value); };
 $('#leaveRoom').onclick=()=>{ leaveRoom(); toast('Left the room.'); };
-$('#shareRoom').onclick=async ()=>{ const u=new URL(location.href); u.search=''; u.searchParams.set('room',Net.code); if(TAB_MODE) u.searchParams.set('net','tab');
+$('#shareRoom').onclick=async ()=>{
+  if(IS_APP){ const text=`Come play in my Neon Arcade! Open the app, tap Online and join room ${Net.code}`;
+    try{ if(navigator.share){ await navigator.share({ title:'Neon Arcade', text }); return; } }catch(e){ if(e.name==='AbortError') return; }
+    try{ await navigator.clipboard.writeText(text); toast('Room code copied — send it to the other player.'); }catch(e){ toast(`Tell them room ${Net.code}`, 8000); } return; }
+  const u=new URL(location.href); u.search=''; u.searchParams.set('room',Net.code); if(TAB_MODE) u.searchParams.set('net','tab');
   const text=`Come play in my arcade! Room code ${Net.code}`;
   try{ if(navigator.share){ await navigator.share({ title:'Neon Arcade', text, url:u.href }); return; } }catch(e){ if(e.name==='AbortError') return; }
   try{ await navigator.clipboard.writeText(u.href); toast('Link copied — paste it to the other player.'); }catch(e){ toast(`Send them this: ${u.href}`, 8000); } };
@@ -12736,6 +12749,8 @@ function placeCamera(dt,t,bob){
 }
 $('#prev').onclick=()=>step(-1); $('#next').onclick=()=>step(1);
 $('#exit').href=EXIT_URL;
+if(IS_APP) $('#exit').style.display='none';
+if(CODE_NUMERIC){ const j=$('#joinCode'); j.maxLength=CODE_LEN; j.placeholder='123456'; j.inputMode='numeric'; j.setAttribute('autocapitalize','off'); j.style.maxWidth='240px'; $('#codeWord').textContent=CODE_WORD; $('#netCode').textContent='-'.repeat(CODE_LEN); $('#shareRoom').textContent='Share code'; }
 $('#myName').value=store('name')||''; $('#p2Name').value=store('p2')||'';
 
 /* ---------- map ---------- */

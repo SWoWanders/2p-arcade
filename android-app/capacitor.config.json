@@ -1,0 +1,9 @@
+{
+  "appId": "io.github.swowanders.neonarcade",
+  "appName": "Neon Arcade",
+  "webDir": "www",
+  "backgroundColor": "#05040A",
+  "android": {
+    "allowMixedContent": false
+  }
+}
