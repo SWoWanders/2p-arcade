@@ -218,7 +218,8 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
 #tixChip{white-space:nowrap} #mapBtn .mi{display:none} @media (max-width:520px){ #mapBtn .mt{display:none} #mapBtn .mi{display:inline} .top .grp{gap:5px} #exit .ht{display:none} .top .btn{min-width:46px; padding:0 8px} } #tixChip b{font-family:var(--head); font-weight:900; color:var(--yellow)}
 .handp{position:fixed; z-index:6; right:max(10px, env(safe-area-inset-right)); top:50%; transform:translateY(-50%); display:grid; gap:8px; width:min(168px,40vw);
   background:rgba(5,4,10,.82); border:2px solid var(--pink); border-radius:14px; padding:10px; box-shadow:0 0 14px rgba(255,43,214,.4)}
-.handp[hidden], #catchBtn[hidden]{display:none}
+.handp[hidden], #catchBtn[hidden], .gumrow[hidden]{display:none}
+.gumrow{display:grid; gap:8px; grid-column:1/-1; border-top:1px solid rgba(255,43,214,.4); padding-top:8px} .handp.gumonly #hUse, .handp.gumonly #hThrow, .handp.gumonly #hDrop{display:none} .handp.gumonly .gumrow{border-top:0; padding-top:0}
 .handp .hname{font-weight:700; font-size:16px; color:var(--yellow); line-height:1.25; text-align:center}
 .handp .btn{min-height:50px; font-size:18px; width:100%}
 #catchBtn{position:fixed; z-index:7; left:50%; top:58%; transform:translateX(-50%); animation:pulse 0.6s infinite; font-size:26px; min-height:72px; padding:0 28px}
@@ -347,6 +348,7 @@ body.gal-on .hud.bottom, body.gal-on .stick-hint, body.gal-on #side, body.gal-on
   <button class="btn pink" id="hUse">Use</button>
   <button class="btn" id="hThrow" title="Throw (R)">Throw</button>
   <button class="btn ghost" id="hDrop" title="Drop (X)">Drop</button>
+  <div class="gumrow" id="gumRow" hidden><button class="btn pink" id="gBlow" title="Blow a bubble (B)">Blow bubble</button><button class="btn ghost" id="gSpit">Spit out</button></div>
 </div>
 <button class="btn big yellow" id="catchBtn" hidden>🙌 Catch!</button>
 <div class="hud bottom">
@@ -8987,6 +8989,7 @@ const iglow=(c,k=2)=>new THREE.MeshBasicMaterial({color:new THREE.Color(c).multi
 function stripeTex(cols, horiz){ const c=document.createElement('canvas'); c.width=c.height=64; const x=c.getContext('2d'); const n=cols.length; cols.forEach((col,i)=>{ x.fillStyle=col; horiz? x.fillRect(0,i*64/n,64,64/n+1) : x.fillRect(i*64/n,0,64/n+1,64); }); return canvasTex(c); }
 function itemMesh(kind, stage=0){
   const g=new THREE.Group(); const add=(geo,mat,x=0,y=0,z=0)=>{ const m=new THREE.Mesh(geo,mat); m.position.set(x,y,z); g.add(m); return m; };
+  if(kind==='gumball'||kind==='chewed') return gumItemMesh(kind,stage);
   const it=ITEMS[kind]||{}; const left = it.bites ? 1-stage/it.bites : 1;
   switch(kind){
     case 'paddle': { const p=add(new THREE.CylinderGeometry(.085,.085,.012,22), imat('#d9a25a')); p.rotation.x=Math.PI/2; p.position.y=.1;
@@ -9064,7 +9067,7 @@ function holdItem(kind, stage=0, quiet){
   HELD.kind=kind; HELD.stage=stage; HELD.use=0;
   if(HELD.viewMesh){ HELD.view.remove(HELD.viewMesh); } HELD.viewMesh=null;
   if(HELD.mesh3 && HELD.mesh3.parent) HELD.mesh3.parent.remove(HELD.mesh3); HELD.mesh3=null;
-  if(kind){ const vm=itemMesh(kind,stage); vm.scale.setScalar(kind==='ball'?.55:kind==='super'?.8:1); vm.position.set(0,.04,0); if(kind==='plane'){ vm.rotation.y=Math.PI; } HELD.view.add(vm); HELD.viewMesh=vm;
+  if(kind){ const vm=itemMesh(kind,stage); vm.scale.setScalar(kind==='ball'?.55:kind==='super'?.8:kind==='gumball'?1.5:1); vm.position.set(0,.04,0); if(kind==='plane'){ vm.rotation.y=Math.PI; } HELD.view.add(vm); HELD.viewMesh=vm;
     attachToHand(me.av, kind, stage, HELD); }
   store('held', kind ? JSON.stringify({kind,stage}) : 'null');
   handUI(); if(!quiet) netSend('hold',{ k:kind||'', st:stage });
@@ -9075,14 +9078,17 @@ function attachToHand(av, kind, stage, slot){
 }
 function handUI(){
   const p=$('#handPanel'); if(!p) return; const it=HELD.kind?ITEMS[HELD.kind]:null;
-  p.hidden=!it;
+  p.hidden=!it && !GUM.on; p.classList.toggle('gumonly', !it && GUM.on);
   if(it){ $('#hName').textContent=it.name + (it.bites?` (${it.bites-HELD.stage} left)`:''); const u=$('#hUse'); u.hidden=!it.use; u.textContent=it.use||''; }
+  else if(GUM.on) $('#hName').textContent='Chewing gum';
+  $('#gumRow').hidden=!GUM.on; if(GUM.on) $('#gBlow').textContent=['Blow bubble','Blow bigger','Blow again!'][GUM.b];
 }
 function useHeld(){
   if(incoming()){ catchIncoming(); return; }
   if(!HELD.kind){ toast(IS_TOUCH?'Your hands are empty. Win tickets and visit the prize counter!':'Your hands are empty. Win tickets and visit the prize counter in the lobby.'); return; }
   const k=HELD.kind, it=ITEMS[k]; if(!it.use) return;
   if(it.superb){ bounceHeld(); return; }
+  if(it.gum){ if(HELD.use<=0) chewGum(); return; }
   if(it.flies || it.ball){ throwHeld(it.flies?7.5:6); return; }
   if(HELD.use>0) return;
   HELD.use=it.bites?.55:(k==='paddle'?1.6:.9); HELD.useDur=HELD.use; HELD.useKind = it.bites?'eat':'play';
@@ -9332,6 +9338,152 @@ function wearPrize(key,id,cost){
   look[key] = look[key]===id ? 'none' : id;
   store('look', JSON.stringify(look)); setMyLook(look); netSend('look',{ a:look }); renderShop(); skinForView();
   toast(look[key]==='none' ? 'Taken off.' : 'Looking good! It also shows up in your avatar maker.', 2000);
+}
+
+/* =====================================================================
+   GUMBALL MACHINE — a classic globe-on-a-pole machine in the lobby, by
+   the snack bar. 2 tickets a turn: the crank turns, a gumball rolls down
+   the chute and into your hand.
+   - Chew: pop it in your mouth. Your avatar's mouth closes and chews.
+   - Blow bubble: a small bubble on your lips → blow again and it doubles
+     → blow again and it POPS (loud) and is gone. Keep chewing and repeat.
+   - Spit out: a chewed wad lands on the floor (trash it!).
+   Online, the other player sees your chewing and bubbles, and hears pops.
+   ===================================================================== */
+const GUMCOLS=['#ff3a5a','#ff8a1a','#ffd23a','#5ad83a','#3a9aff','#ff6ad8','#f4f0e8','#9a5aff'];
+const GUM_COST=2, GUM_R=[0,.038,.076];
+const GUM={ on:false, c:0, b:0, size:0, pop:0, bits:null };      // my gum
+const GUMM={ x:7.45, z:2.4, g:null, crank:null, balls:null, n:0, turn:0, out:null, busy:false };
+Object.assign(ITEMS, { gumball:{ name:'Gumball', icon:'🍬', use:'Chew', gum:true }, chewed:{ name:'Chewed gum', trash:true } });
+Object.assign(RADIUS, { gumball:.02, chewed:.012 });
+function gumItemMesh(kind, stage){
+  const g=new THREE.Group(), c=GUMCOLS[stage%GUMCOLS.length];
+  const m=new THREE.Mesh(new THREE.SphereGeometry(kind==='gumball'?.02:.014,14,10), new THREE.MeshStandardMaterial({ color:c, roughness:kind==='gumball'?.25:.7 }));
+  if(kind==='chewed'){ m.scale.set(1.3,.45,1.1); m.position.y=-.006; } g.add(m); g.userData.kind=kind; return g;
+}
+/* ---------- the machine ---------- */
+function buildGumball(){
+  const g=new THREE.Group(); g.position.set(GUMM.x,0,GUMM.z); g.rotation.y=-Math.PI/2; scene.add(g); GUMM.g=g;   // faces west, into the lobby
+  const iron=new THREE.MeshStandardMaterial({ color:'#26282c', roughness:.55, metalness:.5 }), pole=new THREE.MeshStandardMaterial({ color:'#2e3134', roughness:.7, metalness:.2 });
+  const teal=new THREE.MeshStandardMaterial({ color:'#13b8ae', roughness:.3, metalness:.15, emissive:'#0b6e68', emissiveIntensity:.7 }), chrome=chromeMat;
+  // cast-iron base: a flared disc with ribs
+  const prof=[[0,0],[.3,0],[.31,.02],[.27,.05],[.12,.09],[.07,.12],[.055,.15],[0,.15]].map(([r,y])=>new THREE.Vector2(r,y));
+  const base=new THREE.Mesh(new THREE.LatheGeometry(prof,40), iron); g.add(base);
+  for(let k=0;k<8;k++){ const rib=new THREE.Mesh(new THREE.BoxGeometry(.012,.04,.2), iron); const a=k*TAU/8+.2; rib.position.set(Math.sin(a)*.17,.055,Math.cos(a)*.17); rib.rotation.set(-.32,a,0); rib.rotation.order='YXZ'; g.add(rib); }
+  const p=new THREE.Mesh(new THREE.CylinderGeometry(.042,.046,.9,20), pole); p.position.y=.6; g.add(p);
+  const collar=new THREE.Mesh(new THREE.CylinderGeometry(.12,.1,.025,24), chrome); collar.position.y=1.06; g.add(collar);
+  // teal body: a slightly tapered square block with chrome trim
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(.13,.15,.2,4,1), teal); body.rotation.y=Math.PI/4; body.position.y=1.175; body.scale.set(1,1,.92); g.add(body);
+  for(const [y,w] of [[1.08,.22],[1.278,.19]]){ const t=new THREE.Mesh(new THREE.BoxGeometry(w,.016,w*.92), chrome); t.position.y=y; g.add(t); }
+  // front: coin mech plate with the crank knob, and the chute with its flap
+  const plate=new THREE.Mesh(new THREE.BoxGeometry(.1,.11,.012), chrome); plate.position.set(0,1.2,.1); plate.rotation.x=-.1; g.add(plate);
+  const crank=new THREE.Group(); crank.position.set(0,1.205,.11); crank.rotation.x=-.1; g.add(crank); GUMM.crank=crank;
+  { const knob=new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,.018,24), chrome); knob.rotation.x=Math.PI/2; crank.add(knob);
+    const grip=new THREE.Mesh(new THREE.BoxGeometry(.06,.016,.02), new THREE.MeshStandardMaterial({ color:'#c8ccd4', metalness:.9, roughness:.2 })); grip.position.z=.015; crank.add(grip);
+    const slot=new THREE.Mesh(new THREE.BoxGeometry(.004,.022,.002), blackMat); slot.position.set(.026,0,.011); crank.add(slot); }
+  const chute=new THREE.Mesh(new THREE.BoxGeometry(.06,.05,.05), chrome); chute.position.set(0,1.115,.11); g.add(chute);
+  const flap=new THREE.Mesh(new THREE.BoxGeometry(.05,.04,.004), chrome); flap.position.set(0,1.112,.137); flap.rotation.x=.25; g.add(flap); GUMM.flap=flap;
+  const hole=new THREE.Mesh(new THREE.BoxGeometry(.044,.032,.01), blackMat); hole.position.set(0,1.11,.131); g.add(hole);
+  // the globe: clear glass with chrome bands, a domed chrome cap and the lock on top
+  const R=.13, H=.24, gy=1.29;
+  const glass=new THREE.Mesh(new THREE.CylinderGeometry(R,R,H,40,1,true), new THREE.MeshStandardMaterial({ color:'#e8f4ff', transparent:true, opacity:.16, roughness:.04, metalness:.1, side:THREE.DoubleSide, depthWrite:false }));
+  glass.position.y=gy+H/2; glass.renderOrder=2; g.add(glass);
+  const shine=new THREE.Mesh(new THREE.PlaneGeometry(.025,H*.85), new THREE.MeshBasicMaterial({ color:'#ffffff', transparent:true, opacity:.35, depthWrite:false })); shine.position.set(-.06,gy+H/2,R*.93); shine.rotation.y=-.45; g.add(shine);
+  for(const y of [gy+.006, gy+H-.004]){ const band=new THREE.Mesh(new THREE.CylinderGeometry(R+.008,R+.008,.016,40), chrome); band.position.y=y; g.add(band); }
+  const cap=new THREE.Mesh(new THREE.SphereGeometry(R*.98,32,12,0,TAU,0,Math.PI/2), chrome); cap.scale.y=.42; cap.position.y=gy+H; g.add(cap);
+  const lock=new THREE.Mesh(new THREE.CylinderGeometry(.035,.04,.03,20), chrome); lock.position.y=gy+H+.065; g.add(lock);
+  const key=new THREE.Mesh(new THREE.BoxGeometry(.02,.004,.004), blackMat); key.position.y=gy+H+.081; g.add(key);
+  // gumballs, packed in layers inside the globe
+  const pts=[], br=.019; for(let ly=0; ly<6; ly++){ const y=gy+.022+ly*br*1.72; const off=ly%2?br:0;
+    for(let x=-R; x<=R; x+=br*2.05) for(let z=-R; z<=R; z+=br*1.8){ const xx=x+off*((Math.round(z/(br*1.8)))%2?1:0)+(ly%2?br*.5:0), zz=z; if(Math.hypot(xx,zz)<R-br*1.05) pts.push([xx,y+(Math.random()-.5)*.004,zz]); } }
+  const im=new THREE.InstancedMesh(new THREE.SphereGeometry(br,12,9), new THREE.MeshStandardMaterial({ roughness:.28, metalness:0 }), pts.length);
+  const col=new THREE.Color(), M=new THREE.Matrix4(); pts.forEach((q,i)=>{ M.makeTranslation(q[0],q[1],q[2]); im.setMatrixAt(i,M); im.setColorAt(i,col.set(GUMCOLS[i*7%GUMCOLS.length]).multiplyScalar(.9+Math.random()*.2)); });
+  im.instanceMatrix.needsUpdate=true; im.instanceColor.needsUpdate=true; g.add(im); GUMM.balls=im; GUMM.n=pts.length; GUMM.pts=pts;
+  // a little sign above it on the wall
+  signPlane(signTex([{t:'GUMBALLS', c:NEON.pink, size:120, font:HEAD, weight:900},{t:`🎟 ${GUM_COST} A TURN`, c:NEON.yellow, size:70, font:HEAD, weight:900}],512,256), .62,.31, 0,2.05,-.1, 0,1.8,g);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(.33,.012,8,48), neonMat(NEON.pink,2)); ring.rotation.x=Math.PI/2; ring.position.y=.02; g.add(ring);
+  const hit=new THREE.Mesh(new THREE.BoxGeometry(.5,1.7,.5), new THREE.MeshBasicMaterial({ visible:false })); hit.position.y=.85; hit.userData.gumball=true; g.add(hit); hitList.push(hit);
+  collide(GUMM.x-.32,GUMM.x+.32,GUMM.z-.32,GUMM.z+.32);
+}
+function gumWalkTo(){ travel(GUMM.x-1.0, GUMM.z, -Math.PI/2, -.38); }
+function buyGumball(){
+  if(GUMM.busy) return;
+  if(WALLET.n<GUM_COST){ toast(`A gumball costs ${GUM_COST} tickets. Win some games first!`); sfx('miss'); return; }
+  setTickets(WALLET.n-GUM_COST); const c=ri(GUMCOLS.length); gumTurn(c, true); netSend('gumbuy',{ c });
+}
+// crank turns, a ball rolls out of the chute; mine goes into my hand
+function gumTurn(c, mine){
+  GUMM.busy=true; GUMM.turn=1; GUMM.mine=mine; GUMM.c=c;
+  for(let k=0;k<4;k++) tone(380+k*40,.035,'square',.07,.3,k*.18); noise(.5,.05,900,.05);
+  if(GUMM.n>12){ GUMM.n--; GUMM.balls.setMatrixAt(GUMM.n, new THREE.Matrix4().makeScale(0,0,0)); GUMM.balls.instanceMatrix.needsUpdate=true; }
+}
+function gumMachineFrame(dt){
+  if(!GUMM.g || GUMM.turn<=0) return;
+  GUMM.turn=Math.max(0,GUMM.turn-dt/1.1); const u=1-GUMM.turn;
+  GUMM.crank.rotation.z=-Math.min(1,u/.7)*TAU;
+  if(u>.7 && !GUMM.out){ const b=gumItemMesh('gumball',GUMM.c); b.position.set(0,1.125,.115); GUMM.g.add(b); GUMM.out=b; tone(900,.05,'sine',.1,.6); tone(1300,.04,'sine',.08,.5,.08); }
+  if(GUMM.out){ const k=(u-.7)/.3; GUMM.out.position.set(0,1.125-k*.01,.115+k*.03); GUMM.flap.rotation.x=.25+Math.sin(Math.min(1,k)*Math.PI)*.9; }
+  if(GUMM.turn<=0){ if(GUMM.out){ GUMM.g.remove(GUMM.out); GUMM.out=null; } GUMM.flap.rotation.x=.25; GUMM.busy=false;
+    if(GUMM.mine){ if(HELD.kind){ const was=ITEMS[HELD.kind].name; dropHeld(); toast(`Put down the ${was.toLowerCase()} to take your gumball.`,2000); }
+      holdItem('gumball',GUMM.c); sfx('coin'); toast(`🍬 A gumball! ${IS_TOUCH?'Tap Chew':'Press F to chew'}.`,2400); } }
+}
+/* ---------- chewing + bubbles ---------- */
+function chewGum(){
+  const c=HELD.stage; HELD.use=.55; HELD.useDur=.55; HELD.useKind='eat'; netSend('use',{ k:'gumball' });
+  setTimeout(()=>{ if(HELD.kind!=='gumball') return; holdItem(null); GUM.on=true; GUM.c=c; GUM.b=0; GUM.pop=0; noise(.12,.08,700); tone(220,.08,'sine',.06,.6,.05);
+    netSend('gum',{ on:1, c, b:0 }); handUI(); toast(IS_TOUCH?'Chewing… tap Blow bubble!':'Chewing… press B to blow a bubble!',2200); }, 300);
+}
+function blowGum(){
+  if(!GUM.on){ if(HELD.kind==='gumball'){ chewGum(); return; } toast('Get a gumball from the machine by the snack bar first.'); return; }
+  if(GUM.pop>0) return;
+  if(GUM.b<2){ GUM.b++; blowSound(GUM.b); netSend('gum',{ on:1, c:GUM.c, b:GUM.b }); }
+  else { GUM.b=0; GUM.size=0; GUM.pop=.35; popSound(1); netSend('gum',{ on:1, c:GUM.c, b:0, pop:1 }); }
+  handUI();
+}
+function spitGum(){
+  if(!GUM.on) return; const f=fwd(); GUM.on=false; GUM.b=0; GUM.size=0;
+  spawnWorld('chewed', GUM.c, player.x+f.x*.45, 1.5, player.z+f.z*.45, f.x*2.4, 1.2, f.z*2.4, true); tone(260,.08,'sine',.08,.4);
+  netSend('gum',{ on:0 }); handUI(); toast('Ptoo! Pick it up and put it in a trash can.',2200);
+}
+function blowSound(b){ noise(.45,.05,500+b*250); tone(140+b*40,.4,'sine',.03,1.5); }
+function popSound(v){ noise(.08,.55*v,3200); tone(160,.07,'square',.3*v,.2); noise(.18,.12*v,900,.04); }
+// the bubble (and chewing mouth) on an avatar; st = { on, c, b, size, pop, bits }
+function gumAvatar(av, st, dt, t){
+  if(!av) return;
+  if(!av.gumB){ const b=new THREE.Mesh(new THREE.SphereGeometry(1,24,16), new THREE.MeshStandardMaterial({ color:'#ff9ad0', roughness:.18, metalness:0, transparent:true, opacity:.88, emissive:'#000000' }));
+    const holder=new THREE.Group(); holder.position.copy(av.mouth.position); holder.quaternion.copy(av.mouth.quaternion); av.mouth.parent.add(holder); holder.add(b); b.visible=false; av.gumB=b; av.gumH=holder; }
+  if(!st || !st.on){ if(av.gumB.visible||av.mouth.scale.x!==1){ av.gumB.visible=false; av.mouth.scale.x=1; } if(av.gumBits) av.gumBits.visible=false; return; }
+  const tgt=GUM_R[st.b||0]; st.size=(st.size||0)+(tgt-(st.size||0))*Math.min(1,dt*(tgt>(st.size||0)?3.2:20));
+  const b=av.gumB; b.material.color.set(GUMCOLS[st.c%GUMCOLS.length]).lerp(new THREE.Color('#ffffff'),.25); b.material.emissive.copy(b.material.color).multiplyScalar(.3);
+  if(st.size>.004){ b.visible=true; const wob=1+Math.sin(t*7)*.03*(st.b||0); b.scale.set(st.size*wob, st.size/wob, st.size*.96); b.position.z=st.size*.85; }
+  else b.visible=false;
+  // closed, chewing mouth (lips stay pursed round the bubble while blowing)
+  av.mouth.scale.y = st.size>.004 ? .55 : .1+Math.abs(Math.sin(t*5.5))*.16;
+  av.mouth.scale.x = st.size>.004 ? .55 : 1;
+  // the pop: pink bits fly off for a moment
+  if(st.pop>0){ st.pop-=dt; if(!av.gumBits){ const g=new THREE.Group(); for(let k=0;k<9;k++){ const m=new THREE.Mesh(new THREE.SphereGeometry(.007,6,5), b.material); m.userData.d=new THREE.Vector3(Math.cos(k*.7)*(k%3?1:.5),Math.sin(k*1.9),.6+Math.random()*.6).normalize(); g.add(m); } av.gumH.add(g); av.gumBits=g; }
+    const k=1-Math.max(0,st.pop)/.35; av.gumBits.visible=st.pop>0; av.gumBits.children.forEach(m=>{ m.position.copy(m.userData.d).multiplyScalar(.03+k*.12); m.position.y-=k*k*.04; m.scale.setScalar(1-k*.6); }); }
+  else if(av.gumBits) av.gumBits.visible=false;
+}
+// first-person: the bubble you're blowing, at the bottom of your view
+function gumView(dt, t){
+  if(!GUM.v){ const b=new THREE.Mesh(new THREE.SphereGeometry(1,28,18), new THREE.MeshStandardMaterial({ color:'#ff9ad0', roughness:.15, transparent:true, opacity:.82, depthTest:false })); b.renderOrder=10; b.visible=false; camera.add(b); GUM.v=b; }
+  const fp=viewMode()==='first' && !S.open;
+  if(!fp || !GUM.on || GUM.size<.004){ GUM.v.visible=false; return; }
+  const b=GUM.v; b.visible=true; b.material.color.set(GUMCOLS[GUM.c%GUMCOLS.length]).lerp(new THREE.Color('#ffffff'),.25);
+  const s=GUM.size*.8, wob=1+Math.sin(t*7)*.03*GUM.b; b.scale.set(s*wob,s/wob,s); b.position.set(0,-.17+s*.3,-.3);
+}
+function gumFrame(dt, t){
+  gumMachineFrame(dt);
+  if(GUM.pop>0 && me.av==null) GUM.pop-=dt;
+  gumAvatar(me.av, GUM, dt, t); gumView(dt, t);
+  if(partner && partner.av) gumAvatar(partner.av, partner.gum, dt, t);
+}
+function gumNet(m){
+  if(!partner) return; const st=partner.gum||(partner.gum={ on:false, c:0, b:0, size:0, pop:0 });
+  st.on=!!m.on; st.c=m.c|0; st.b=clamp(m.b|0,0,2); if(!st.on) st.size=0;
+  if(m.pop){ st.pop=.35; st.size=0; const d=Math.hypot(partner.x-player.x,partner.z-player.z); if(d<16) popSound(Math.max(.25,1-d/16)); }
+  else if(st.on && st.b>0){ const d=Math.hypot(partner.x-player.x,partner.z-player.z); if(d<6) blowSound(st.b); }
 }
 
 /* =====================================================================
@@ -11828,6 +11980,7 @@ function onNetUp(){
   if(Voice.stream){ callPartner(); netSend('voice',{on:Voice.state==='on'}); }
   if(Net.role==='host'){ netSend('items',{ list:[...WORLD.values()].map(pack), tix:TIXCABS().flatMap(c=>(c.tix||[]).map(t=>({cab:c.def.id, id:t.id, n:t.n, owner:t.owner==='me'?'host':t.owner, name:t.name}))) }); }
   if(HELD.kind) netSend('hold',{ k:HELD.kind, st:HELD.stage });
+  if(GUM.on) netSend('gum',{ on:1, c:GUM.c, b:GUM.b });
   for(const q of galSnapshot()){ netSend('gal',{ s:q.s, ev:'open' }); netSend('gal',{ s:q.s, ev:'score', score:q.score, shots:q.shots }); }
   for(const q of alleySnapshot()){ netSend('alley',{ a:q.a, ev:'open' }); netSend('alley',{ a:q.a, ev:'score', score:q.score, balls:q.balls }); }
   if(Net.role==='host') sendBoardSnapshot();
@@ -11853,11 +12006,13 @@ function onNet(m){
     case 'voice': Voice.partnerOn=!!m.on; setPartnerLabel(null,null); break;
     case 'items': if(Net.role==='guest'){ loadRoom(m.list||[]); for(const c of TIXCABS()){ for(const t of (c.tix||[])) c.slot.remove(t.g); c.tix=[]; } for(const t of (m.tix||[])){ const c=TIXCABS().find(c=>c.def.id===t.cab); if(c){ printTickets(c,t.n,t.owner,t.id,t.name); c.tix[c.tix.length-1].grow=1; layoutStrip(c.tix[c.tix.length-1]); } } } break;
     case 'hold': if(partner){ partner.hold = m.k && ITEMS[m.k] ? { k:m.k, st:m.st|0 } : null; attachToHand(partner.av, partner.hold&&partner.hold.k, partner.hold&&partner.hold.st, partner.slot); } break;
-    case 'use': if(partner){ partner.useT=.6; partner.useKind = m.k==='throw' ? 'throw' : (ITEMS[m.k]&&ITEMS[m.k].bites ? 'eat' : 'play');
-      if(m.k!=='throw' && ITEMS[m.k]){ const d=Math.hypot(partner.x-player.x,partner.z-player.z); if(d<9) useSound(m.k); } } break;
+    case 'use': if(partner){ partner.useT=.6; partner.useKind = m.k==='throw' ? 'throw' : (ITEMS[m.k]&&(ITEMS[m.k].bites||ITEMS[m.k].gum) ? 'eat' : 'play');
+      if(m.k!=='throw' && m.k!=='gumball' && ITEMS[m.k]){ const d=Math.hypot(partner.x-player.x,partner.z-player.z); if(d<9) useSound(m.k); } } break;
     case 'item': { const p=m.o; if(!p||!ITEMS[p.kind]) break; const o=WORLD.get(p.id);
       if(!o) addFromNet(p, p.rest); else if(!o.sim){ Object.assign(o,{ tx:p.x, ty:p.y, tz:p.z, vx:p.vx, vy:p.vy, vz:p.vz, rest:!!p.rest, st:p.st }); if(p.rest){ o.x=p.x; o.y=p.y; o.z=p.z; } }
       saveRoom(); break; }
+    case 'gum': gumNet(m); break;
+    case 'gumbuy': if(GUMM.g && !GUMM.busy) gumTurn(m.c|0, false); break;
     case 'imove': { const o=WORLD.get(m.id); if(o && !o.sim){ o.tx=m.x; o.ty=m.y; o.tz=m.z; o.vx=m.vx; o.vy=m.vy; o.vz=m.vz; o.rest=false; } break; }
     case 'itemdel': removeWorld(m.id); break;
     case 'grab': if(WORLD.has(m.id)){ removeWorld(m.id); if(m.caught) toast(`${Net.partner} caught it! 🙌`,1600); } break;
@@ -12327,7 +12482,7 @@ function overlayOpen(){ return ALLEY.open || GAL.open || BOARD.open || introOpen
 function pick(cx,cy){ ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1); ray.setFromCamera(ndc,camera); ray.far=40;
   const h=ray.intersectObjects([...hitList, ...itemHits, lobbyFloor, roomFloor, room2Floor, ...wallHits], false); return h[0]||null; }
 const wallHits=[];
-function infoOf(o){ const u=o.userData; if(u.bench) return {type:'bench', b:u.bench}; if(u.board) return {type:'board'}; if(u.juke) return {type:'juke'}; if(u.item) return {type:'item', id:u.item}; if(u.trash) return {type:'trash'}; if(u.shop) return {type:'shop', shop:u.shop};
+function infoOf(o){ const u=o.userData; if(u.bench) return {type:'bench', b:u.bench}; if(u.board) return {type:'board'}; if(u.juke) return {type:'juke'}; if(u.item) return {type:'item', id:u.item}; if(u.trash) return {type:'trash'}; if(u.gumball) return {type:'gum'}; if(u.shop) return {type:'shop', shop:u.shop};
   if(u.gal) return stripOf(u.gal,true) ? {type:'tix', cab:u.gal} : {type:'gal', st:u.gal};
   if(u.alley) return stripOf(u.alley,true) ? {type:'tix', cab:u.alley} : {type:'alley', a:u.alley};
   if(u.tixcab) return (u.tixcab.tix||[]).length ? {type:'tix', cab:u.tixcab} : (u.tixcab.alley ? {type:'alley', a:u.tixcab} : u.tixcab.gal ? {type:'gal', st:u.tixcab} : {type:'cab', cab:u.tixcab}); if(u.cab) return {type:'cab', cab:u.cab}; return null; }
@@ -12337,6 +12492,7 @@ function interactWith(info, far){
     case 'board': if(far){ travel(0, LOBBY.z1-1.8, Math.PI, -.05); } else openBoard(); return true;
     case 'juke': if(far){ travel(JUKE.x, JUKE.z+1.6, 0, -.1); } else openJuke(); return true;
     case 'bench': sitOn(info.b, far); return true;
+    case 'gum': if(far){ gumWalkTo(); return true; } buyGumball(); return true;
     case 'item': pickUp(info.id); return true;
     case 'trash': if(far){ toast('Walk over to the trash can.'); return true; } if(HELD.kind) trashHeld(); else toast(IS_TOUCH?'Trash can — bring empty wrappers and cups here, or throw things in.':'Trash can — hold something and press Enter here, or throw it in with R.'); return true;
     case 'shop': if(far){ toast(info.shop==='snacks'?'Walk up to the snack bar.':'Walk up to the prize counter.'); return true; } openShop(info.shop); return true;
@@ -12419,7 +12575,8 @@ addEventListener('keydown', e=>{
   if(c==='KeyJ'){ openJuke(); return; }
   if(c==='KeyF'){ useHeld(); return; }
   if(c==='KeyR'){ throwHeld(); return; }
-  if(c==='KeyX'){ dropHeld(); return; }
+  if(c==='KeyX'){ if(!HELD.kind && GUM.on) spitGum(); else dropHeld(); return; }
+  if(c==='KeyB'){ blowGum(); return; }
   if(c==='KeyH'||k==='?'){ openIntro(); return; }
   if(k==='Escape'||k==='Backspace'){ e.preventDefault(); armExit('Press Esc again to leave the arcade.'); }
 });
@@ -12486,7 +12643,7 @@ $('#lBack').onclick=closeLaunch;
 $('#iYes').onclick=()=>answerInvite(true); $('#iNo').onclick=()=>answerInvite(false);
 $('#sndBtn').onclick=()=>setSound(!SND.on);
 $('#helpBtn').onclick=openIntro;
-$('#hUse').onclick=()=>useHeld(); $('#hThrow').onclick=()=>throwHeld(); $('#hDrop').onclick=()=>dropHeld(); $('#catchBtn').onclick=()=>catchIncoming();
+$('#hUse').onclick=()=>useHeld(); $('#hThrow').onclick=()=>throwHeld(); $('#hDrop').onclick=()=>dropHeld(); $('#gBlow').onclick=()=>blowGum(); $('#gSpit').onclick=()=>spitGum(); $('#catchBtn').onclick=()=>catchIncoming();
 $('#shopClose').onclick=closeShop; $('#bdClose').onclick=closeBoard; $('#tixChip').onclick=()=>toast(`🎟️ You have ${WALLET.n} tickets. Win games to earn more, then visit the prize counter or snack bar in the lobby.`,3200);
 $('#meBtn').onclick=()=>{ sfx('blip'); openBuilder(); };
 /* ---------- save slots ---------- */
@@ -12654,7 +12811,7 @@ function frame(){
   placeCamera(dt,t,bob);
   voiceFrame();
   if(me.av) animateAvatar(me.av, dt, { sit:SEAT.on, speed:spd, dance:myDance, beat:musicBeat(t), level:Voice.level, hold:!!HELD.kind, use:HELD.use>0?1-HELD.use/HELD.useDur:0, useKind:HELD.useKind });
-  itemsFrame(dt,t); boardFrame(); alleyFrame(dt,t); galFrame(dt,t); fishIdle(dt,t); poolIdle(dt,t); moleIdle(dt,t);
+  itemsFrame(dt,t); gumFrame(dt,t); boardFrame(); alleyFrame(dt,t); galFrame(dt,t); fishIdle(dt,t); poolIdle(dt,t); moleIdle(dt,t);
   animateJukebox(t);
   // attract screens: refresh the nearest ones every frame, the rest in turn
   const near=CABS.map(c=>[c,Math.hypot(c.x-player.x,c.z-player.z)]).sort((a,b)=>a[1]-b[1]);
@@ -12679,6 +12836,7 @@ function frame(){
       else if(ci.type==='board') txt=`Doodle board — ${how} to draw with glow markers`;
       else if(ci.type==='juke') txt=`Jukebox — ${how} to pick a song`;
       else if(ci.type==='item'){ const o=WORLD.get(ci.id); txt = o ? `${ITEMS[o.kind].name} — ${how} to pick it up` : ''; }
+      else if(ci.type==='gum') txt = GUMM.busy ? 'Gumball machine — here it comes…' : `Gumball machine — ${how} to buy a gumball (🎟 ${GUM_COST} · you have ${WALLET.n})`;
       else if(ci.type==='trash') txt = HELD.kind ? `Trash can — ${how} to throw away the ${ITEMS[HELD.kind].name.toLowerCase()}` : 'Trash can';
       else if(ci.type==='alley') txt = ci.a.who==='partner' ? `Glow Roll — ${esc(Net.partner||'the other player')} is rolling here` : `Glow Roll — ${how} to play (9 balls${ci.a.best?`, high score ${ci.a.best}`:''})`;
       else if(ci.type==='gal') txt = ci.st.who==='partner' ? `Shootin' Gallery — ${esc(Net.partner||'the other player')} is shooting at this rifle` : `Shootin' Gallery — ${how} to play (${GW.SHOTS} shots${GW.best?`, high score ${GW.best}`:''})`;
@@ -12706,7 +12864,7 @@ function frame(){
   $('#bar').style.width='25%';
   try{ await Promise.race([ Promise.all([document.fonts.load(`400 80px Monoton`), document.fonts.load(`900 40px Orbitron`), document.fonts.load(`700 30px "Chakra Petch"`), document.fonts.load(`400 40px Rye`)]), new Promise(r=>setTimeout(r,2500)) ]); }catch(e){}
   $('#bar').style.width='50%';
-  buildRooms(); buildLobby(); buildArcade(); buildAlleys(); alleyPointer(); buildGallery(); galPointer(); buildBoard(); setupBoardInput(); setMyLook(myLook()||randomLook()); initHeld(); skinForView(); loadRoom(JSON.parse(store('room')||'[]'));
+  buildRooms(); buildLobby(); buildArcade(); buildAlleys(); alleyPointer(); buildGallery(); galPointer(); buildBoard(); setupBoardInput(); setMyLook(myLook()||randomLook()); initHeld(); buildGumball(); skinForView(); loadRoom(JSON.parse(store('room')||'[]'));
   $('#bar').style.width='80%';
   for(const cab of CABS) paintScreen(cab,0);
   camera.position.set(player.x,EYE,player.z); camera.rotation.set(player.pitch,player.yaw,0); resize();
@@ -12718,7 +12876,7 @@ function frame(){
   window.__arcadeReady=true;
   requestAnimationFrame(frame);
 })();
-window.__arcade = { SEAT, BENCHES, sitOn, standUp, openLaunch, pick, infoOf, handleTap, GAL, GALST, GT, GW, openGallery, closeGallery, galFire, galAimAt, blocked, ALLEY, ALLEYS, openAlley, closeAlley, rollBall, hitList, camera, BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
+window.__arcade = { makePartner, get partner(){ return partner; }, GUM, GUMM, buyGumball, blowGum, spitGum, chewGum, gumNet, me, viewMode, SEAT, BENCHES, sitOn, standUp, openLaunch, pick, infoOf, handleTap, GAL, GALST, GT, GW, openGallery, closeGallery, galFire, galAimAt, blocked, ALLEY, ALLEYS, openAlley, closeAlley, rollBall, hitList, camera, BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
 addEventListener('pagehide', ()=>{ if(Net.connected) leaveRoom(); });
 </script>
 </body>
