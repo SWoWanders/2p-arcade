@@ -82,7 +82,7 @@ kbd{display:inline-block; min-width:1.6em; padding:1px 6px; margin:1px 2px; bord
 
 /* ---------- panels ---------- */
 .overlay{position:fixed; inset:0; z-index:20; display:grid; place-items:center; padding:max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom)); overflow:auto; background:rgba(3,2,8,.82)}
-.overlay[hidden]{display:none}
+.overlay[hidden]{display:none} #launch .btn[hidden]{display:none!important}
 .slotlist{display:grid; gap:10px; margin:14px 0}
 .slotcard{display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px 14px; border:2px solid #3a3f6e; border-radius:14px; background:#0c0a24; text-align:left}
 .slotcard.on{border-color:var(--cyan); box-shadow:0 0 16px rgba(0,240,255,.35)}
@@ -7610,6 +7610,271 @@ function wkHud3d(g, s, t){
 Object.assign(GAMES.find(g=>g.id==='wake'), { booth:true, ownRender:true, pads:true, frame3d:wkFrame3d, stop(){ wkStop3d(); }, draw(g, s, viewer, ui, t){ wkHud3d(g, s, t); } });
 
 /* =====================================================================
+   VAMPIRE VILLAGE — Stephen's one-player game, ported to an arcade cabinet.
+   Play as Dracula and convert every villager in 20 villages. Get close to a
+   villager to drain them; drained villagers rise as vampires and hunt the
+   rest. Fill the blood meter to turn into a bat for a while: twice as fast,
+   flies over houses and drains anyone near. Garlic hurts, villagers who
+   hide in houses come out with crossbows, and stakes cost blood.
+   The rules and numbers follow the original (which ran at 60 frames a
+   second); here everything is scaled by the frame time.
+   Each village conquered prints 3 tickets; conquering all 20 prints more.
+   ===================================================================== */
+const VV = { W:1000, H:700, PH:636, LEVELS:20, BAT:1200, TIX:3 };
+const vvRnd = () => Math.random();
+function vvEnt(x, y, size, extra){ return Object.assign({ x, y, size, vx:0, vy:0, dead:false }, extra); }
+function vvDist(a, b){ return b ? Math.hypot(a.x-b.x, a.y-b.y) : Infinity; }
+function vvClampE(e){ e.x=clamp(e.x, e.size, VV.W-e.size); e.y=clamp(e.y, e.size, VV.PH-e.size); }
+function vvPush(a, b, force){ const dx=a.x-b.x, dy=a.y-b.y, d=Math.hypot(dx,dy), m=(a.size+b.size)/2;
+  if(d>0 && d<m){ const o=(m-d)/2; a.x+=dx/d*o*force; a.y+=dy/d*o*force; vvClampE(a); } }
+function vvParts(s, x, y, col, n){ for(let i=0;i<n;i++){ const L=30+vvRnd()*20; s.fx.push({ x, y, vx:(vvRnd()-.5)*5, vy:(vvRnd()-.5)*5, life:L, max:L, sz:vvRnd()*4+2, col }); } if(s.fx.length>500) s.fx.splice(0, s.fx.length-500); }
+function vvNote(s, text){ s.notes.push({ t:text, a:0 }); if(s.notes.length>4) s.notes.shift(); }
+function vvSnd(s, k){ s._snd.push(k); }
+// the village is shaped to fit the screen (wide on a desktop or a sideways phone, tall on an upright phone)
+function vvFit(s){
+  const w=Math.max(200,S.w||1000), h=Math.max(200,(S.h||640)-8), asp=w/h, A = PHONE ? 520000 : 640000, bar=64;
+  let W=Math.sqrt(A*asp), PH=W/asp-bar; if(PH<420){ PH=420; W=Math.max(640,(PH+bar)*asp); } if(W<560){ W=560; PH=Math.max(PH,W/asp-bar); }
+  s.W=Math.round(W); s.PH=Math.round(PH); s.H=s.PH+bar; vvSync(s);
+}
+function vvSync(s){ if(!s.W) return; VV.W=s.W; VV.PH=s.PH; VV.H=s.H; const d=GAMES.find(g=>g.id==='vampire'); if(d){ d.W=s.W; d.H=s.H; } }
+function vvLevel(s){
+  vvFit(s);
+  const L=s.level, W=VV.W, H=VV.PH, cx=W/2, cy=H/2, prog=(L-1)/19;
+  const nH=Math.floor(3+prog*7), nV=Math.floor(5+prog*20), nG=Math.min(2+L,15), nT=Math.floor(5+L*.5);
+  s.dr=vvEnt(cx, cy, 32, { blood: s.savedBlood>100 ? 25 : s.savedBlood, bat:false, batT:0, drain:-1, inv:0, auto:false, face:1, step:0 });
+  s.vil=[]; s.vamps=[]; s.houses=[]; s.garlic=[]; s.trees=[]; s.stakes=[]; s.fx=[]; s.converted=0; s.ph='play'; s.pt=0; s.nid=1;
+  for(let i=0;i<nH;i++){ let x,y,ok,a=0; do{ x=100+vvRnd()*(W-200); y=100+vvRnd()*(H-200); ok=Math.hypot(x-cx,y-cy)>=150 && s.houses.every(h=>Math.hypot(x-h.x,y-h.y)>=150); a++; }while(!ok && a<100);
+    if(ok) s.houses.push({ x, y, w:80, h:80, br:vvRnd()*TAU, inside:[] }); }
+  if(!s.houses.length) s.houses.push({ x:W*.2, y:H*.25, w:80, h:80, br:0, inside:[] });
+  for(let i=0;i<nG;i++){ let x,y,ok,a=0; do{ x=50+vvRnd()*(W-100); y=50+vvRnd()*(H-100); ok=s.houses.every(h=>Math.hypot(x-h.x,y-h.y)>=80); a++; }while(!ok && a<100);
+    if(ok) s.garlic.push({ x, y, size:20, by:null, bob:vvRnd()*TAU, cT:0 }); }
+  for(let i=0;i<nT;i++) s.trees.push({ x:40+vvRnd()*(W-80), y:40+vvRnd()*(H-80), sw:vvRnd()*TAU });
+  for(let i=0;i<nV;i++){ let x,y,ok,a=0; do{ x=50+vvRnd()*(W-100); y=50+vvRnd()*(H-100); ok=Math.hypot(x-cx,y-cy)>=150 && s.houses.every(h=>Math.hypot(x-h.x,y-h.y)>=70) && s.vil.every(v=>Math.hypot(x-v.x,y-v.y)>=40); a++; }while(!ok && a<100);
+    if(ok) s.vil.push(vvEnt(x, y, 24, { id:s.nid++, hp:100, st:'wander', stT:0, tx:x, ty:y, garlic:false, ammo:0, house:-1, wT:0, vis:true, stall:0, conv:false, corner:0, look:i%6 })); }
+  s.total=s.vil.length;
+}
+function vvToward(v, tx, ty, m=1){ const dx=tx-v.x, dy=ty-v.y, d=Math.hypot(dx,dy); if(d>1){ v.vx=dx/d*m; v.vy=dy/d*m; } else { v.vx=0; v.vy=0; if(v.st==='wander') v.wT=0; } }
+function vvNearHouse(s, v, space){ let best=-1, bd=Infinity; s.houses.forEach((h,i)=>{ if(space && h.inside.length>=3) return; const d=vvDist(v,h); if(d<bd){ bd=d; best=i; } }); return best; }
+function vvNearVamp(s, v){ let best=null, bd=Infinity; for(const m of s.vamps){ const d=vvDist(v,m); if(d<bd){ bd=d; best=m; } } return best; }
+function vvConvert(s, v){
+  if(v.conv || v.dead) return; v.conv=true; v.dead=true;
+  if(s.dr.drain===v.id) s.dr.drain=-1;
+  if(v.house>=0){ const h=s.houses[v.house]; if(h){ const i=h.inside.indexOf(v.id); if(i>=0) h.inside.splice(i,1); } }
+  s.vamps.push(vvEnt(v.x, v.y, 26, { slow:false, stall:0, look:v.look }));
+  s.converted++; s.score+=100; vvSnd(s,'convert'); vvParts(s,v.x,v.y,'#dc143c',20); vvParts(s,v.x,v.y,'#8a2be2',10); vvNote(s,'+100 Converted!');
+}
+function vvShoot(s, from, to, isDr){ const dx=to.x-from.x, dy=to.y-from.y, d=Math.hypot(dx,dy)||1; s.stakes.push({ x:from.x, y:from.y, vx:dx/d*7, vy:dy/d*7, rot:Math.atan2(dy,dx), dr:!!isDr, tgt:isDr?null:to, dead:false }); vvSnd(s,'twang'); }
+function vvTickDracula(s, f, inp){
+  const D=s.dr; let dx=0, dy=0;
+  if(inp && inp.t){ const tx=inp.tx-D.x, ty=inp.ty-D.y, d=Math.hypot(tx,ty); if(d>5){ dx=tx/d; dy=ty/d; } }
+  else if(inp){ dx=inp.x||0; dy=inp.y||0; const L=Math.hypot(dx,dy); if(L>1){ dx/=L; dy/=L; } }
+  D.vx=dx; D.vy=dy; if(Math.abs(dx)>.1) D.face=dx>0?1:-1; if(dx||dy) D.step+=f*.25;
+  let spd;
+  if(D.bat){ D.batT-=f; spd=6;
+    // bat drain: anyone (not hiding) within 60
+    let near=null, nd=Infinity; for(const v of s.vil){ if(v.st==='hiding') continue; const d=vvDist(D,v); if(d<nd && d<60){ nd=d; near=v; } }
+    if(near){ D.drain=near.id; near.hp-=2*f; if(vvRnd()<.3*f) vvParts(s,D.x+(near.x-D.x)*.5,D.y+(near.y-D.y)*.5,'#dc143c',2); if((s._ds-=f)<=0){ s._ds=12; vvSnd(s,'drain'); } if(near.hp<=0) vvConvert(s,near); } else D.drain=-1;
+    if(D.batT<=0){ D.bat=false; D.auto=false; D.blood=25; D.drain=-1; vvParts(s,D.x,D.y,'#8a2be2',15); vvSnd(s,'bat'); } }
+  else { spd = D.blood>0 ? 3 : 1.5;
+    if(D.blood>=100 && !D.auto){ D.auto=true; D.bat=true; D.batT=VV.BAT; D.blood=100; vvParts(s,D.x,D.y,'#8a2be2',25); vvSnd(s,'bat'); vvNote(s,'BAT MODE! Fly over houses!'); } }
+  D.x+=D.vx*spd*f; D.y+=D.vy*spd*f;
+  if(!D.bat) for(const h of s.houses){ if(D.x+D.size/2>h.x-h.w/2 && D.x-D.size/2<h.x+h.w/2 && D.y+D.size/2>h.y-h.h/2 && D.y-D.size/2<h.y+h.h/2){
+    const ex=D.x-h.x, ey=D.y-h.y; if(Math.abs(ex)>Math.abs(ey)) D.x = ex>0 ? h.x+h.w/2+D.size/2 : h.x-h.w/2-D.size/2; else D.y = ey>0 ? h.y+h.h/2+D.size/2 : h.y-h.h/2-D.size/2; } }
+  if(!D.bat && D.inv<=0) for(const g of s.garlic){ if(!g.by && vvDist(D,g)<D.size){ D.blood=Math.max(0,D.blood-.5); D.inv=30; vvSnd(s,'hit'); vvParts(s,D.x,D.y,'#fff',5); } }
+  if(D.inv>0) D.inv-=f;
+  vvClampE(D);
+}
+function vvTickVillager(s, v, f){
+  const D=s.dr, dD=vvDist(v,D), nv=vvNearVamp(s,v), dV=nv?vvDist(v,nv):Infinity, dB=D.bat?dD:Infinity, W=VV.W, H=VV.PH;
+  if(Math.hypot(v.vx,v.vy)<.1) v.stall+=f; else v.stall=0;
+  const m2=v.size*2, nL=v.x<m2, nR=v.x>W-m2, nT=v.y<m2, nB=v.y>H-m2;
+  if((nL||nR)&&(nT||nB)){ v.corner+=f; if(v.corner>10){ const ex=nL?1:-1, ey=nT?1:-1, L=Math.SQRT2; v.vx=ex/L*3; v.vy=ey/L*3; v.st='wander'; v.wT=60; v.tx=W/2+(vvRnd()-.5)*200; v.ty=H/2+(vvRnd()-.5)*200; } } else v.corner=0;
+  if(v.stall>600){ v.stall=0; v.st='wander'; v.wT=0; const a=vvRnd()*TAU; v.tx=clamp(v.x+Math.cos(a)*200,50,W-50); v.ty=clamp(v.y+Math.sin(a)*200,50,H-50); }
+  switch(v.st){
+    case 'wander':
+      if(dD<150||dV<150||dB<150) v.st='flee';
+      else if(vvRnd()<.005*f){ const hi=vvNearHouse(s,v,true); if(hi>=0 && vvDist(v,s.houses[hi])<300){ v.st='hide'; v.house=hi; s.houses[hi].inside.push(v.id); } }
+      v.wT-=f; if(v.wT<=0){ v.tx=vvRnd()*(W-100)+50; v.ty=vvRnd()*(H-100)+50; v.wT=60+vvRnd()*60; }
+      vvToward(v,v.tx,v.ty); break;
+    case 'flee': { let th=null, cd=Infinity;
+      if(dD<cd && !D.bat){ cd=dD; th=D; } if(dB<cd){ cd=dB; th=D; } if(nv && dV<cd){ cd=dV; th=nv; }
+      if(th) vvToward(v, v.x+(v.x-th.x)*3, v.y+(v.y-th.y)*3, 1.5); else { v.st='wander'; v.wT=0; }
+      if(dD>200 && dV>200 && dB>200) v.st='wander'; break; }
+    case 'hide': { const h=s.houses[v.house]; if(h){ vvToward(v,h.x,h.y,2); if(vvDist(v,h)<60){ v.st='hiding'; v.stT=300; v.vis=false; v.x=h.x; v.y=h.y; v.stall=0; } } else v.st='wander'; break; }
+    case 'hiding': v.stT-=f; if(v.stT<=0){ v.st='armed'; v.ammo=3; v.vis=true; const h=s.houses[v.house];
+      if(h){ const i=h.inside.indexOf(v.id); if(i>=0) h.inside.splice(i,1); const a=vvRnd()*TAU; v.x=h.x+Math.cos(a)*80; v.y=h.y+Math.sin(a)*80; v.house=-1; vvClampE(v); } } break;
+    case 'armed':
+      if(v.ammo>0){ if(dD<250 && vvRnd()<.03*f){ vvShoot(s,v,D,true); v.ammo--; } else if(nv && dV<250 && vvRnd()<.03*f){ vvShoot(s,v,nv,false); v.ammo--; } }
+      else v.st='wander';
+      if(dD<100||dB<100) v.st='flee'; break;
+  }
+  // garlic: villagers pick it up and carry it for 10 s
+  if(!v.garlic && v.st!=='armed' && v.st!=='hiding') for(const g of s.garlic){ if(!g.by && vvDist(v,g)<40){ v.garlic=true; g.by=v.id; g.cT=600; break; } }
+  if(v.garlic && (dD<50||dB<50)) D.blood=Math.max(0,D.blood-.2*f);
+  // Dracula drains whoever he's next to (one at a time)
+  if(dD<60 && !D.bat && v.st!=='hiding'){ if(D.drain<0 || D.drain===v.id){ D.drain=v.id; v.hp-=2*f; D.blood=Math.min(100,D.blood+.5*f); s.score+=f; if((s._ds-=f)<=0){ s._ds=12; vvSnd(s,'drain'); } if(v.hp<=0) vvConvert(s,v); } }
+  else if(D.drain===v.id && !D.bat) D.drain=-1;
+  if(v.vis){ v.x+=v.vx*1.5*f; v.y+=v.vy*1.5*f; const sm=v.size*3;
+    if(v.x<sm) v.vx+=.5*f; else if(v.x>W-sm) v.vx-=.5*f; if(v.y<sm) v.vy+=.5*f; else if(v.y>H-sm) v.vy-=.5*f; vvClampE(v); }
+}
+function vvTickVampire(s, m, f){
+  m.slow=s.garlic.some(g=>vvDist(m,g)<40); const sp=m.slow?.8:2;
+  let near=null, nd=Infinity; for(const v of s.vil){ if(v.st==='hiding') continue; const d=vvDist(m,v); if(d<nd){ nd=d; near=v; } }
+  const cur=Math.hypot(m.vx,m.vy); if(cur<.1) m.stall+=f; else m.stall=0;
+  if(m.stall>600){ m.stall=0; const a=vvRnd()*TAU; m.vx=Math.cos(a)*sp; m.vy=Math.sin(a)*sp; }
+  if(near && nd<400){ const dx=near.x-m.x, dy=near.y-m.y, d=Math.hypot(dx,dy); if(d>0){ m.vx=dx/d*sp; m.vy=dy/d*sp; }
+    if(d<40){ near.hp-=3*f; if(near.hp<=0 && !near.conv){ vvConvert(s,near); s.score+=50; } } }
+  else if(vvRnd()<.02*f || cur<.1){ const a=vvRnd()*TAU; m.vx=Math.cos(a)*sp*.5; m.vy=Math.sin(a)*sp*.5; }
+  m.x+=m.vx*f; m.y+=m.vy*f; const sm=m.size*3, W=VV.W, H=VV.PH;
+  if(m.x<sm) m.vx+=.5*f; else if(m.x>W-sm) m.vx-=.5*f; if(m.y<sm) m.vy+=.5*f; else if(m.y>H-sm) m.vy-=.5*f; vvClampE(m);
+}
+function vvTick(s, dt, inp){
+  const f=Math.min(dt,.05)*60; s.t+=dt;
+  for(const n of s.notes) n.a+=dt; s.notes=s.notes.filter(n=>n.a<2);
+  for(const p of s.fx){ p.x+=p.vx*f; p.y+=p.vy*f; p.life-=f; p.sz*=Math.pow(.95,f); } s.fx=s.fx.filter(p=>p.life>0);
+  if(s.ph==='clear'){ s.pt+=dt; const go = inp && (inp.an>(s._an||0) || (inp.t && s.pt>.8)); if(inp) s._an=inp.an;
+    if(s.pt>3.2 || (go && s.pt>.6)){ if(s.level>=VV.LEVELS){ s.ph='won'; s.pt=0; vvSnd(s,'win'); } else { s.savedBlood = s.dr.bat ? 101 : s.dr.blood; s.level++; vvLevel(s); vvSnd(s,'start'); } }
+    return; }
+  if(s.ph==='won'){ s.pt+=dt; if(s.pt>1.5){ s.over=true; s.winner=0; } return; }
+  if(inp) s._an=inp.an;
+  s.pt+=dt;
+  vvTickDracula(s, f, inp);
+  for(const v of s.vil) if(!v.dead) vvTickVillager(s, v, f);
+  for(const m of s.vamps) if(!m.dead) vvTickVampire(s, m, f);
+  for(const h of s.houses) h.br+=.02*f;
+  for(const g of s.garlic){ g.bob+=.05*f; if(g.by){ const v=s.vil.find(q=>q.id===g.by); g.cT-=f; if(!v || v.dead || g.cT<=0){ if(v) v.garlic=false; g.by=null; } else { g.x=v.x; g.y=v.y; } } }
+  for(const tr of s.trees) tr.sw+=.02*f;
+  for(const k of s.stakes){ k.x+=k.vx*f; k.y+=k.vy*f; if(k.x<0||k.x>VV.W||k.y<0||k.y>VV.PH){ k.dead=true; continue; }
+    const tg = k.dr ? s.dr : k.tgt; if(!tg || tg.dead) continue;
+    if(Math.hypot(k.x-tg.x,k.y-tg.y)<tg.size){ k.dead=true; if(k.dr){ s.dr.blood=Math.max(0,s.dr.blood-10); vvSnd(s,'hit'); vvParts(s,s.dr.x,s.dr.y,'#ffec8b',8); } else { tg.dead=true; vvSnd(s,'hit'); vvParts(s,tg.x,tg.y,'#ffec8b',10); } } }
+  // pushing apart
+  const VIS=s.vil.filter(v=>v.vis && !v.dead);
+  for(let i=0;i<VIS.length;i++) for(let j=i+1;j<VIS.length;j++){ vvPush(VIS[i],VIS[j],1.5); vvPush(VIS[j],VIS[i],1.5); }
+  for(let i=0;i<s.vamps.length;i++) for(let j=i+1;j<s.vamps.length;j++){ vvPush(s.vamps[i],s.vamps[j],1.5); vvPush(s.vamps[j],s.vamps[i],1.5); }
+  for(const v of VIS) for(const m of s.vamps){ vvPush(v,m,1.5); vvPush(m,v,1.5); }
+  for(const v of VIS){ vvPush(s.dr,v,1.2); vvPush(v,s.dr,1.2); } for(const m of s.vamps){ vvPush(s.dr,m,1.2); vvPush(m,s.dr,1.2); }
+  s.vil=s.vil.filter(v=>!v.dead); s.vamps=s.vamps.filter(m=>!m.dead); s.stakes=s.stakes.filter(k=>!k.dead);
+  if(!s.vil.length){ s.ph='clear'; s.pt=0; s.cleared++; vvSnd(s,'win'); if(S.mode==='solo') vvTickets(s); }
+}
+function vvTickets(s){ const cab=CABS.find(c=>c.def.id==='vampire'); if(cab) printTickets(cab, VV.TIX, 'me', null, nameOf(0)); s.tix+=VV.TIX; }
+/* ---------------- drawing ---------------- */
+const VV_LOOKS=['👤','🧑','👩','👨','🧓','👧'];
+function vvEmoji(c, e, x, y, size){ c.font=`${size}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`; c.textAlign='center'; c.textBaseline='middle'; c.fillStyle='#000'; c.fillText(e, x, y); }
+function vvGround(c, s, t){
+  const W=VV.W, H=VV.PH, g=c.createRadialGradient(W/2,H/2,0,W/2,H/2,W); g.addColorStop(0,'#1d1d36'); g.addColorStop(1,'#0c0c1e'); c.fillStyle=g; c.fillRect(0,0,W,H);
+  c.fillStyle='rgba(34,139,34,.08)'; for(let i=0;i<W;i+=40) for(let j=0;j<H;j+=40) if(((i/40|0)+(j/40|0))%2===0) c.fillRect(i,j,40,40);
+  // moonlight from the top right + drifting fog
+  const m=c.createRadialGradient(W*.88,-40,10,W*.88,-40,520); m.addColorStop(0,'rgba(200,210,255,.16)'); m.addColorStop(1,'rgba(200,210,255,0)'); c.fillStyle=m; c.fillRect(0,0,W,H);
+  c.save(); c.globalAlpha=.07; c.fillStyle='#c8c8ff'; for(let k=0;k<5;k++){ const x=((t*12+k*260)%(W+400))-200, y=H*(.15+k*.18); c.beginPath(); c.ellipse(x,y,220,30,0,0,TAU); c.fill(); } c.restore();
+}
+function vvHouse(c, h){
+  const b=Math.sin(h.br)*2; c.save(); c.translate(h.x,h.y);
+  c.fillStyle='#4a4a6a'; c.fillRect(-h.w/2-b,-h.h/2-b,h.w+b*2,h.h+b*2);
+  c.fillStyle='#2a2a4a'; c.beginPath(); c.moveTo(-h.w/2-10,-h.h/2); c.lineTo(0,-h.h/2-30); c.lineTo(h.w/2+10,-h.h/2); c.fill();
+  c.fillStyle='#1a1a2e'; c.fillRect(-15,10,30,30);
+  if(h.inside.length){ c.fillStyle='#ffcc00'; c.shadowColor='#ffcc00'; c.shadowBlur=10; } else c.fillStyle='#333';
+  c.fillRect(-25,-20,20,20); c.fillRect(5,-20,20,20); c.restore();
+}
+function vvStake(c, k){ c.save(); c.translate(k.x,k.y); c.rotate(k.rot); c.shadowColor='#ffd700'; c.shadowBlur=10; c.fillStyle='#ffec8b';
+  c.beginPath(); c.moveTo(-8,-3); c.lineTo(8,0); c.lineTo(-8,3); c.closePath(); c.fill(); c.fillStyle='#fffacd'; c.beginPath(); c.moveTo(8,0); c.lineTo(-2,-2); c.lineTo(-2,2); c.closePath(); c.fill(); c.restore(); }
+function vvMeter(c, s){
+  const D=s.dr, y=VV.PH+10, x=20, w=VV.W-40, h=34;
+  c.fillStyle='rgba(0,0,0,.9)'; c.fillRect(0,VV.PH,VV.W,VV.H-VV.PH); c.fillStyle='#8a2be2'; c.fillRect(0,VV.PH,VV.W,2);
+  c.save(); c.beginPath(); rrect(c,x,y,w,h,17); c.fillStyle='#333'; c.fill(); c.clip();
+  const g=c.createLinearGradient(x,0,x+w,0); g.addColorStop(0,'#8b0000'); g.addColorStop(.5,'#dc143c'); g.addColorStop(1,'#ff4444'); c.fillStyle=g; c.fillRect(x,y,w*clamp(D.blood/100,0,1),h);
+  if(D.bat){ const g2=c.createLinearGradient(x,0,x+w,0); g2.addColorStop(0,'#4b0082'); g2.addColorStop(.5,'#8a2be2'); g2.addColorStop(1,'#da70d6'); c.globalAlpha=.8; c.fillStyle=g2; c.fillRect(x,y,w*clamp(D.batT/VV.BAT,0,1),h); c.globalAlpha=1; }
+  c.restore(); c.strokeStyle='#666'; c.lineWidth=2; c.beginPath(); rrect(c,x,y,w,h,17); c.stroke();
+  c.font='bold 20px "Courier New",monospace'; c.textAlign='center'; c.textBaseline='middle'; c.fillStyle='#fff'; c.shadowColor='#000'; c.shadowBlur=4;
+  c.fillText(D.bat ? `🦇 BAT MODE · ${Math.ceil(D.batT/60)} s` : `Blood: ${Math.floor(D.blood)}%`, VV.W/2, y+h/2+1); c.shadowBlur=0;
+}
+function vvDraw(c, s, t){
+  c.save(); c.beginPath(); c.rect(0,0,VV.W,VV.H); c.clip();
+  vvGround(c, s, t);
+  for(const tr of s.trees) vvEmoji(c,'🌲',tr.x+Math.sin(tr.sw)*3,tr.y,36);
+  for(const h of s.houses) vvHouse(c,h);
+  for(const g of s.garlic){ if(g.by) continue; c.save(); c.shadowColor='#fff'; c.shadowBlur=15; vvEmoji(c,'🧄',g.x,g.y+Math.sin(g.bob)*3,26); c.restore(); }
+  for(const m of s.vamps){ vvEmoji(c,'🧛‍♂️',m.x,m.y,26); if(m.slow) vvEmoji(c,'🐌',m.x+10,m.y-10,12); }
+  const D=s.dr, dv=D.drain>=0 ? s.vil.find(v=>v.id===D.drain) : null;
+  if(dv){ c.save(); c.strokeStyle='#dc143c'; c.lineWidth=3; c.shadowColor='#dc143c'; c.shadowBlur=8; c.beginPath(); c.moveTo(D.x,D.y); c.lineTo(dv.x,dv.y); c.stroke(); c.restore(); }
+  for(const v of s.vil){ if(!v.vis) continue; vvEmoji(c,VV_LOOKS[v.look%VV_LOOKS.length],v.x,v.y,24);
+    if(v.garlic) vvEmoji(c,'🧄',v.x+10,v.y-8,16); if(v.st==='armed') vvEmoji(c,'🏹',v.x-10,v.y-8,16);
+    if(v.hp<100){ const bw=24, k=clamp(v.hp/100,0,1); c.fillStyle='#333'; c.fillRect(v.x-bw/2,v.y-v.size/2-8,bw,3); c.fillStyle=k>.5?'#0f0':k>.25?'#ff0':'#f00'; c.fillRect(v.x-bw/2,v.y-v.size/2-8,bw*k,3); } }
+  for(const k of s.stakes) vvStake(c,k);
+  if(!(D.inv>0 && Math.floor(t*20)%2)){
+    if(D.bat){ c.fillStyle='rgba(138,43,226,.2)'; c.beginPath(); c.arc(D.x,D.y,25,0,TAU); c.fill(); }
+    vvEmoji(c, D.bat?'🦇':'🧛', D.x, D.y+(D.vx||D.vy?Math.sin(D.step)*1.5:0), 32); }
+  for(const p of s.fx){ c.globalAlpha=clamp(p.life/p.max,0,1); c.fillStyle=p.col; c.beginPath(); c.arc(p.x,p.y,Math.max(.1,p.sz),0,TAU); c.fill(); } c.globalAlpha=1;
+  // notifications float up from the top
+  s.notes.forEach((n,i)=>{ const k=n.a/2; c.save(); c.globalAlpha=1-k; c.font='bold 22px "Courier New",monospace'; const w=c.measureText(n.t).width+40, y=60+i*44-k*50;
+    c.fillStyle='rgba(220,20,60,.9)'; c.beginPath(); rrect(c,VV.W/2-w/2,y-20,w,40,20); c.fill(); c.fillStyle='#fff'; c.textAlign='center'; c.textBaseline='middle'; c.fillText(n.t,VV.W/2,y+1); c.restore(); });
+  vvMeter(c, s);
+  // village conquered / victory panels
+  if(s.ph==='clear' || s.ph==='won'){ const won=s.ph==='won';
+    c.fillStyle='rgba(0,0,0,.55)'; c.fillRect(0,0,VV.W,VV.PH);
+    const pw=520, ph=230, px=VV.W/2-pw/2, py=VV.PH/2-ph/2; c.fillStyle='rgba(0,0,0,.95)'; c.beginPath(); rrect(c,px,py,pw,ph,20); c.fill(); c.strokeStyle='#ffd700'; c.lineWidth=3; c.stroke();
+    c.textAlign='center'; c.textBaseline='middle'; c.fillStyle='#fff'; c.font='bold 38px "Courier New",monospace'; c.shadowColor='#8a2be2'; c.shadowBlur=16;
+    c.fillText(won?'👑 Victory!':'🎉 Village Conquered!', VV.W/2, py+60); c.shadowBlur=0;
+    c.font='bold 24px "Courier New",monospace'; c.fillStyle='#da70d6'; c.fillText(`Score: ${Math.floor(s.score)}`, VV.W/2, py+112);
+    c.font='bold 20px "Courier New",monospace'; c.fillStyle='#ffd27a'; c.fillText(won?'You reign over all 20 villages!':`🎟️ +${VV.TIX} tickets · village ${s.level+1} next`, VV.W/2, py+152);
+    if(!won && Math.floor(t*2)%2===0){ c.fillStyle='#aaa'; c.font='18px "Courier New",monospace'; c.fillText('Tap, click or press A to continue', VV.W/2, py+192); } }
+  c.restore();
+}
+// a little looping village for the cabinet screen
+function vvAttract(c, w, h, t){
+  const g=c.createLinearGradient(0,0,0,h); g.addColorStop(0,'#0a0820'); g.addColorStop(1,'#1d1030'); c.fillStyle=g; c.fillRect(0,0,w,h);
+  c.fillStyle='#f4ecd0'; c.shadowColor='#fff4c0'; c.shadowBlur=30; c.beginPath(); c.arc(w*.8,h*.2,h*.11,0,TAU); c.fill(); c.shadowBlur=0;
+  c.fillStyle='#0a0814'; c.beginPath(); c.moveTo(0,h*.62); for(let x=0;x<=w;x+=8) c.lineTo(x,h*.6-Math.sin(x*.012)*h*.06-(x>w*.62&&x<w*.78?h*.14:0)); c.lineTo(w,h); c.lineTo(0,h); c.fill();
+  // castle on the hill
+  c.fillStyle='#120c22'; const cx=w*.7, cy=h*.47; c.fillRect(cx-30,cy-10,60,40); for(const [x,ht] of [[-30,46],[22,58]]){ c.fillRect(cx+x,cy-ht+30,10,ht); c.beginPath(); c.moveTo(cx+x-3,cy-ht+30); c.lineTo(cx+x+5,cy-ht+14); c.lineTo(cx+x+13,cy-ht+30); c.fill(); }
+  c.fillStyle='#ffcc44'; c.fillRect(cx+24,cy-18,3,5); c.fillRect(cx-4,cy,4,6);
+  // village houses
+  for(let i=0;i<4;i++){ const x=w*(.12+i*.17), y=h*.72; c.fillStyle='#4a4a6a'; c.fillRect(x-24,y-20,48,40); c.fillStyle='#2a2a4a'; c.beginPath(); c.moveTo(x-30,y-20); c.lineTo(x,y-40); c.lineTo(x+30,y-20); c.fill();
+    c.fillStyle=(Math.floor(t*.7+i)%3)?'#ffcc00':'#333'; c.fillRect(x-16,y-10,10,10); c.fillRect(x+6,y-10,10,10); }
+  // Dracula chasing a villager along the road; a bat circling
+  const run=((t*.18)%1.3)-.15, vx=w*run, dx=vx-w*.16;
+  vvEmoji(c,'👤',vx,h*.86,h*.08); vvEmoji(c,'🧛',dx,h*.86+Math.sin(t*10)*2,h*.1);
+  vvEmoji(c,'🦇',w*.5+Math.cos(t*1.3)*w*.3,h*.25+Math.sin(t*2.6)*h*.08,h*.08);
+  glowText(c,'VAMPIRE VILLAGE', w/2, h*.13, Math.round(h*.1), '#ff3a4a', { font:HEAD, weight:900, glow:1 });
+}
+game({
+  id:'vampire', name:'Vampire Village', color:'#dc143c', color2:'#8a2be2', kind:'field', touch:'drag', noRotate:true, fitScreen:true, solo:true, onlySolo:true, netDt:1/20, netRound:1,
+  W:VV.W, H:VV.H,
+  blurb:"Play as Dracula and convert every villager to reign over the night! 20 villages await your conquest. Each village you conquer prints 3 tickets.",
+  soloText:'🧛 Start the conquest<small>One player · 20 villages · 3 tickets per village</small>',
+  how:{ touch:'<b>Touch and drag</b> — Dracula follows your finger. Get close to villagers to drain them.',
+    keys:'<b>WASD</b> or <b>arrow keys</b> to move, or <b>hold the mouse button</b> and Dracula follows the pointer. Fill the blood meter to become a bat and fly over houses. Avoid garlic 🧄 and stakes 🏹!',
+    keys2:'', pad:'<b>Left stick</b> or <b>D-pad</b> to move · <b>Ⓐ</b> to go on to the next village.' },
+  init(o){ const s={ level:1, score:0, savedBlood:25, cleared:0, tix:0, t:0, notes:[], over:false, winner:-1, _snd:[], _ds:0, _an:0 }; vvLevel(s); vvSnd(s,'start'); return s; },
+  cont(vc, p, st, V){
+    const d = (vc.x||vc.y) ? V.dirL(vc.x, vc.y) : { x:0, y:0 };
+    const finger=[...touches.values()].some(t=>t.kind==='drag');
+    const o={ x:+d.x.toFixed(2), y:+d.y.toFixed(2), t:false, tx:0, ty:0, an:0 };
+    if(vc.ptr && (vc.hold || finger)){ o.t=true; o.tx=Math.round(vc.ptr.x); o.ty=Math.round(vc.ptr.y); }
+    // "continue" presses: keyboard A keys, the controller's A (edge), or a quick mouse click
+    const m=S.mem[p]; if(vc.padA && !m.pa) m.pn=(m.pn||0)+1; m.pa=vc.padA; if(vc.click) m.cl=(m.cl||0)+1;
+    o.an = vc.aN + (m.pn||0) + (m.cl||0);
+    return o;
+  },
+  tick(s, dt, inp){ vvSync(s); if(s.over) return; vvTick(s, dt, inp[0]||{}); const q=s._snd; s._snd=[]; for(const k of q) vvSound(k); },
+  cpu(){ return {}; },
+  status(s){ return { l:`⭐ ${Math.floor(s.score)}`, r:'', c:`🏰 Village ${s.level}/${VV.LEVELS} · 🧛 ${s.converted}/${s.total}` }; },
+  endHead(s){ const best=+(store('vv-best')||0), sc=Math.floor(s.score); let nb=false; if(sc>best){ store('vv-best',String(sc)); nb=true; }
+    return { kick:'all 20 villages', big:'👑 Victory!', col:'#ff3a4a', again:'Conquer again', sub:`Final score ${sc}${nb?' · 🏆 New best!':best?` · Best ${best}`:''}` }; },
+  stop(){ const s=S.state; if(s && S.def && S.def.id==='vampire'){ const sc=Math.floor(s.score||0), best=+(store('vv-best')||0); if(sc>best) store('vv-best',String(sc)); } },
+  draw(g, s, viewer, ui, t){ vvSync(s); vvDraw(g.ctx, s, t); },
+  attract(c, w, h, t){ vvAttract(c, w, h, t); },
+});
+function vvSound(k){
+  if(k==='drain'){ tone(200,.2,'sine',.12,.9); }
+  else if(k==='convert'){ tone(100,.3,'sine',.25,.5); tone(300,.25,'triangle',.06,.5,.05); }
+  else if(k==='bat'){ tone(100,.5,'sine',.14,8); }
+  else if(k==='hit'){ tone(400,.1,'sawtooth',.12,.25); }
+  else if(k==='twang'){ tone(700,.06,'triangle',.05,.5); }
+  else if(k==='win'){ [262,330,392,523].forEach((f,i)=>tone(f,.14,'sine',.14,1,i*.1)); }
+  else if(k==='start'){ [146.8,174.6,220,293.7].forEach((f,i)=>tone(f,.4,'sine',.07,1,i*.18)); }
+}
+
+/* =====================================================================
    3D WORLD — lobby + arcade room (same walking interface as the gallery)
    ===================================================================== */
 const canvas = $('#c');
@@ -8035,6 +8300,7 @@ function buildRoom2(){
   buildPoolTable();
   buildMoleBooth();
   buildWakeCabs();
+  buildVampireCab();
   // benches facing the alleys
   for(const x of [cx-2.4,cx+2.4]) bench(x, -9.6);
 }
@@ -11882,6 +12148,97 @@ function buildWakeCabs(){
 }
 
 /* =====================================================================
+   VAMPIRE VILLAGE cabinet — an upright on Arcade 2's east wall, next to
+   Pop Pals. Blood-red and black body with painted side art (full moon,
+   a castle on the hill, a caped vampire and a swirl of bats), a dripping
+   marquee, a bat-wing bezel round the screen, a kick-panel decal and
+   bats perched on top. All original art, painted in code.
+   ===================================================================== */
+function vcTex(w, h, fn){ const cv=document.createElement('canvas'); cv.width=w; cv.height=h; fn(cv.getContext('2d'), w, h); return canvasTex(cv); }
+function vcBat(c, x, y, s, rot=0){ // a bat silhouette, wings spread
+  c.save(); c.translate(x,y); c.rotate(rot); c.scale(s,s); c.beginPath();
+  c.moveTo(0,-6); c.quadraticCurveTo(4,-10,6,-4); c.quadraticCurveTo(16,-14,30,-10); c.quadraticCurveTo(24,-4,26,4); c.quadraticCurveTo(20,0,16,6); c.quadraticCurveTo(12,2,8,8); c.quadraticCurveTo(4,4,0,10);
+  c.quadraticCurveTo(-4,4,-8,8); c.quadraticCurveTo(-12,2,-16,6); c.quadraticCurveTo(-20,0,-26,4); c.quadraticCurveTo(-24,-4,-30,-10); c.quadraticCurveTo(-16,-14,-6,-4); c.quadraticCurveTo(-4,-10,0,-6); c.fill(); c.restore();
+}
+function vcDrip(c, text, x, y, size, col){ // blood-drip lettering
+  c.save(); c.font=`900 ${size}px ${HEAD}`; c.textAlign='center'; c.textBaseline='middle';
+  const w=c.measureText(text).width, r=prng(text.length*31);
+  c.lineJoin='round'; c.lineWidth=size*.16; c.strokeStyle='#14020a'; c.strokeText(text,x,y);
+  const g=c.createLinearGradient(0,y-size/2,0,y+size/2); g.addColorStop(0,'#ff5a5a'); g.addColorStop(.55,col); g.addColorStop(1,'#6a0010'); c.fillStyle=g; c.shadowColor=col; c.shadowBlur=size*.35; c.fillText(text,x,y); c.shadowBlur=0;
+  for(let k=0;k<Math.round(w/(size*.55));k++){ const dx=x-w/2+r()*w, L=size*(.2+r()*.55), dw=size*(.05+r()*.05); c.fillStyle=col; c.beginPath(); c.moveTo(dx-dw,y+size*.3); c.lineTo(dx+dw,y+size*.3); c.lineTo(dx+dw*.6,y+size*.3+L); c.arc(dx,y+size*.3+L,dw*.9,0,Math.PI); c.closePath(); c.fill(); }
+  c.restore();
+}
+function vcSideArt(c, w, h){
+  const g=c.createLinearGradient(0,0,0,h); g.addColorStop(0,'#05020c'); g.addColorStop(.45,'#2a0616'); g.addColorStop(1,'#5a0a1c'); c.fillStyle=g; c.fillRect(0,0,w,h);
+  for(let k=0;k<70;k++){ const r=prng(k+9); c.fillStyle=`rgba(255,255,255,${.3+r()*.6})`; c.fillRect(r()*w,r()*h*.45,2,2); }
+  // full moon
+  c.save(); c.shadowColor='#fff2c8'; c.shadowBlur=60; c.fillStyle='#f6ecd2'; c.beginPath(); c.arc(w*.62,h*.2,w*.26,0,TAU); c.fill(); c.restore();
+  c.fillStyle='rgba(180,160,130,.35)'; for(const [a,b,r] of [[.55,.16,.05],[.7,.24,.035],[.6,.27,.025]]){ c.beginPath(); c.arc(w*a,h*b,w*r,0,TAU); c.fill(); }
+  // castle on a crag against the moon
+  c.fillStyle='#08030c'; c.beginPath(); c.moveTo(0,h*.5); c.lineTo(w*.18,h*.38); c.lineTo(w*.36,h*.42); c.lineTo(w*.6,h*.33); c.lineTo(w,h*.44); c.lineTo(w,h*.62); c.lineTo(0,h*.62); c.fill();
+  const tw=(x,y,tw2,th)=>{ c.fillRect(x-tw2/2,y-th,tw2,th); c.beginPath(); c.moveTo(x-tw2/2-6,y-th); c.lineTo(x,y-th-tw2*1.4); c.lineTo(x+tw2/2+6,y-th); c.fill(); };
+  tw(w*.45,h*.36,34,90); tw(w*.62,h*.33,44,150); tw(w*.78,h*.37,30,70); c.fillRect(w*.42,h*.33,w*.38,h*.06);
+  c.fillStyle='#ffcc44'; for(const [x,y] of [[.62,.21],[.61,.27],[.45,.31],[.78,.33]]) c.fillRect(w*x-4,h*y,7,11);
+  // the caped vampire rising out of the mist
+  c.save(); c.translate(w*.5,h*.8); c.fillStyle='#0a0208';
+  c.beginPath(); c.moveTo(0,-h*.28); c.quadraticCurveTo(w*.08,-h*.26,w*.1,-h*.2); c.lineTo(w*.48,-h*.27); c.quadraticCurveTo(w*.42,-h*.12,w*.46,h*.05); c.quadraticCurveTo(w*.3,0,w*.22,h*.06);
+  c.quadraticCurveTo(w*.12,0,0,h*.08); c.quadraticCurveTo(-w*.12,0,-w*.22,h*.06); c.quadraticCurveTo(-w*.3,0,-w*.46,h*.05); c.quadraticCurveTo(-w*.42,-h*.12,-w*.48,-h*.27); c.lineTo(-w*.1,-h*.2); c.quadraticCurveTo(-w*.08,-h*.26,0,-h*.28); c.fill();
+  // collar + inner cape (red lining)
+  c.fillStyle='#8a0a1e'; c.beginPath(); c.moveTo(-w*.42,-h*.24); c.quadraticCurveTo(-w*.36,-h*.12,-w*.4,h*.02); c.quadraticCurveTo(-w*.26,-h*.04,-w*.12,-h*.17); c.closePath(); c.fill();
+  c.beginPath(); c.moveTo(w*.42,-h*.24); c.quadraticCurveTo(w*.36,-h*.12,w*.4,h*.02); c.quadraticCurveTo(w*.26,-h*.04,w*.12,-h*.17); c.closePath(); c.fill();
+  c.fillStyle='#0a0208'; c.beginPath(); c.moveTo(-w*.13,-h*.2); c.lineTo(-w*.17,-h*.3); c.lineTo(-w*.05,-h*.24); c.fill(); c.beginPath(); c.moveTo(w*.13,-h*.2); c.lineTo(w*.17,-h*.3); c.lineTo(w*.05,-h*.24); c.fill();
+  // head, slick hair with a widow's peak, glowing eyes and fangs
+  c.fillStyle='#d8d4e8'; c.beginPath(); c.ellipse(0,-h*.32,w*.075,h*.045,0,0,TAU); c.fill();
+  c.fillStyle='#0a0208'; c.beginPath(); c.moveTo(-w*.08,-h*.33); c.quadraticCurveTo(-w*.08,-h*.375,0,-h*.372); c.quadraticCurveTo(w*.08,-h*.375,w*.08,-h*.33); c.lineTo(w*.05,-h*.35); c.lineTo(0,-h*.335); c.lineTo(-w*.05,-h*.35); c.closePath(); c.fill();
+  c.fillStyle='#ff2030'; c.shadowColor='#ff2030'; c.shadowBlur=18; for(const sx of [-1,1]){ c.beginPath(); c.ellipse(sx*w*.03,-h*.322,w*.014,h*.005,sx*.25,0,TAU); c.fill(); } c.shadowBlur=0;
+  c.fillStyle='#5a0010'; c.fillRect(-w*.03,-h*.302,w*.06,h*.006); c.fillStyle='#fff'; for(const sx of [-1,1]){ c.beginPath(); c.moveTo(sx*w*.022,-h*.3); c.lineTo(sx*w*.012,-h*.3); c.lineTo(sx*w*.017,-h*.29); c.fill(); }
+  c.restore();
+  // mist + bats
+  c.save(); for(let k=0;k<6;k++){ const r=prng(k+40); c.globalAlpha=.15; c.fillStyle='#d8c8e8'; c.beginPath(); c.ellipse(r()*w,h*(.84+r()*.14),w*(.3+r()*.3),h*.025,0,0,TAU); c.fill(); } c.restore();
+  c.fillStyle='#000'; for(let k=0;k<11;k++){ const r=prng(k+70); vcBat(c, w*(.08+r()*.84), h*(.06+r()*.3), 1+r()*1.6, (r()-.5)*.6); }
+  // title down the bottom
+  vcDrip(c,'VAMPIRE',w/2,h*.9,w*.17,'#dc143c');
+}
+function buildVampireCab(){
+  const def=GAMES.find(g=>g.id==='vampire'); if(!def) return;
+  const cab=uprightCab(def, ROOM2.x1-.45, -12.0, -1), g=cab.group, W=.86, D=.82, H=1.95;
+  // blood-red body and trim
+  g.traverse(o=>{ if(o.isMesh && o.material && o.material.color && o.material.color.getHexString()==='0b0a1c') { o.material=o.material.clone(); o.material.color.set('#1c0610'); } });
+  // side art on both outer panels
+  const side=vcTex(512,1200,vcSideArt);
+  for(const sx of [-1,1]){ const p=new THREE.Mesh(new THREE.PlaneGeometry(D-.02,H-.04), new THREE.MeshStandardMaterial({ map:side, roughness:.55, emissive:'#ffffff', emissiveMap:side, emissiveIntensity:.32 })); p.position.set(sx*(W/2+.024),H/2,0); p.rotation.y=sx*Math.PI/2; g.add(p); }
+  // marquee
+  const mq=g.children.find(o=>o.isMesh && o.geometry.type==='PlaneGeometry' && Math.abs(o.position.y-1.82)<.01);
+  if(mq){ mq.material.map=vcTex(1024,300,(c,w,h)=>{ const gr=c.createLinearGradient(0,0,0,h); gr.addColorStop(0,'#14020a'); gr.addColorStop(1,'#3a0614'); c.fillStyle=gr; c.fillRect(0,0,w,h);
+      c.save(); c.shadowColor='#fff2c8'; c.shadowBlur=40; c.fillStyle='#f0e4c4'; c.beginPath(); c.arc(w*.88,h*.38,h*.26,0,TAU); c.fill(); c.restore();
+      c.fillStyle='#000'; for(let k=0;k<9;k++){ const r=prng(k+3); vcBat(c, w*(.04+r()*.92), h*(.12+r()*.2), .9+r()*.9, (r()-.5)*.5); }
+      vcDrip(c,'VAMPIRE VILLAGE',w*.47,h*.46,104,'#dc143c');
+      c.font=`800 32px ${HEAD}`; c.textAlign='center'; c.fillStyle='#da70d6'; c.shadowColor='#8a2be2'; c.shadowBlur=12; c.fillText("DRACULA'S CONQUEST · 1 PLAYER",w*.47,h*.88);
+      glowStroke(c,'#dc143c',6,()=>c.rect(8,8,w-16,h-16)); }); mq.material.needsUpdate=true; }
+  // bat-wing bezel round the screen
+  const sg=g.children.find(o=>o.isGroup && Math.abs(o.position.y-1.42)<.01);
+  if(sg){ const bz=new THREE.Mesh(new THREE.PlaneGeometry(W-.07,.61), new THREE.MeshBasicMaterial({ transparent:true, map:vcTex(512,370,(c,w,h)=>{ c.fillStyle='#0c0206'; c.fillRect(0,0,w,h);
+        c.strokeStyle='#dc143c'; c.lineWidth=6; c.shadowColor='#dc143c'; c.shadowBlur=14; c.strokeRect(36,30,w-72,h-60); c.shadowBlur=0;
+        c.fillStyle='#5a0a1c'; vcBat(c,w*.5,16,1.4); vcBat(c,w*.5,h-14,1.2,Math.PI); for(const [x,y,r] of [[18,h/2,-Math.PI/2],[w-18,h/2,Math.PI/2]]) vcBat(c,x,y,1.1,r);
+        c.clearRect(40,34,w-80,h-68); }) }));
+    bz.position.z=-.004; sg.add(bz); }
+  // kick-panel decal under the coin door
+  { const kp=new THREE.Mesh(new THREE.PlaneGeometry(W-.08,.34), new THREE.MeshStandardMaterial({ roughness:.6, emissive:'#ffffff', emissiveIntensity:.3, map:vcTex(512,200,(c,w,h)=>{ c.fillStyle='#14020a'; c.fillRect(0,0,w,h);
+        c.fillStyle='#6a0a1e'; for(let x=0;x<w;x+=64){ c.beginPath(); c.moveTo(x,0); c.lineTo(x+32,0); c.lineTo(x+20,26+((x/64)%3)*12); c.arc(x+16,30+((x/64)%3)*12,5,0,Math.PI); c.closePath(); c.fill(); }
+        c.font=`900 38px ${HEAD}`; c.textAlign='center'; c.textBaseline='middle'; c.fillStyle='#ffd27a'; c.shadowColor='#ff8a1a'; c.shadowBlur=10; c.fillText('20 VILLAGES AWAIT',w/2,h*.58);
+        c.font=`700 22px ${BODY}`; c.fillStyle='#da70d6'; c.shadowBlur=0; c.fillText('🧄 beware the garlic 🧄',w/2,h*.84); }) }));
+    kp.material.emissiveMap=kp.material.map; kp.position.set(0,.2,D/2-.048); g.add(kp); }
+  // bats perched along the top, and one hanging off the marquee
+  { const bt=vcTex(256,128,(c,w,h)=>{ c.fillStyle='#120208'; vcBat(c,w/2,h/2,3.6); c.fillStyle='#ff2030'; c.shadowColor='#ff2030'; c.shadowBlur=8; c.fillRect(w/2-9,h/2-6,5,4); c.fillRect(w/2+4,h/2-6,5,4); });
+    const bm=new THREE.MeshBasicMaterial({ map:bt, transparent:true, alphaTest:.3, side:THREE.DoubleSide });
+    for(const [x,y,z,s,r] of [[-.28,2.04,D/2-.2,.24,.15],[.24,2.07,D/2-.24,.3,-.1],[.36,1.66,D/2-.02,.16,Math.PI]]){ const m=new THREE.Mesh(new THREE.PlaneGeometry(s,s/2), bm); m.position.set(x,y,z); m.rotation.z=r; g.add(m); } }
+  // a deep-red glow on the wall behind
+  { const glow=new THREE.Mesh(new THREE.PlaneGeometry(1.5,2.4), new THREE.MeshBasicMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, map:vcTex(128,128,(c,w,h)=>{ const r=c.createRadialGradient(w/2,h/2,4,w/2,h/2,w/2); r.addColorStop(0,'rgba(220,20,60,.5)'); r.addColorStop(1,'rgba(220,20,60,0)'); c.fillStyle=r; c.fillRect(0,0,w,h); }) }));
+    glow.position.set(0,1.3,-D/2-.02); g.add(glow); }
+  return cab;
+}
+
+/* =====================================================================
    ONLINE — PeerJS (WebRTC data channel, free public broker, no key)
    ?net=tab swaps in a BroadcastChannel so two tabs can test it offline.
    ===================================================================== */
@@ -12089,7 +12446,7 @@ function startSession(def, mode, keepSeries){
   } else S.state=null;
   if(mode==='online') netSend('where', { g:def.name });
   if(mode!=='online' && def.hidden && mode==='local') S.lastViewer=-2; // show "who goes first" curtain
-  if(IS_TOUCH && def.noRotate && innerHeight>innerWidth) toast('↻ Turn your phone sideways for a bigger screen.', 3500);
+  if(IS_TOUCH && def.noRotate && !def.fitScreen && innerHeight>innerWidth) toast('↻ Turn your phone sideways for a bigger screen.', 3500);
   else if(IS_TOUCH && def.kind==='field' && !document.fullscreenElement) toast('Tip: ⛶ makes the game full screen.', 2600);
   ambienceDuck(true);
 }
@@ -12120,9 +12477,10 @@ function openLaunch(cab){
   if(def.id==='girder'){ const lab=document.createElement('div'); lab.className='lab'; lab.textContent='Track'; LT.appendChild(lab);
     GR.TRACKS.forEach((T,i)=>{ const b=document.createElement('button'); b.className='chip'+(i===girderTrack?' on':''); const best=(grBest[T.id]||{}).race; b.textContent=T.name+(best?` · best ${GR.fmt(best)}`:''); b.onclick=()=>{ girderTrack=i; store('girdertrack',String(i)); sfx('tick'); [...LT.querySelectorAll('.chip')].forEach((x,j)=>x.classList.toggle('on',j===i)); }; LT.appendChild(b); }); }
   netUI(); $('#mOnline').disabled=false;
-  $('#launch').hidden=false; setTimeout(()=>(noShare?$('#mOnline'):$('#mLocal')).focus({preventScroll:true}),30); keys.clear();
+  $('#mLocal').hidden = noShare || !!def.onlySolo; $('#mOnline').hidden = !!def.onlySolo; $('#mCpu').hidden = !!def.onlySolo;
+  $('#launch').hidden=false; setTimeout(()=>(def.onlySolo?$('#mSolo'):noShare?$('#mOnline'):$('#mLocal')).focus({preventScroll:true}),30); keys.clear();
 }
-function howHTML(def){ const h=def.how; return [ IS_TOUCH?`<b>Touch:</b> ${h.touch}`:`<b>Keyboard &amp; mouse:</b> ${h.keys}`, ...(PHONE&&def.kind==='field'&&!def.turns?[]:[`<b>Two on one device:</b> ${h.keys2}`]), `<b>Controller:</b> ${h.pad}`, IS_TOUCH?`<b>Keyboard:</b> ${h.keys}`:`<b>Touch:</b> ${h.touch}` ].map(x=>`<div>${x}</div>`).join(''); }
+function howHTML(def){ const h=def.how; return [ IS_TOUCH?`<b>Touch:</b> ${h.touch}`:`<b>Keyboard &amp; mouse:</b> ${h.keys}`, ...(def.onlySolo||(PHONE&&def.kind==='field'&&!def.turns)?[]:[`<b>Two on one device:</b> ${h.keys2}`]), `<b>Controller:</b> ${h.pad}`, IS_TOUCH?`<b>Keyboard:</b> ${h.keys}`:`<b>Touch:</b> ${h.touch}` ].map(x=>`<div>${x}</div>`).join(''); }
 function closeLaunch(){ $('#launch').hidden=true; canvas.focus({preventScroll:true}); }
 function launchOnline(def){
   if(!Net.connected){ closeLaunch(); openNet(); toast(Net.role?'Waiting for the other player to join your room.':'Make a room or join one first.'); return; }
@@ -12447,7 +12805,7 @@ function gameFrame(dt, t){
     const L=sw?1:0, R=sw?0:1, sc=[sb.l, sb.r];
     $('#gL').className='side l p'+L; $('#gR').className='side r p'+R;
     $('#gL').innerHTML=`<span class="nm">${esc(nameOf(L))}${you(L)}</span><span class="sc">${esc(sc[L])}</span>`;
-    $('#gR').innerHTML=`<span class="sc">${esc(sc[R])}</span><span class="nm">${esc(nameOf(R))}${you(R)}</span>`;
+    $('#gR').innerHTML= S.mode==='solo' && !sc[R] ? '' : `<span class="sc">${esc(sc[R])}</span><span class="nm">${esc(nameOf(R))}${you(R)}</span>`;
     $('#gC').textContent=sb.c||''; $('#gMid').textContent= def.kind==='board' ? (sb.c||'') : '';
     $('#gL').classList.toggle('turn', sb.turn===L); $('#gR').classList.toggle('turn', sb.turn===R); }
   // ---- game over ----
