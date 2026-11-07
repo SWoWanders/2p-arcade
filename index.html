@@ -8039,8 +8039,8 @@ function ngIdle(t){
    TOWER TOPPER — a stack-the-blocks prize machine (our own take on the
    classic LED stacking game). A row of lit blocks slides side to side;
    press to stop it on top of the row below. Anything hanging over the
-   edge falls away. Rows get faster as you climb; the row narrows to two
-   blocks at row 6 and one block at row 11.
+   edge falls away. Rows get faster as you climb. The row starts 5 blocks
+   wide, narrows to 3 at row 4, 2 at row 7 and 1 at row 12.
      Row 11 = MINOR PRIZE line: take a small prize, or keep going.
      Row 15 = MAJOR PRIZE: a party popper.
    Prizes drop out of the machine's prize door, not tickets.
@@ -8050,7 +8050,7 @@ function ngIdle(t){
 const TT = { W:420, H:800, COLS:7, ROWS:15, MINOR:11, P:46, X0:49, Y0:60 };
 const TT_MINOR = ['paddle','puppet','super','chicken','glow','ball'];
 const TT_COLS = ['#29f0ff','#29f0ff','#29f0ff','#29f0ff','#29f0ff','#3a8aff','#3a8aff','#3a8aff','#3a8aff','#3a8aff','#ffe066','#ffb03a','#ff8a3a','#ff4a8a','#ff2bd6'];
-const ttCap = r => r<6 ? 3 : r<11 ? 2 : 1;
+const ttCap = r => r<3 ? 5 : r<6 ? 3 : r<11 ? 2 : 1;
 const ttPer = r => Math.max(.055, .19*Math.pow(.915, r));
 function ttCell(c){ const x=TT.X0+c%TT.COLS*TT.P, y=TT.Y0+(TT.ROWS-1-Math.floor(c/TT.COLS))*TT.P; return [x,y]; }
 game({
@@ -8061,7 +8061,7 @@ game({
   how:{ touch:'<b>Tap</b> anywhere to stop the blocks. At the minor prize line, tap <b>Keep going</b> or <b>Take prize</b>.',
     keys:'<b>Space</b> or <b>Enter</b> to stop the blocks. At the minor prize line: <b>Space</b> keeps going, <b>Shift</b> takes the prize.', keys2:'',
     pad:'<b>Ⓐ</b> to stop the blocks. At the minor prize line: <b>Ⓐ</b> keeps going, <b>Ⓑ</b> takes the prize.' },
-  init(o){ return { row:0, w:3, pos:0, dir:1, step:0, stack:[], fall:[], ph:'play', pt:0, t:0, over:false, winner:-1, prize:'', _an:null, _bn:null, _snd:[] }; },
+  init(o){ return { row:0, w:5, pos:0, dir:1, step:0, stack:[], fall:[], ph:'play', pt:0, t:0, over:false, winner:-1, prize:'', _an:null, _bn:null, _snd:[] }; },
   cont(vc, p, st, V){
     const m=S.mem[p], n=touches.size; if(n>(m.tn||0)) m.tp=(m.tp||0)+1; m.tn=n;
     if(vc.padA && !m.pa) m.pn=(m.pn||0)+1; m.pa=vc.padA; if(vc.padB && !m.pb) m.pbn=(m.pbn||0)+1; m.pb=vc.padB; if(vc.click) m.cl=(m.cl||0)+1;
@@ -8162,7 +8162,7 @@ function ttAttract(c, w, h, t){
   const cols=7, rows=15, p=Math.min(w/(cols+1.2), h/(rows+2.2)), x0=(w-cols*p)/2, y0=(h-rows*p)/2+p*.5;
   const cyc=t%9, n=Math.min(rows, Math.floor(cyc*2.2));
   for(let r=0;r<rows;r++) for(let k=0;k<cols;k++){
-    const wd = r<5?3:r<10?2:1, base=(r*2+3)%(cols-wd+1);
+    const wd = ttCap(r), base=(r*2+3)%(cols-wd+1);
     let on = r<n && k>=base && k<base+wd;
     if(r===n && n<rows){ const per=ttPer(r)*1.4, steps=Math.floor(t/per), span=cols-wd, ph=steps%(span*2), pos=ph<span?ph:span*2-ph; on = k>=pos && k<pos+wd; }
     const x=x0+k*p, y=y0+(rows-1-r)*p;
