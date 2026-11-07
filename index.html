@@ -1808,23 +1808,29 @@ function placeCar(T, c, s, lat) {
   while (isNaN(trackH(T, s)) && guard++ < 200) s += 2;
   if (guard) s += 6;
   c.dist += (s - c.s);
-  c.s = wrapS(s, T.L); c.lat = lat; c.v = 0; c.vy = 0; c.pitch = 0; c.pitchRate = 0; c.roll = 0; c.rollRate = 0; c.yawRel = 0;
+  c.s = wrapS(s, T.L); c.lat = lat; c.v = 0; c.vy = 0; c.pitch = 0; c.pitchRate = 0; c.roll = 0; c.rollRate = 0; c.yawRel = 0; c.teeterT = 0; c.teeter = false; c.teeterGone = false;
   const h = trackH(T, c.s);
   c.y = h + RIDE; c.lastH = h; c.comp = [SAG, SAG, SAG, SAG]; c.bs = [false, false, false, false];
   c.gear = 0;
 }
 
+const TEETER_MAX = 1.2;
 function stepCar(c, T, inp, dt, assist) {
   const W = CAR;
   const pose = trackPose(T, c.s);
   const kap = pose.k;
   const v = c.v;
   const cyw = Math.cos(c.yawRel), syw = Math.sin(c.yawRel);
-  let Fsum = 0, tp = 0, tr = 0, Fh = 0, nf = 0, nr = 0;
+  let Fsum = 0, tp = 0, tr = 0, Fh = 0, nf = 0, nr = 0, lip = 0;
+  // TEETER: a wheel that slips off the side edge first rests on a sloping "lip" (the car tips
+  // onto a diagonal) for up to TEETER_MAX seconds; steer back toward the middle to get back on.
+  if ((c.teeterT || 0) >= TEETER_MAX || Math.abs(c.roll) > 0.95) c.teeterGone = true;   // tipped too far, or waited too long: off you go
+  const canTeeter = !c.teeterGone;
   for (let i = 0; i < 4; i++) {
     const dz = W.WZ[i], dx = W.WX[i];
     const sw = c.s + dz * cyw - dx * syw, lw = c.lat + dx * cyw + dz * syw;
-    const h = Math.abs(lw) <= T.hw ? trackH(T, sw) : NaN;
+    let h = Math.abs(lw) <= T.hw ? trackH(T, sw) : NaN;
+    if (isNaN(h) && canTeeter && Math.abs(lw) <= T.hw + 1.5) { const hh = trackH(T, sw); if (!isNaN(hh)) { h = hh - (Math.abs(lw) - T.hw) * 0.5; lip++; } }
     const yb = c.y + c.pitch * dz - c.roll * dx;
     let x = isNaN(h) ? -1 : h + W.R + W.E - yb;
     if (x > 0 && x < 1.0) {
@@ -1846,6 +1852,9 @@ function stepCar(c, T, inp, dt, assist) {
     } else { c.comp[i] += (0 - c.comp[i]) * Math.min(1, dt * 30); c.bs[i] = false; }
   }
   c.frontContact = nf; c.rearContact = nr; c.contacts = nf + nr;
+  if (lip) c.teeterT = (c.teeterT || 0) + dt * (1 + Math.max(0, inp.steer * Math.sign(c.lat)) * 0.5);
+  else if (c.teeterT) { c.teeterT = Math.max(0, c.teeterT - dt * 0.8); if (!c.teeterT && Math.abs(c.lat) < T.hw - 1) c.teeterGone = false; }
+  c.teeter = lip > 0;
   const grounded = c.contacts > 0;
   if (grounded) c.airT = 0; else c.airT += dt;
   c.grounded = grounded;
@@ -1915,6 +1924,15 @@ function stepCar(c, T, inp, dt, assist) {
   c.pitch += c.pitchRate * dt; c.roll += c.rollRate * dt;
   c.pitch = Math.max(-1.3, Math.min(1.3, c.pitch)); c.roll = Math.max(-1.3, Math.min(1.3, c.roll));
 
+  // teetering: drag + scraping, and steering back toward the middle hauls the car back on and levels it
+  if (c.teeter) {
+    const side = Math.sign(c.lat) || 1, back = -inp.steer * side;
+    c.v -= c.v * 0.55 * dt;
+    // the belly catches on the edge: the car stops sliding further out, giving time to steer back
+    if (Math.sin(c.yawRel) * side > 0) c.yawRel -= c.yawRel * 3.2 * dt;
+    c.rollRate -= c.rollRate * 2.5 * dt;
+    if (back > 0.15) { c.lat -= side * (1.4 + 2.2 * back) * dt; c.yawRel -= side * 0.6 * back * dt; c.rollRate -= c.roll * 6 * back * dt; }
+  }
   // movement along track
   const ds = c.v * Math.cos(c.yawRel) / Math.max(0.3, 1 - kap * c.lat) * dt;
   c.s = wrapS(c.s + ds, T.L); c.dist += ds;
@@ -2405,6 +2423,9 @@ game({
     if(c.grounded && c.wasAir>.35) emit('thump');
     c.wasAir = c.grounded ? 0 : c.airT;
     if(c.impacts.length){ for(const im of c.impacts) c.damage+=Math.max(0,im-5.5)*4; c.impacts.length=0; }
+    if(c.mode==='drive' && c.teeter){ if(!c.wasTeeter){ emit('bump'); if(!ctlIn.ai) this._msg(c,'⚠ STEER BACK!',1.0); } if(Math.random()<h*5) emit('bump'); }
+    if(c.mode==='drive' && c.wasTeeter && !c.teeter && c.y>-1 && !ctlIn.ai && c.msg==='⚠ STEER BACK!') this._msg(c,'SAVED!',1.0);
+    c.wasTeeter = c.mode==='drive' && c.teeter;
     if(c.mode==='drive' && res==='fell'){ c.mode='fall'; c.modeT=0; c.falls++; c.damage+=8; this._msg(c,'OFF THE GIRDER!',1.8); }
     if(c.mode==='fall'){ c.modeT+=h;
       if(c.y<.75){ if(c.vy<-4) emit('crunch'); c.y=.75; c.vy=0; c.v*=.97; c.pitchRate*=.9; c.rollRate*=.9; c.pitch*=.97; c.roll*=.97; }
