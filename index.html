@@ -9526,14 +9526,17 @@ function itemsFrame(dt,t){
   if(HELD.use>0){ HELD.use-=dt; }
   const u = HELD.use>0 ? 1-HELD.use/HELD.useDur : 0, k=HELD.kind?ITEMS[HELD.kind]:null;
   if(HELD.view && HELD.view.visible){
-    const v=HELD.view; let px=.24, py=-.27, pz=-.52, rx=0;
+    // rest position: lower right but well inside the view, angled in toward the middle — worked out from
+    // the camera so it stays on screen on narrow (upright phone) views too
+    const hh=.5*Math.tan(camera.fov*Math.PI/360), hw=hh*camera.aspect, tall=camera.aspect<1, X0=clamp(hw*(tall?.2:.42),.035,.17), Y0=-clamp(hh*(tall?.74:.62),.16,.29);
+    const v=HELD.view; let px=X0, py=Y0, pz=-.5, rx=0;
     if(HELD.use>0 && k){ const s=Math.sin(u*Math.PI);
-      if(k.bites){ px=lerp(.24,.03,s); py=lerp(-.27,-.12,s); pz=lerp(-.52,-.3,s); rx=s*.6; }
+      if(k.bites){ px=lerp(X0,.03,s); py=lerp(Y0,-.12,s); pz=lerp(-.5,-.3,s); rx=s*.6; }
       else if(HELD.kind==='puppet'||HELD.kind==='chicken'||HELD.kind==='glow'){ v.rotation.z=Math.sin(u*40)*.3*(1-u); }
       else if(HELD.kind==='paddle'){ const b=HELD.viewMesh&&HELD.viewMesh.getObjectByName('ball'); if(b){ const zz=.03+Math.abs(Math.sin(u*Math.PI*5))*.22; b.position.z=zz; const ln=HELD.viewMesh.getObjectByName('string'); ln.geometry.setFromPoints([new THREE.Vector3(0,.1,.007), new THREE.Vector3(0,.1,zz)]); } } }
     else { v.rotation.z*=.8; if(HELD.kind==='paddle' && HELD.viewMesh){ const b=HELD.viewMesh.getObjectByName('ball'); if(b && b.position.z!==.06){ b.position.z=.06; HELD.viewMesh.getObjectByName('string').geometry.setFromPoints([new THREE.Vector3(0,.1,.007), new THREE.Vector3(0,.1,.06)]); } } }
     const bob=Math.sin(t*2)*.004 + Math.sin(performance.now()/170)*.01*Math.min(1,Math.hypot(player.vx,player.vz)/2.7);
-    v.position.set(px, py+bob, pz); v.rotation.x=rx;
+    v.position.set(px, py+bob, pz); v.rotation.x=rx-.12; v.rotation.y=.32;   // tipped back a little and turned inward
     if(HELD.kind==='glow' && HELD.viewMesh){ const s=HELD.viewMesh.getObjectByName('stick'); if(s) s.material.color.set(['#39ff14','#ff2bd6','#00f0ff','#ffe600'][Math.floor(t*(HELD.use>0?8:.5))%4]).multiplyScalar(2.4); }
   }
   // catching
