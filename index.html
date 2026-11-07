@@ -8036,6 +8036,222 @@ function ngIdle(t){
 }
 
 /* =====================================================================
+   TOWER TOPPER — a stack-the-blocks prize machine (our own take on the
+   classic LED stacking game). A row of lit blocks slides side to side;
+   press to stop it on top of the row below. Anything hanging over the
+   edge falls away. Rows get faster as you climb; the row narrows to two
+   blocks at row 6 and one block at row 11.
+     Row 11 = MINOR PRIZE line: take a small prize, or keep going.
+     Row 15 = MAJOR PRIZE: a party popper.
+   Prizes drop out of the machine's prize door, not tickets.
+   Party poppers: hold one and Pop! it for a little neon fireworks show
+   with pops and crackles (the other player sees and hears it too).
+   ===================================================================== */
+const TT = { W:420, H:800, COLS:7, ROWS:15, MINOR:11, P:46, X0:49, Y0:60 };
+const TT_MINOR = ['paddle','puppet','super','chicken','glow','ball'];
+const TT_COLS = ['#29f0ff','#29f0ff','#29f0ff','#29f0ff','#29f0ff','#3a8aff','#3a8aff','#3a8aff','#3a8aff','#3a8aff','#ffe066','#ffb03a','#ff8a3a','#ff4a8a','#ff2bd6'];
+const ttCap = r => r<5 ? 3 : r<10 ? 2 : 1;
+const ttPer = r => Math.max(.04, .17*Math.pow(.905, r));
+function ttCell(c){ const x=TT.X0+c%TT.COLS*TT.P, y=TT.Y0+(TT.ROWS-1-Math.floor(c/TT.COLS))*TT.P; return [x,y]; }
+game({
+  id:'stacker', name:'Tower Topper', color:'#29f0ff', color2:'#ff2bd6', kind:'field', touch:'drag', noRotate:true, fitScreen:true, solo:true, onlySolo:true, noTix:true,
+  W:TT.W, H:TT.H,
+  blurb:"Stop the sliding blocks right on top of the row below. Overhangs fall off, and the rows speed up as you climb. Reach the MINOR PRIZE line for a small prize — or risk it and go for the top to win a party popper! Prizes drop out of the prize door.",
+  soloText:'🧱 Play<small>One player · prizes, not tickets</small>',
+  how:{ touch:'<b>Tap</b> anywhere to stop the blocks. At the minor prize line, tap <b>Keep going</b> or <b>Take prize</b>.',
+    keys:'<b>Space</b> or <b>Enter</b> to stop the blocks. At the minor prize line: <b>Space</b> keeps going, <b>Shift</b> takes the prize.', keys2:'',
+    pad:'<b>Ⓐ</b> to stop the blocks. At the minor prize line: <b>Ⓐ</b> keeps going, <b>Ⓑ</b> takes the prize.' },
+  init(o){ return { row:0, w:3, pos:0, dir:1, step:0, stack:[], fall:[], ph:'play', pt:0, t:0, over:false, winner:-1, prize:'', _an:null, _bn:null, _snd:[] }; },
+  cont(vc, p, st, V){
+    const m=S.mem[p], n=touches.size; if(n>(m.tn||0)) m.tp=(m.tp||0)+1; m.tn=n;
+    if(vc.padA && !m.pa) m.pn=(m.pn||0)+1; m.pa=vc.padA; if(vc.padB && !m.pb) m.pbn=(m.pbn||0)+1; m.pb=vc.padB; if(vc.click) m.cl=(m.cl||0)+1;
+    const o={ an: vc.aN + (m.pn||0) + (m.cl||0) + (m.tp||0), bn: vc.bN + (m.pbn||0), px:-1, py:-1 };
+    if(vc.ptr){ o.px=Math.round(vc.ptr.x); o.py=Math.round(vc.ptr.y); }
+    return o;
+  },
+  tick(s, dt, inp){
+    const i=inp[0]||{}; if(s._an==null){ s._an=i.an||0; s._bn=i.bn||0; }
+    const press=(i.an||0)>s._an, bpress=(i.bn||0)>s._bn; s._an=i.an||0; s._bn=i.bn||0;
+    s.t+=dt; s.pt+=dt; for(const f of s.fall) f.t+=dt; s.fall=s.fall.filter(f=>f.t<1.2);
+    if(s.ph==='play'){
+      s.step+=dt; const per=ttPer(s.row);
+      while(s.step>=per){ s.step-=per; s.pos+=s.dir; if(s.pos+s.w>TT.COLS){ s.pos=TT.COLS-s.w-1; s.dir=-1; } else if(s.pos<0){ s.pos=1; s.dir=1; } if(s.w===TT.COLS) s.pos=0; s._snd.push('tick'); }
+      if(press && s.pt>.15){
+        const lit=[]; for(let k=0;k<s.w;k++) lit.push(s.pos+k);
+        const below=s.row ? s.stack[s.row-1] : null, keep=below ? lit.filter(c=>below.includes(c)) : lit;
+        for(const c of lit) if(!keep.includes(c)) s.fall.push({ c, r:s.row, t:0 });
+        if(!keep.length){ s.ph='lose'; s.pt=0; s._snd.push('lose'); return; }
+        s.stack.push(keep); s.row++; s._snd.push(keep.length<lit.length?'chip':'lock');
+        if(s.row>=TT.ROWS){ s.ph='win'; s.pt=0; s._snd.push('win'); return; }
+        s.w=Math.min(keep.length, ttCap(s.row)); s.dir = s.row%2 ? -1 : 1; s.pos = s.dir>0 ? 0 : TT.COLS-s.w; s.step=-.25; s.pt=0;
+        if(s.row===TT.MINOR){ s.ph='choice'; s.pt=0; s._snd.push('minor'); }
+      }
+    } else if(s.ph==='choice'){
+      if(s.pt<.5) return;
+      const onTake = i.px>=TT.W/2 && i.py>=TT.H-140, onGo = i.px>=0 && i.px<TT.W/2 && i.py>=TT.H-140, viaTouch = IS_TOUCH;
+      if(bpress || (press && onTake)){ s.ph='take'; s.pt=0; s.prize='minor'; s._snd.push('win'); }
+      else if(press && (onGo || !viaTouch || i.px<0)){ s.ph='play'; s.pt=0; s.step=-.3; s._snd.push('lock'); }
+    } else if(s.ph==='lose' && s.pt>1.8){ s.over=true; s.winner=-1; }
+    else if(s.ph==='win' && s.pt>2.6){ s.prize='major'; s.over=true; s.winner=0; ttDispense('major'); }
+    else if(s.ph==='take' && s.pt>1.4){ s.over=true; s.winner=0; ttDispense('minor'); }
+  },
+  cpu(){ return {}; },
+  status(s){ return { l:`🧱 Row ${Math.min(s.row+1,TT.ROWS)}/${TT.ROWS}`, r:'', c: s.row>=TT.MINOR ? '🎉 Going for the MAJOR PRIZE' : `Minor prize at row ${TT.MINOR}` }; },
+  endHead(s){
+    if(s.prize==='major') return { kick:'tower topped!', big:'🎉 MAJOR PRIZE!', col:'#ff2bd6', again:'Play again', sub:'A <b>party popper</b> dropped out of the prize door — grab it, then Pop! it.' };
+    if(s.prize==='minor') return { kick:'minor prize', big:'🎁 Prize!', col:'#29f0ff', again:'Play again', sub:'Your prize dropped out of the prize door — go grab it!' };
+    return { kick:`row ${s.row+1}`, big:'Missed!', col:'#ff5a4a', again:'Try again', sub: s.row>=TT.MINOR ? 'So close to the top! No prize this time.' : `Reach row ${TT.MINOR} for a prize.` };
+  },
+  draw(g, s, viewer, ui, t){ const c=g.ctx; const q=s._snd; if(q.length){ s._snd=[]; for(const k of q) ttSound(k); } ttDraw(c, s, t); },
+  attract(c, w, h, t){ ttAttract(c, w, h, t); },
+});
+function ttSound(k){
+  if(k==='tick') tone(880,.025,'square',.03,1);
+  else if(k==='lock') { tone(520,.08,'square',.09,1.4); tone(780,.08,'square',.06,1,.06); }
+  else if(k==='chip') { tone(300,.12,'sawtooth',.08,.5); noise(.15,.05,800,.02); }
+  else if(k==='lose') { [400,300,200,120].forEach((f,i)=>tone(f,.2,'sawtooth',.09,.8,i*.16)); }
+  else if(k==='minor') { [523,659,784].forEach((f,i)=>tone(f,.14,'square',.08,1,i*.09)); }
+  else if(k==='win') { [523,659,784,1047,1319].forEach((f,i)=>tone(f,.16,'square',.09,1,i*.08)); }
+}
+/* ---- the LED tower ---- */
+function ttLED(c, x, y, col, on){
+  const s=TT.P-6;
+  if(!on){ c.fillStyle='rgba(41,240,255,.06)'; c.fillRect(x+3,y+3,s,s); c.strokeStyle='rgba(41,240,255,.14)'; c.lineWidth=1; c.strokeRect(x+3.5,y+3.5,s-1,s-1); return; }
+  c.save(); c.shadowColor=col; c.shadowBlur=18; c.fillStyle=col; c.fillRect(x+3,y+3,s,s); c.restore();
+  const g=c.createLinearGradient(x,y,x,y+s); g.addColorStop(0,'rgba(255,255,255,.75)'); g.addColorStop(.4,'rgba(255,255,255,.1)'); g.addColorStop(1,'rgba(255,255,255,0)'); c.fillStyle=g; c.fillRect(x+6,y+6,s-6,s*.45);
+}
+function ttDraw(c, s, t){
+  const W=TT.W, H=TT.H, P=TT.P, X0=TT.X0, Y0=TT.Y0, gw=TT.COLS*P;
+  const bg=c.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#05061a'); bg.addColorStop(1,'#0a0420'); c.fillStyle=bg; c.fillRect(0,0,W,H);
+  // frame + prize bands
+  c.save(); c.strokeStyle='#29f0ff'; c.lineWidth=3; c.shadowColor='#29f0ff'; c.shadowBlur=12; c.strokeRect(X0-8,Y0-8,gw+16,TT.ROWS*P+16); c.restore();
+  const yRow=r=>Y0+(TT.ROWS-1-r)*P;
+  c.fillStyle='rgba(255,43,214,.16)'; c.fillRect(X0-6,yRow(14),gw+12,P);
+  c.fillStyle='rgba(41,240,255,.12)'; c.fillRect(X0-6,yRow(10),gw+12,P);
+  c.textAlign='center'; c.textBaseline='middle';
+  glowText(c,'🎉 MAJOR PRIZE', W/2, Y0-30, 22, '#ff2bd6', { font:HEAD, weight:900, glow:.8 });
+  c.save(); c.translate(X0-26, yRow(10)+P/2); c.rotate(-Math.PI/2); c.font=`900 13px ${HEAD}`; c.fillStyle='#29f0ff'; c.fillText('MINOR',0,0); c.restore();
+  c.save(); c.translate(X0+gw+26, yRow(10)+P/2); c.rotate(Math.PI/2); c.font=`900 13px ${HEAD}`; c.fillStyle='#29f0ff'; c.fillText('PRIZE',0,0); c.restore();
+  c.strokeStyle='#29f0ff'; c.setLineDash([6,5]); c.lineWidth=2; c.beginPath(); c.moveTo(X0-6,yRow(10)); c.lineTo(X0+gw+6,yRow(10)); c.stroke(); c.setLineDash([]);
+  // grid
+  const win=s.ph==='win' || s.ph==='take', flash=win && Math.floor(t*8)%2;
+  for(let r=0;r<TT.ROWS;r++) for(let k=0;k<TT.COLS;k++){
+    const x=X0+k*P, y=yRow(r); let on=false, col=TT_COLS[r];
+    if(r<s.stack.length && s.stack[r].includes(k)) on=true;
+    if(r===s.row && s.ph==='play' && k>=s.pos && k<s.pos+s.w) on=true;
+    if(s.ph==='lose' && r<s.stack.length && Math.floor(t*6)%2) col='#ff3a3a';
+    if(flash && on) col='#ffffff';
+    ttLED(c,x,y,col,on);
+  }
+  for(const f of s.fall){ const k=f.c, x=X0+k*P, y=yRow(f.r)+f.t*f.t*600; c.save(); c.globalAlpha=Math.max(0,1-f.t/1.2); ttLED(c,x,y,'#ff5a4a',true); c.restore(); }
+  // the choice at the minor prize line
+  if(s.ph==='choice'){
+    c.fillStyle='rgba(4,4,16,.82)'; c.fillRect(0,H-210,W,210);
+    glowText(c,'MINOR PRIZE!', W/2, H-185, 30, '#29f0ff', { font:HEAD, weight:900 });
+    c.font=`700 15px ${BODY}`; c.fillStyle='#c7d4ff'; c.fillText('Take it now — or risk it for the party popper?', W/2, H-155);
+    const btn=(x,label,sub,col)=>{ c.save(); c.fillStyle='rgba(0,0,0,.5)'; c.strokeStyle=col; c.lineWidth=3; c.shadowColor=col; c.shadowBlur=14; c.beginPath(); rrect(c,x,H-128,W/2-24,104,16); c.fill(); c.stroke(); c.restore();
+      c.font=`900 22px ${HEAD}`; c.fillStyle=col; c.fillText(label, x+(W/2-24)/2, H-90); c.font=`700 13px ${BODY}`; c.fillStyle='#c7d4ff'; c.fillText(sub, x+(W/2-24)/2, H-58); };
+    btn(12,'KEEP GOING', IS_TOUCH?'tap here':'Space / Ⓐ', '#ff2bd6'); btn(W/2+12,'TAKE PRIZE', IS_TOUCH?'tap here':'Shift / Ⓑ', '#29f0ff');
+  } else if(s.ph==='play'){
+    c.font=`700 15px ${BODY}`; c.fillStyle='rgba(199,212,255,.7)'; c.fillText(IS_TOUCH?'Tap to stop the blocks':'Space / Ⓐ to stop the blocks', W/2, H-22);
+  }
+  if(s.ph==='win') glowText(c,'🎉 YOU TOPPED THE TOWER! 🎉', W/2, H/2, 24, '#ffe066', { font:HEAD, weight:900 });
+}
+function ttAttract(c, w, h, t){
+  c.fillStyle='#04051a'; c.fillRect(0,0,w,h);
+  const cols=7, rows=15, p=Math.min(w/(cols+1.2), h/(rows+2.2)), x0=(w-cols*p)/2, y0=(h-rows*p)/2+p*.5;
+  const cyc=t%9, n=Math.min(rows, Math.floor(cyc*2.2));
+  for(let r=0;r<rows;r++) for(let k=0;k<cols;k++){
+    const wd = r<5?3:r<10?2:1, base=(r*2+3)%(cols-wd+1);
+    let on = r<n && k>=base && k<base+wd;
+    if(r===n && n<rows){ const per=ttPer(r)*1.4, steps=Math.floor(t/per), span=cols-wd, ph=steps%(span*2), pos=ph<span?ph:span*2-ph; on = k>=pos && k<pos+wd; }
+    const x=x0+k*p, y=y0+(rows-1-r)*p;
+    c.fillStyle = on ? TT_COLS[r] : 'rgba(41,240,255,.07)'; if(on){ c.shadowColor=TT_COLS[r]; c.shadowBlur=10; } c.fillRect(x+2,y+2,p-4,p-4); c.shadowBlur=0;
+  }
+  c.fillStyle='rgba(255,43,214,.9)'; c.font=`900 ${Math.round(p*.7)}px ${HEAD}`; c.textAlign='center'; c.textBaseline='middle'; c.fillText('MAJOR PRIZE', w/2, y0-p*.55);
+  c.strokeStyle='#29f0ff'; c.setLineDash([4,3]); c.beginPath(); c.moveTo(x0,y0+(rows-11)*p); c.lineTo(x0+cols*p,y0+(rows-11)*p); c.stroke(); c.setLineDash([]);
+}
+/* ---- prizes come out of the prize door ---- */
+function ttDispense(which){
+  const cab=CABS.find(c=>c.def.id==='stacker'); if(!cab) return;
+  const kind = which==='major' ? 'popper' : TT_MINOR[ri(TT_MINOR.length)];
+  const door=new THREE.Vector3(0,.34,.5); cab.group.localToWorld(door);
+  setTimeout(()=>{ spawnWorld(kind, 0, door.x, door.y, door.z, cab.nx*1.1, .6, cab.nz*1.1, false); tone(300,.12,'square',.08,.6); noise(.15,.06,1500); }, 400);
+}
+/* =====================================================================
+   PARTY POPPER + neon fireworks
+   ===================================================================== */
+// (the popper's ITEMS entry is added in 49c-stack-cab.js, after ITEMS exists)
+function popperMesh(){
+  const g=new THREE.Group();
+  const tex=(()=>{ const cv=document.createElement('canvas'); cv.width=128; cv.height=64; const x=cv.getContext('2d'); for(let k=0;k<8;k++){ x.fillStyle=['#ffd23a','#ff2bd6','#29f0ff','#ffd23a'][k%4]; x.beginPath(); x.moveTo(k*16-16,64); x.lineTo(k*16,64); x.lineTo(k*16+32,0); x.lineTo(k*16+16,0); x.fill(); } return canvasTex(cv); })();
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(.034,.012,.12,18,1,true), new THREE.MeshStandardMaterial({ map:tex, roughness:.3, metalness:.5, side:THREE.DoubleSide })); g.add(body);
+  const foil=new THREE.Mesh(new THREE.CircleGeometry(.034,18), new THREE.MeshStandardMaterial({ color:'#ff2bd6', roughness:.25, metalness:.7, emissive:'#5a0a4a' })); foil.rotation.x=-Math.PI/2; foil.position.y=.06; g.add(foil);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(.034,.004,6,20), new THREE.MeshStandardMaterial({ color:'#ffd23a', metalness:.8, roughness:.2 })); ring.rotation.x=Math.PI/2; ring.position.y=.06; g.add(ring);
+  const str=new THREE.Mesh(new THREE.CylinderGeometry(.0018,.0018,.05,5), new THREE.MeshBasicMaterial({ color:'#ffffff' })); str.position.y=-.085; g.add(str);
+  const tab=new THREE.Mesh(new THREE.TorusGeometry(.012,.003,5,12), new THREE.MeshBasicMaterial({ color:'#ffffff' })); tab.position.y=-.12; g.add(tab);
+  g.userData.kind='popper'; return g;
+}
+const FW = { pts:null, n:1600, i:0, P:[], conf:null, cn:220, ci:0, C:[], shows:[] };
+const FW_COLS=['#ff2bd6','#29f0ff','#ffe066','#7aff8a','#b46bff','#ff8a3a','#ffffff'];
+function fwInit(){
+  if(FW.pts) return;
+  const pos=new Float32Array(FW.n*3), col=new Float32Array(FW.n*3); for(let i=0;i<FW.n;i++){ pos[i*3+1]=-99; FW.P.push({ t:9, life:1, x:0,y:-99,z:0, vx:0,vy:0,vz:0, r:1,g:1,b:1, drag:1, grav:1, tw:0, crk:0 }); }
+  const geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.BufferAttribute(pos,3)); geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+  const cv=document.createElement('canvas'); cv.width=cv.height=64; const x=cv.getContext('2d'); const gr=x.createRadialGradient(32,32,1,32,32,30); gr.addColorStop(0,'rgba(255,255,255,1)'); gr.addColorStop(.25,'rgba(255,255,255,.8)'); gr.addColorStop(1,'rgba(255,255,255,0)'); x.fillStyle=gr; x.fillRect(0,0,64,64);
+  FW.pts=new THREE.Points(geo, new THREE.PointsMaterial({ size:.065, map:canvasTex(cv), vertexColors:true, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending })); FW.pts.frustumCulled=false; FW.pts.renderOrder=5; scene.add(FW.pts);
+  const cg=new THREE.PlaneGeometry(.022,.012); const cm=new THREE.MeshBasicMaterial({ side:THREE.DoubleSide });
+  FW.conf=new THREE.InstancedMesh(cg,cm,FW.cn); FW.conf.frustumCulled=false; for(let i=0;i<FW.cn;i++){ FW.conf.setMatrixAt(i,new THREE.Matrix4().makeScale(0,0,0)); FW.conf.setColorAt(i,new THREE.Color('#fff')); FW.C.push({ t:9, x:0,y:0,z:0, vx:0,vy:0,vz:0, rx:0, ry:0, sr:0, life:3 }); } scene.add(FW.conf);
+}
+function fwSpark(x,y,z, vx,vy,vz, col, life, o={}){ const p=FW.P[FW.i]; FW.i=(FW.i+1)%FW.n; const c=new THREE.Color(col);
+  Object.assign(p,{ t:0, life, x,y,z, vx,vy,vz, r:c.r, g:c.g, b:c.b, drag:o.drag??1.6, grav:o.grav??2.2, tw:o.tw||0, crk:o.crk||0 }); }
+function fwBurst(x,y,z, size, r){
+  const n=Math.round(70*size), cA=FW_COLS[Math.floor(r()*FW_COLS.length)], cB=FW_COLS[Math.floor(r()*FW_COLS.length)], ring=r()<.35;
+  for(let k=0;k<n;k++){ let dx,dy,dz; if(ring){ const a=k/n*TAU; dx=Math.cos(a); dy=(r()-.5)*.2; dz=Math.sin(a); } else { const u=r()*2-1, a=r()*TAU, q=Math.sqrt(1-u*u); dx=q*Math.cos(a); dy=u; dz=q*Math.sin(a); }
+    const sp=(1.6+r()*.5)*size; fwSpark(x,y,z, dx*sp,dy*sp,dz*sp, k%3?cA:cB, 1.1+r()*.6, { tw:r()<.5?1:0, crk:r()<.25?1:0 }); }
+  fwSpark(x,y,z,0,0,0,'#ffffff',.18,{ grav:0 }); for(let k=0;k<6;k++) fwSpark(x,y,z,(r()-.5)*.4,(r()-.5)*.4,(r()-.5)*.4,'#ffffff',.25,{ grav:0 });
+}
+// the show: a big pop of confetti + streamers from the popper, then little neon bursts overhead that crackle as they fade
+function fwShow(x, y, z, dirx, dirz, seed, mine){
+  fwInit(); const r=prng(seed|0), ceil=(roomOf(x,z)==='lobby'?LOBBY.h:roomOf(x,z)==='room2'?ROOM2.h:ROOM.h)-.35;
+  FW.shows.push({ x, y, z, dx:dirx, dz:dirz, r, t:0, next:.35, k:0, n:6+Math.floor(r()*3), ceil, mine, crk:0 });
+  // the pop
+  noise(.09, mine?.6:.35, 2600); tone(150,.08,'square',.25,.25); noise(.25,.1,6000,.03);
+  for(let k=0;k<80;k++){ const a=r()*TAU, s2=r()*.9, up=2.8+r()*2.2; fwSpark(x,y,z, dirx*1.6+Math.cos(a)*s2, up, dirz*1.6+Math.sin(a)*s2, FW_COLS[k%FW_COLS.length], .9+r()*.5, { drag:1.2, grav:5 }); }
+  for(let k=0;k<70;k++){ const c=FW.C[FW.ci]; FW.ci=(FW.ci+1)%FW.cn; const a=r()*TAU, s2=r()*.8; Object.assign(c,{ t:0, life:2.6+r()*1.4, x, y, z, vx:dirx*1.4+Math.cos(a)*s2, vy:2.6+r()*2, vz:dirz*1.4+Math.sin(a)*s2, rx:r()*6, ry:r()*6, sr:4+r()*8 });
+    FW.conf.setColorAt((FW.ci+FW.cn-1)%FW.cn, new THREE.Color(FW_COLS[k%6])); } FW.conf.instanceColor.needsUpdate=true;
+}
+function fwFrame(dt){
+  if(!FW.pts) return;
+  for(const s of FW.shows){ s.t+=dt;
+    if(s.k<s.n && s.t>=s.next){ s.k++; s.next=s.t+.28+s.r()*.38; const bx=s.x+s.dx*(2.0+s.r()*1.6)+(s.r()-.5)*2.0, bz=s.z+s.dz*(2.0+s.r()*1.6)+(s.r()-.5)*2.0, by=Math.min(s.ceil, 2.1+s.r()*1.0);
+      fwBurst(bx,by,bz,.7+s.r()*.5,s.r); const d=Math.hypot(bx-player.x,bz-player.z), v=Math.max(.15,1-d/14)*(s.mine?1:.8);
+      tone(110+s.r()*60,.12,'sine',.22*v,.4); noise(.12,.2*v,1800); s.crk+=1.2; }
+    if(s.crk>0){ s.crk-=dt; if(Math.random()<dt*28){ const d=Math.hypot(s.x-player.x,s.z-player.z), v=Math.max(.1,1-d/14); noise(.018,.12*v,5000+Math.random()*3000); } } }
+  FW.shows=FW.shows.filter(s=>s.k<s.n || s.crk>0 || s.t<s.next+1.5);
+  const pa=FW.pts.geometry.attributes.position.array, ca=FW.pts.geometry.attributes.color.array;
+  for(let i=0;i<FW.n;i++){ const p=FW.P[i]; if(p.t>=p.life){ pa[i*3+1]=-99; continue; }
+    p.t+=dt; const k=p.t/p.life, dr=Math.exp(-p.drag*dt); p.vx*=dr; p.vy*=dr; p.vz*=dr; p.vy-=p.grav*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.z+=p.vz*dt;
+    if(p.y<.02){ p.y=.02; p.vy*=-.3; }
+    let a=(1-k)*(1-k*.3); if(p.tw && k>.45) a*= Math.random()<.5 ? 1.6 : .15;
+    if(p.crk && k>.55 && Math.random()<dt*6){ p.crk=0; for(let q=0;q<5;q++) fwSpark(p.x,p.y,p.z,(Math.random()-.5)*1.2,(Math.random()-.5)*1.2,(Math.random()-.5)*1.2,'#ffffff',.22+Math.random()*.2,{ grav:.5 }); }
+    pa[i*3]=p.x; pa[i*3+1]=p.y; pa[i*3+2]=p.z; a*=.8; ca[i*3]=p.r*a; ca[i*3+1]=p.g*a; ca[i*3+2]=p.b*a; }
+  FW.pts.geometry.attributes.position.needsUpdate=true; FW.pts.geometry.attributes.color.needsUpdate=true;
+  const M=new THREE.Matrix4(), Q=new THREE.Quaternion(), E=new THREE.Euler(), V=new THREE.Vector3(), SC=new THREE.Vector3(1,1,1); let any=false;
+  for(let i=0;i<FW.cn;i++){ const c=FW.C[i]; if(c.t>=c.life){ continue; } any=true; c.t+=dt;
+    const fl=c.y>.03; if(fl){ const dr=Math.exp(-2.4*dt); c.vx*=dr; c.vz*=dr; c.vy=c.vy*Math.exp(-1.2*dt)-3.2*dt; c.vy=Math.max(c.vy,-.7); c.x+=c.vx*dt+Math.sin(c.t*5+i)*.004; c.y+=c.vy*dt; c.z+=c.vz*dt; c.rx+=c.sr*dt; c.ry+=c.sr*.7*dt; } else { c.y=.012; c.rx=-Math.PI/2; c.ry=0; }
+    const k=c.t/c.life, s=k>.85?(1-k)/.15:1; M.compose(V.set(c.x,c.y,c.z), Q.setFromEuler(E.set(c.rx,c.ry,0)), SC.set(s,s,s)); FW.conf.setMatrixAt(i,M);
+    if(c.t>=c.life) FW.conf.setMatrixAt(i,M.makeScale(0,0,0)); }
+  if(any || FW._any) FW.conf.instanceMatrix.needsUpdate=true; FW._any=any;
+}
+function popPopper(){
+  if(HELD.use>0) return; HELD.use=.5; HELD.useDur=.5; HELD.useKind='play';
+  const f=fwd(), seed=ri(1e9), x=player.x+f.x*.45, z=player.z+f.z*.45, y=1.45;
+  fwShow(x, y, z, f.x, f.z, seed, true); netSend('fw',{ x:+x.toFixed(2), y, z:+z.toFixed(2), dx:+f.x.toFixed(3), dz:+f.z.toFixed(3), s:seed });
+  setTimeout(()=>{ if(HELD.kind==='popper'){ holdItem(null); toast('🎉 Pop!',1200); } }, 250);
+}
+
+/* =====================================================================
    3D WORLD — lobby + arcade room (same walking interface as the gallery)
    ===================================================================== */
 const canvas = $('#c');
@@ -8330,7 +8546,7 @@ function screenCanvas(w=320,h=240){ const cv=document.createElement('canvas'); c
 function paintScreen(cab, t){
   const c=cab.sc.getContext('2d'), w=cab.sc.width, h=cab.sc.height;
   try{ c.save(); cab.def.attract(c,w,h,t+cab.phase); c.restore(); }catch(e){ c.restore(); c.fillStyle='#000'; c.fillRect(0,0,w,h); }
-  if(cab.kind!=='hockey' && cab.kind!=='pinball'){
+  if(cab.kind!=='hockey' && cab.kind!=='pinball' && cab.kind!=='stacker'){
     c.fillStyle='rgba(0,0,0,.45)'; c.fillRect(0,h*.78,w,h*.22);
     if(Math.floor((t+cab.phase)*1.6)%2===0) glowText(c, 'PRESS START', w/2, h*.89, Math.round(h*.09), NEON.yellow, { font:HEAD, weight:800, glow:.6 });
     // scanlines
@@ -8427,6 +8643,7 @@ function buildArcade(){
   hockeyTable(G('hockey'), 0, -11);
   andersonsCab(G('andersons'), 1.75, ROOM.z0+.5);
   buildPinball();
+  buildStackCab();
   // back wall sign + series board
   signPlane(signTex([{t:'TWO PLAYER', c:NEON.cyan, size:120},{t:'ARCADE', c:NEON.pink, size:150}],1024,400), 2.7, 1.06, .9, 2.74, ROOM.z0+.12, 0, 1.7);
   // change machine
@@ -8534,6 +8751,7 @@ function viewSpot(cab){
   if(cab.kind==='booth') return { x:cab.x, z:cab.z-4.1, yaw:Math.PI, pitch:-.08 };
   if(cab.kind==='wake') return { x:cab.x, z:cab.z+2.6, yaw:0, pitch:-.12 };
   if(cab.kind==='mole') return { x:cab.x, z:cab.z-1.8, yaw:Math.PI, pitch:-.42 };
+  if(cab.kind==='stacker') return { x:cab.x+cab.nx*1.25, z:cab.z+cab.nz*1.25, yaw:Math.atan2(cab.nx,cab.nz), pitch:-.04 };
   if(cab.kind==='pinball'){ const d=1.25; return { x:cab.x+cab.nx*d, z:cab.z+cab.nz*d, yaw:Math.atan2(cab.nx,cab.nz), pitch:-.5 }; }
   const d=1.45; return { x:cab.x+cab.nx*d, z:cab.z+cab.nz*d, yaw:Math.atan2(cab.nx,cab.nz), pitch:-.12 };
 }
@@ -9427,6 +9645,7 @@ function stripeTex(cols, horiz){ const c=document.createElement('canvas'); c.wid
 function itemMesh(kind, stage=0){
   const g=new THREE.Group(); const add=(geo,mat,x=0,y=0,z=0)=>{ const m=new THREE.Mesh(geo,mat); m.position.set(x,y,z); g.add(m); return m; };
   if(kind==='gumball'||kind==='chewed') return gumItemMesh(kind,stage);
+  if(kind==='popper') return popperMesh();
   const it=ITEMS[kind]||{}; const left = it.bites ? 1-stage/it.bites : 1;
   switch(kind){
     case 'paddle': { const p=add(new THREE.CylinderGeometry(.085,.085,.012,22), imat('#d9a25a')); p.rotation.x=Math.PI/2; p.position.y=.1;
@@ -9504,7 +9723,7 @@ function holdItem(kind, stage=0, quiet){
   HELD.kind=kind; HELD.stage=stage; HELD.use=0;
   if(HELD.viewMesh){ HELD.view.remove(HELD.viewMesh); } HELD.viewMesh=null;
   if(HELD.mesh3 && HELD.mesh3.parent) HELD.mesh3.parent.remove(HELD.mesh3); HELD.mesh3=null;
-  if(kind){ const vm=itemMesh(kind,stage); vm.scale.setScalar(kind==='ball'?.55:kind==='super'?.8:kind==='gumball'?1.5:1); vm.position.set(0,.04,0); if(kind==='plane'){ vm.rotation.y=Math.PI; } HELD.view.add(vm); HELD.viewMesh=vm;
+  if(kind){ const vm=itemMesh(kind,stage); vm.scale.setScalar(kind==='ball'?.55:kind==='super'?.8:kind==='gumball'?1.5:kind==='popper'?.8:1); vm.position.set(0,.04,0); if(kind==='plane'){ vm.rotation.y=Math.PI; } HELD.view.add(vm); HELD.viewMesh=vm;
     attachToHand(me.av, kind, stage, HELD); }
   store('held', kind ? JSON.stringify({kind,stage}) : 'null');
   handUI(); if(!quiet) netSend('hold',{ k:kind||'', st:stage });
@@ -9526,6 +9745,7 @@ function useHeld(){
   const k=HELD.kind, it=ITEMS[k]; if(!it.use) return;
   if(it.superb){ bounceHeld(); return; }
   if(it.gum){ if(HELD.use<=0) chewGum(); return; }
+  if(it.popper){ popPopper(); return; }
   if(it.flies || it.ball){ throwHeld(it.flies?7.5:6); return; }
   if(HELD.use>0) return;
   HELD.use=it.bites?.55:(k==='paddle'?1.6:.9); HELD.useDur=HELD.use; HELD.useKind = it.bites?'eat':'play';
@@ -9681,6 +9901,7 @@ function ticketTexture(){
 function addTicketSlots(){
   const slotM=new THREE.MeshStandardMaterial({color:'#05040a',roughness:.4});
   for(const cab of CABS){
+    if(cab.kind==='stacker') continue;   // a prize machine: no ticket slot
     const a=new THREE.Group();
     if(cab.kind==='upright'){ a.position.set(0,.84,.385); }
     else if(cab.kind==='hockey'){ a.position.set(0,.62,1.27); }
@@ -9725,7 +9946,7 @@ function collectTickets(cab){
 }
 function awardTickets(def, winner){
   // called when a game ends; the machine prints a strip for the winner
-  const cab=CABS.find(c=>c.def===def); if(!cab || winner<0) return;
+  const cab=CABS.find(c=>c.def===def); if(!cab || winner<0 || def.noTix) return;
   if(def.coop && S.mode!=='solo'){   // team games: everyone who flew gets paid
     if(S.mode==='online'){ if(!S.host) return; for(const [owner,p] of [['host',0],['guest',1]]){ const id=uid(); printTickets(cab, 30, owner, id, nameOf(p)); netSend('tix',{ cab:def.id, n:30, owner, id, name:nameOf(p) }); } return; }
     printTickets(cab, S.mode==='cpu'?15:20, 'me', null, S.mode==='cpu'?nameOf(0):'Team'); return; }
@@ -12403,6 +12624,89 @@ function buildVampireCab(){
 }
 
 /* =====================================================================
+   TOWER TOPPER cabinet — Arcade 1, left wall (across from the pinball).
+   A tall prize tower: black base wrapped in a glowing blue grid with a
+   chrome PUSH prize door, a big round STOP button on the ledge, and a
+   glass display case on top. Inside the case: the LED block tower in
+   the middle, party poppers on the MAJOR PRIZE shelf, small prizes on
+   the MINOR PRIZE shelf. A blocky marquee and stacked-block side art.
+   Our own design.
+   ===================================================================== */
+Object.assign(ITEMS, { popper:{ name:'Party popper', icon:'🎉', use:'Pop!', popper:true } });
+Object.assign(RADIUS, { popper:.05 });
+function tcTex(w, h, fn){ const cv=document.createElement('canvas'); cv.width=w; cv.height=h; fn(cv.getContext('2d'), w, h); return canvasTex(cv); }
+function tcGrid(c, w, h, cell){
+  c.fillStyle='#04060e'; c.fillRect(0,0,w,h);
+  c.strokeStyle='#1e8cff'; c.lineWidth=3; c.shadowColor='#29c8ff'; c.shadowBlur=10;
+  for(let x=cell/2;x<w;x+=cell){ c.beginPath(); c.moveTo(x,0); c.lineTo(x,h); c.stroke(); } for(let y=cell/2;y<h;y+=cell){ c.beginPath(); c.moveTo(0,y); c.lineTo(w,y); c.stroke(); } c.shadowBlur=0;
+}
+function tcBlocks(c, x, y, p, rows){ // a stepped tower of glowing blocks
+  rows.forEach((row,r)=>row.forEach(k=>{ const col=TT_COLS[Math.min(14,r*2)]; c.save(); c.shadowColor=col; c.shadowBlur=16; c.fillStyle=col; c.fillRect(x+k*p+3, y-(r+1)*p+3, p-6, p-6); c.restore();
+    c.fillStyle='rgba(255,255,255,.4)'; c.fillRect(x+k*p+6, y-(r+1)*p+6, p-12, (p-12)*.35); }));
+}
+function tcTitle(c, text, x, y, size, rot=0){
+  c.save(); c.translate(x,y); c.rotate(rot); c.textAlign='center'; c.textBaseline='middle'; c.font=`900 ${size}px ${HEAD}`; c.lineJoin='round';
+  c.lineWidth=size*.22; c.strokeStyle='#0a1a3a'; c.strokeText(text,0,0); c.lineWidth=size*.08; c.strokeStyle='#29f0ff'; c.shadowColor='#29f0ff'; c.shadowBlur=18; c.strokeText(text,0,0);
+  c.shadowBlur=0; const g=c.createLinearGradient(0,-size/2,0,size/2); g.addColorStop(0,'#ffffff'); g.addColorStop(1,'#a8e8ff'); c.fillStyle=g; c.fillText(text,0,0); c.restore();
+}
+function buildStackCab(){
+  const def=GAMES.find(g=>g.id==='stacker'); if(!def) return;
+  const X=ROOM.x0+.45, Z=-10.0, W=.84, D=.8;
+  const g=new THREE.Group(); g.position.set(X,0,Z); g.rotation.y=Math.PI/2; scene.add(g);   // faces east, into the room
+  const black=new THREE.MeshStandardMaterial({ color:'#06070e', roughness:.4, metalness:.3 });
+  const grid=tcTex(512,512,(c,w,h)=>tcGrid(c,w,h,64));
+  const gridM=new THREE.MeshStandardMaterial({ map:grid, emissive:'#ffffff', emissiveMap:grid, emissiveIntensity:.8, roughness:.5 });
+  // base (0 – 0.95 m) wrapped in the grid
+  box(W,.95,D,0,.475,0,black,g);
+  { const f=new THREE.Mesh(new THREE.PlaneGeometry(W-.02,.93), gridM); f.position.set(0,.475,D/2+.002); g.add(f);
+    for(const sx of [-1,1]){ const s=new THREE.Mesh(new THREE.PlaneGeometry(D-.02,.93), gridM); s.position.set(sx*(W/2+.002),.475,0); s.rotation.y=sx*Math.PI/2; g.add(s); } }
+  // prize door: recessed dark opening with a chrome PUSH flap
+  box(.3,.26,.02,0,.34,D/2+.006,blackMat,g);
+  { const flap=new THREE.Mesh(new THREE.PlaneGeometry(.26,.22), new THREE.MeshStandardMaterial({ roughness:.25, metalness:.85, map:tcTex(256,220,(c,w,h)=>{ const gr=c.createLinearGradient(0,0,w,h); gr.addColorStop(0,'#e8ecf4'); gr.addColorStop(.5,'#9aa2b2'); gr.addColorStop(1,'#d8dce8'); c.fillStyle=gr; c.fillRect(0,0,w,h);
+      c.font=`900 54px ${HEAD}`; c.textAlign='center'; c.textBaseline='middle'; c.fillStyle='#1a1e2a'; c.fillText('PUSH',w/2,h*.48); c.font=`800 20px ${BODY}`; c.fillText('PRIZE',w/2,h*.78); }) }));
+    flap.position.set(0,.34,D/2+.018); g.add(flap); }
+  tubeX(-.17,.17,.49,D/2+.02,'#29f0ff',.012,g); tubeX(-.17,.17,.19,D/2+.02,'#29f0ff',.012,g);
+  // ledge with the big round STOP button
+  box(W+.04,.06,.2,0,.98,D/2-.04,black,g); tubeX(-W/2-.02,W/2+.02,1.012,D/2+.06,'#ff2bd6',.012,g);
+  { const ring=new THREE.Mesh(new THREE.CylinderGeometry(.11,.11,.03,28), chromeMat); ring.position.set(0,1.025,D/2-.02); g.add(ring);
+    const dome=new THREE.Mesh(new THREE.SphereGeometry(.095,28,14,0,TAU,0,Math.PI/2), new THREE.MeshStandardMaterial({ color:'#ff3a8a', emissive:'#ff2b8a', emissiveIntensity:1.4, roughness:.15 })); dome.scale.y=.55; dome.position.set(0,1.04,D/2-.02); g.add(dome); g.userData.btn=dome;
+    signPlane(signTex([{t:'STOP', c:'#ffffff', size:90, font:HEAD, weight:900}],256,110), .14,.06, 0,1.0,D/2+.061, 0,1.6,g); }
+  // display case (0.98 – 2.02 m): back panel, LED tower, prize shelves, glass
+  box(W,.04,D,0,1.0,0,black,g); box(W,.06,D,0,2.02,0,black,g);
+  for(const sx of [-1,1]) box(.05,1.0,D,sx*(W/2-.025),1.5,0,black,g);
+  { const back=new THREE.Mesh(new THREE.PlaneGeometry(W-.1,.98), new THREE.MeshStandardMaterial({ color:'#0a1030', roughness:.6, emissive:'#0a1a4a', emissiveIntensity:.6 })); back.position.set(0,1.5,-D/2+.05); g.add(back); }
+  const sc=screenCanvas(180,360), tex=canvasTex(sc); const led=new THREE.Mesh(new THREE.PlaneGeometry(.3,.6), new THREE.MeshBasicMaterial({ map:tex })); led.material.color.setScalar(1.3); led.position.set(0,1.5,-D/2+.06); g.add(led);
+  box(.34,.64,.02,0,1.5,-D/2+.045,new THREE.MeshStandardMaterial({ color:'#1a3a8a', emissive:'#29f0ff', emissiveIntensity:.25 }),g);
+  // shelves with labels: MAJOR at the top, MINOR lower down
+  const shelfM=new THREE.MeshStandardMaterial({ color:'#c8d8ff', transparent:true, opacity:.45, roughness:.1, metalness:.3 });
+  for(const sx of [-1,1]){
+    for(const [y,lab,col] of [[1.66,'MAJOR','#ff2bd6'],[1.24,'MINOR','#29f0ff']]){ box(.2,.012,.42,sx*.28,y,-.08,shelfM,g); tubeX(sx*.28-.1,sx*.28+.1,y+.008,.13,col,.006,g);
+      signPlane(signTex([{t:lab, c:col, size:80, font:HEAD, weight:900}],256,90), .14,.05, sx*.28,y-.035,.135, 0,1.6,g); } }
+  // party poppers on the MAJOR shelf, small prizes on the MINOR shelf
+  for(const sx of [-1,1]) for(let k=0;k<3;k++){ const p=popperMesh(); p.scale.setScalar(1.25); p.position.set(sx*.28+(k-1)*.055,1.66+.085,-.12+(k%2)*.07); p.rotation.z=(k-1)*.12; g.add(p); }
+  [['super',-.34,-.08],['chicken',-.22,-.05],['glow',.22,-.1],['puppet',.33,-.05],['paddle',-.28,-.2],['ball',.28,-.2]].forEach(([k,x,z],i)=>{ const m=itemMesh(k,0); m.scale.setScalar(k==='ball'?.35:k==='paddle'?.6:.8); m.position.set(x,1.24+(k==='ball'?.07:k==='paddle'?.1:.05),z); m.rotation.y=i; g.add(m); });
+  // light strips inside the case + the glass front
+  for(const sx of [-1,1]) tubeY(1.04,1.98,sx*(W/2-.06),D/2-.06,'#29f0ff',.01,g);
+  { const glass=new THREE.Mesh(new THREE.PlaneGeometry(W-.1,.96), new THREE.MeshStandardMaterial({ color:'#d8ecff', transparent:true, opacity:.1, roughness:.05, metalness:.2, depthWrite:false })); glass.position.set(0,1.5,D/2-.03); glass.renderOrder=3; g.add(glass); }
+  // marquee on top, slanted back a little, with stacked-block art
+  { const mq=new THREE.Group(); mq.position.set(0,2.2,.03); mq.rotation.x=-.12; g.add(mq); box(W,.32,D-.06,0,0,0,black,mq);
+    const art=tcTex(1024,380,(c,w,h)=>{ tcGrid(c,w,h,48); c.fillStyle='rgba(4,6,14,.55)'; c.fillRect(0,0,w,h);
+      tcBlocks(c,24,h-14,44,[[0,1,2],[1,2],[1,2],[2]]); tcBlocks(c,w-24-44*3,h-14,44,[[0,1,2],[0,1],[1],[1]]);
+      tcTitle(c,'TOWER TOPPER',w/2,h*.44,118); c.font=`800 32px ${HEAD}`; c.textAlign='center'; c.fillStyle='#ff2bd6'; c.shadowColor='#ff2bd6'; c.shadowBlur=12; c.fillText('STACK TO THE TOP · WIN A PRIZE',w/2,h*.82); });
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(W-.02,.3), new THREE.MeshBasicMaterial({ map:art })); m.material.color.setScalar(1.15); m.position.z=(D-.06)/2+.002; mq.add(m);
+    for(const sx of [-1,1]){ const s=new THREE.Mesh(new THREE.PlaneGeometry(D-.08,.3), new THREE.MeshBasicMaterial({ map:tcTex(512,190,(c,w,h)=>{ tcGrid(c,w,h,40); tcTitle(c,'TOWER TOPPER',w/2,h/2,58); }) })); s.position.x=sx*(W/2+.002); s.rotation.y=sx*Math.PI/2; mq.add(s); }
+    tubeX(-W/2,W/2,.17,(D-.06)/2+.01,'#29f0ff',.012,mq); tubeX(-W/2,W/2,-.17,(D-.06)/2+.01,'#29f0ff',.012,mq); }
+  // tall side art on the display case: a block tower climbing the side
+  const sideArt=tcTex(512,640,(c,w,h)=>{ c.fillStyle='#04060e'; c.fillRect(0,0,w,h); tcBlocks(c,w*.12,h-20,62,[[0,1,2,3,4],[1,2,3,4],[1,2,3],[2,3],[2,3],[2],[2],[2],[2]]);
+    c.save(); c.translate(w*.88,h*.5); c.rotate(-Math.PI/2); tcTitle(c,'TOWER TOPPER',0,0,62); c.restore(); });
+  for(const sx of [-1,1]){ const s=new THREE.Mesh(new THREE.PlaneGeometry(D-.02,1.0), new THREE.MeshStandardMaterial({ map:sideArt, emissive:'#ffffff', emissiveMap:sideArt, emissiveIntensity:.55, transparent:false })); s.position.set(sx*(W/2+.003),1.5,0); s.rotation.y=sx*Math.PI/2; g.add(s); }
+  const cab={ def, x:X, z:Z, nx:1, nz:0, sc, tex, phase:2.1, kind:'stacker', sy:1.5, group:g };
+  addHit(cab, 1.0, 2.4, 1.0, 0, 1.2, 0, g);
+  collide(X-.42, X+.42, Z-.44, Z+.44);
+  CABS.push(cab); paintScreen(cab,0);
+}
+
+/* =====================================================================
    ONLINE — PeerJS (WebRTC data channel, free public broker, no key)
    ?net=tab swaps in a BroadcastChannel so two tabs can test it offline.
    ===================================================================== */
@@ -12542,6 +12846,7 @@ function onNet(m){
       if(!o) addFromNet(p, p.rest); else if(!o.sim){ Object.assign(o,{ tx:p.x, ty:p.y, tz:p.z, vx:p.vx, vy:p.vy, vz:p.vz, rest:!!p.rest, st:p.st }); if(p.rest){ o.x=p.x; o.y=p.y; o.z=p.z; } }
       saveRoom(); break; }
     case 'gum': gumNet(m); break;
+    case 'fw': if(partner) fwShow(+m.x||0, +m.y||1.4, +m.z||0, +m.dx||0, +m.dz||0, m.s|0, false); break;
     case 'gumbuy': if(GUMM.g && !GUMM.busy) gumTurn(m.c|0, false); break;
     case 'imove': { const o=WORLD.get(m.id); if(o && !o.sim){ o.tx=m.x; o.ty=m.y; o.tz=m.z; o.vx=m.vx; o.vy=m.vy; o.vz=m.vz; o.rest=false; } break; }
     case 'itemdel': removeWorld(m.id); break;
@@ -12874,7 +13179,7 @@ function raiseCurtain(p){
 }
 function dropCurtain(){ if(!S.curtain) return; S.curtain=false; S.lastViewer=S.pendingViewer; gMsg(null); sfx('sel'); gc.focus({preventScroll:true}); }
 function ticketLine(w){
-  if(w<0) return '';
+  if(w<0 || S.def.noTix) return '';
   if(S.def.coop && S.mode!=='solo'){ const n = S.mode==='online' ? 30 : S.mode==='cpu' ? 15 : 20;
     return S.mode==='online' ? `<p class="tixmsg">🎟️ Team game: the machine printed <b>${n} tickets each</b> — grab yours from the ticket slot!</p>` : `<p class="tixmsg">🎟️ Team game: the machine printed <b>${n} tickets</b> — grab them from the ticket slot!</p>`; }
   if(S.mode==='solo') return w===0 ? '<p class="tixmsg">🎟️ The machine printed <b>10 tickets</b> for finishing — grab them from the ticket slot!</p>' : '';
@@ -13350,7 +13655,7 @@ function frame(){
   placeCamera(dt,t,bob);
   voiceFrame();
   if(me.av) animateAvatar(me.av, dt, { sit:SEAT.on, speed:spd, dance:myDance, beat:musicBeat(t), level:Voice.level, hold:!!HELD.kind, use:HELD.use>0?1-HELD.use/HELD.useDur:0, useKind:HELD.useKind });
-  itemsFrame(dt,t); gumFrame(dt,t); boardFrame(); alleyFrame(dt,t); galFrame(dt,t); fishIdle(dt,t); poolIdle(dt,t); moleIdle(dt,t); ngIdle(t);
+  itemsFrame(dt,t); gumFrame(dt,t); boardFrame(); alleyFrame(dt,t); galFrame(dt,t); fishIdle(dt,t); poolIdle(dt,t); moleIdle(dt,t); ngIdle(t); fwFrame(dt);
   animateJukebox(t);
   // attract screens: refresh the nearest ones every frame, the rest in turn
   const near=CABS.map(c=>[c,Math.hypot(c.x-player.x,c.z-player.z)]).sort((a,b)=>a[1]-b[1]);
@@ -13415,7 +13720,7 @@ function frame(){
   window.__arcadeReady=true;
   requestAnimationFrame(frame);
 })();
-window.__arcade = { makePartner, get partner(){ return partner; }, GUM, GUMM, buyGumball, blowGum, spitGum, chewGum, gumNet, me, viewMode, SEAT, BENCHES, sitOn, standUp, openLaunch, pick, infoOf, handleTap, GAL, GALST, GT, GW, openGallery, closeGallery, galFire, galAimAt, blocked, ALLEY, ALLEYS, openAlley, closeAlley, rollBall, hitList, camera, BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
+window.__arcade = { FW, fwShow, popPopper, colliders, ROOM, LOBBY, makePartner, get partner(){ return partner; }, GUM, GUMM, buyGumball, blowGum, spitGum, chewGum, gumNet, me, viewMode, SEAT, BENCHES, sitOn, standUp, openLaunch, pick, infoOf, handleTap, GAL, GALST, GT, GW, openGallery, closeGallery, galFire, galAimAt, blocked, ALLEY, ALLEYS, openAlley, closeAlley, rollBall, hitList, camera, BOARD, WORLD, HELD, WALLET, holdItem, useHeld, throwHeld, dropHeld, pickUp, setTickets, openShop, buy, printTickets, collectTickets, awardTickets, catchIncoming, voiceToggle, buildAvatar, randomLook, animateAvatar, THREE, BLD, Music, Voice, me, get partner(){ return partner; }, startDance, stopDance, toggleView, openBuilder, closeBuilder, juke, openJuke, S, Net, GAMES, CABS, player, startSession, leaveGame, makeRoom, joinRoom, goTo, openLaunch, gameFrame };
 addEventListener('pagehide', ()=>{ if(Net.connected) leaveRoom(); });
 </script>
 </body>
