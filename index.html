@@ -8383,13 +8383,16 @@ function pcItem(kind, stage){
 /* the concession stand: machine, stacked tubs and loose empties (cs = the stand's group, its customers are on -x) */
 function pcStand(cs){
   if(!PCM.ok) return false;
-  const m=pcPart('PopcornMachine'); m.position.set(.1,1.11,-1.25); m.rotation.y=-Math.PI/2; cs.add(m);
+  const m=pcPart('PopcornMachine'); m.position.set(.18,1.11,-1.62); m.rotation.y=-Math.PI/2; cs.add(m);
   // a warm glow inside the kettle cabinet
-  const glow=new THREE.Mesh(new THREE.BoxGeometry(.7,.5,.66), new THREE.MeshBasicMaterial({ color:'#ffcf6a', transparent:true, opacity:.14, blending:THREE.AdditiveBlending, depthWrite:false })); glow.position.set(.1,1.11+.62,-1.25); cs.add(glow);
-  for(const [n,x,z,ry] of [['StackedLTubs',.35,-.55,.3],['StackedMTubs',.05,-.6,1.1],['StackedSTubs',-.25,-.5,2.0]]){ const t=pcPart(n); t.position.set(x,1.11,z); t.rotation.y=ry; cs.add(t); }
-  for(const [n,x,z,ry] of [['EmptyPopcornTubS',-.32,-.85,.4],['EmptyPopcornTubM',-.3,-1.85,1.3],['FullPopcornTubM',-.28,-1.62,2.1]]){ const t=pcPart(n); t.position.set(x,1.11,z); t.rotation.y=ry; cs.add(t); }
+  const glow=new THREE.Mesh(new THREE.BoxGeometry(.7,.5,.66), new THREE.MeshBasicMaterial({ color:'#ffcf6a', transparent:true, opacity:.14, blending:THREE.AdditiveBlending, depthWrite:false })); glow.position.set(.18,1.11+.62,-1.62); cs.add(glow);
+  for(const [n,x,z,ry] of [['StackedLTubs',.42,-.52,.3],['StackedMTubs',.1,-.55,1.1],['StackedSTubs',-.2,-.5,2.0]]){ const t=pcPart(n); t.position.set(x,1.11,z); t.rotation.y=ry; cs.add(t); }
+  for(const [n,x,z,ry] of [['EmptyPopcornTubS',-.56,-.88,.4],['EmptyPopcornTubM',-.28,-.92,1.3],['FullPopcornTubM',.02,-.92,2.1]]){ const t=pcPart(n); t.position.set(x,1.11,z); t.rotation.y=ry; cs.add(t); }
+  pcCheck(cs);
   return true;
 }
+function pcCheck(cs){ try{ cs.updateMatrixWorld(true); const bs=cs.children.filter(o=>o.isGroup && o.children[0] && o.children[0].children.length).map(o=>new THREE.Box3().setFromObject(o).expandByScalar(-.005));
+  for(let i=0;i<bs.length;i++) for(let j=i+1;j<bs.length;j++) if(bs[i].intersectsBox(bs[j])) console.warn('popcorn stand overlap', i, j); }catch(e){} }
 /* spilled popcorn left on the floor when the tub is picked up */
 const PC_PILES=[];
 function pcPile(x, z, ry){
