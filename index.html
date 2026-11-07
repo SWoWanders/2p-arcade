@@ -8050,8 +8050,8 @@ function ngIdle(t){
 const TT = { W:420, H:800, COLS:7, ROWS:15, MINOR:11, P:46, X0:49, Y0:60 };
 const TT_MINOR = ['paddle','puppet','super','chicken','glow','ball'];
 const TT_COLS = ['#29f0ff','#29f0ff','#29f0ff','#29f0ff','#29f0ff','#3a8aff','#3a8aff','#3a8aff','#3a8aff','#3a8aff','#ffe066','#ffb03a','#ff8a3a','#ff4a8a','#ff2bd6'];
-const ttCap = r => r<5 ? 3 : r<10 ? 2 : 1;
-const ttPer = r => Math.max(.04, .17*Math.pow(.905, r));
+const ttCap = r => r<6 ? 3 : r<11 ? 2 : 1;
+const ttPer = r => Math.max(.055, .19*Math.pow(.915, r));
 function ttCell(c){ const x=TT.X0+c%TT.COLS*TT.P, y=TT.Y0+(TT.ROWS-1-Math.floor(c/TT.COLS))*TT.P; return [x,y]; }
 game({
   id:'stacker', name:'Tower Topper', color:'#29f0ff', color2:'#ff2bd6', kind:'field', touch:'drag', noRotate:true, fitScreen:true, solo:true, onlySolo:true, noTix:true,
