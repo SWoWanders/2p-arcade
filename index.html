@@ -8040,7 +8040,7 @@ function ngIdle(t){
    classic LED stacking game). A row of lit blocks slides side to side;
    press to stop it on top of the row below. Anything hanging over the
    edge falls away. Rows get faster as you climb. The row starts 5 blocks
-   wide, narrows to 4 at row 4, 3 at row 7 and 1 at row 12.
+   wide, narrows to 4 at row 4, 3 at row 7 and 2 at row 12.
      Row 11 = MINOR PRIZE line: take a small prize, or keep going.
      Row 15 = MAJOR PRIZE: a party popper.
    Prizes drop out of the machine's prize door, not tickets.
@@ -8050,7 +8050,7 @@ function ngIdle(t){
 const TT = { W:420, H:800, COLS:7, ROWS:15, MINOR:11, P:46, X0:49, Y0:60 };
 const TT_MINOR = ['paddle','puppet','super','chicken','glow','ball'];
 const TT_COLS = ['#29f0ff','#29f0ff','#29f0ff','#29f0ff','#29f0ff','#3a8aff','#3a8aff','#3a8aff','#3a8aff','#3a8aff','#ffe066','#ffb03a','#ff8a3a','#ff4a8a','#ff2bd6'];
-const ttCap = r => r<3 ? 5 : r<6 ? 4 : r<11 ? 3 : 1;
+const ttCap = r => r<3 ? 5 : r<6 ? 4 : r<11 ? 3 : 2;
 const ttPer = r => Math.max(.055, .19*Math.pow(.915, r));
 function ttCell(c){ const x=TT.X0+c%TT.COLS*TT.P, y=TT.Y0+(TT.ROWS-1-Math.floor(c/TT.COLS))*TT.P; return [x,y]; }
 game({
