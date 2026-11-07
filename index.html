@@ -9405,6 +9405,7 @@ function initHeld(){
   try{ const h=JSON.parse(store('held')||'null'); if(h && ITEMS[h.kind]) holdItem(h.kind, h.stage||0, true); }catch(e){}
   setTickets(WALLET.n);
 }
+const AV3=new THREE.Vector3(), AV3b=new THREE.Vector3(), UP3=new THREE.Vector3(0,1,0);
 function skinForView(){ const L=me.av?me.av.look:null; if(L) HELD.arm.material.color.set(SKINS[L.skin][1]); }
 function holdItem(kind, stage=0, quiet){
   HELD.kind=kind; HELD.stage=stage; HELD.use=0;
@@ -9537,6 +9538,9 @@ function itemsFrame(dt,t){
     else { v.rotation.z*=.8; if(HELD.kind==='paddle' && HELD.viewMesh){ const b=HELD.viewMesh.getObjectByName('ball'); if(b && b.position.z!==.06){ b.position.z=.06; HELD.viewMesh.getObjectByName('string').geometry.setFromPoints([new THREE.Vector3(0,.1,.007), new THREE.Vector3(0,.1,.06)]); } } }
     const bob=Math.sin(t*2)*.004 + Math.sin(performance.now()/170)*.01*Math.min(1,Math.hypot(player.vx,player.vz)/2.7);
     v.position.set(px, py+bob, pz); v.rotation.x=rx-.12; v.rotation.y=.32;   // tipped back a little and turned inward
+    // the forearm runs from the hand toward the lower-right corner of the view (a shorter, steeper run on tall screens)
+    if(HELD.arm){ const S=tall ? AV3.set(.05,-.1,.3) : AV3.set(.13,-.09,.3), L=S.length(); HELD.arm.position.copy(S).multiplyScalar(.5);
+      HELD.arm.quaternion.setFromUnitVectors(UP3, AV3b.copy(S).normalize()); HELD.arm.rotation.order='XYZ'; HELD.arm.scale.set(1, L/.29, 1); }
     if(HELD.kind==='glow' && HELD.viewMesh){ const s=HELD.viewMesh.getObjectByName('stick'); if(s) s.material.color.set(['#39ff14','#ff2bd6','#00f0ff','#ffe600'][Math.floor(t*(HELD.use>0?8:.5))%4]).multiplyScalar(2.4); }
   }
   // catching
