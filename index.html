@@ -5976,7 +5976,9 @@ game({
      Jump + attack in the air is a flying kick. Press attack and jump
      together for a spinning special that clears space but costs health.
    · The screen stops at each gang ambush until it's cleared, then GO →.
-   · Smash bins and crates for food. Each stage ends with a boss.
+   · Smash bins and crates for food — or press attack right next to one to
+     lift it over your head, carry it, and attack again to throw it at the
+     gang (jump puts it down). Each stage ends with a boss.
    ===================================================================== */
 const AN = { W:1600, H:900, FY0:575, FY1:868, G:2700, JV:1000, LIVES:3 };
 const AN_FAM = [
@@ -6030,7 +6032,7 @@ game({
     const D=AN_STAGES[n]; s.st=n; s.cam=0; s.lock=null; s.wi=0; s.q=[]; s.en=[]; s.pr=[]; s.it=[]; s.fx=[]; s.boss=null; s.go=0;
     s.pp=D.props.map(([x,k],i)=>({ id:anId++, k, x, y:AN.FY0+30+((i*97)%3)*40, hp:k==='crate'?3:2, hit:0 }));
     s.pl.forEach((P,p)=>{ if(P.out && s.pl.some(Q=>!Q.out)){ P.out=false; P.lives=1; }
-      if(!P.out){ Object.assign(P,{ x:200+p*140, y:690+p*80, z:0, vx:0, vy:0, vz:0, face:1, st:'idle', t:0, inv:2, hp:Math.max(P.hp, n?70:100) }); } });
+      if(!P.out){ Object.assign(P,{ x:200+p*140, y:690+p*80, z:0, vx:0, vy:0, vz:0, face:1, st:'idle', t:0, inv:2, carry:null, hp:Math.max(P.hp, n?70:100) }); } });
     s.ph='intro'; s.pt=0; s.banner=`STAGE ${n+1} · ${D.name}`; s.bT=2.6; anEv(s,'stage');
   },
   /* ------------------------------------------------------------------ tick */
@@ -6093,12 +6095,22 @@ game({
   _player(s, P, I, dt, D){
     if(P.out) return;
     const F=AN_FAM[P.ch]; P.t+=dt; if(P.inv>0) P.inv-=dt; if(P.cT>0) P.cT-=dt; else P.combo=0;
-    const air=P.z>0||P.vz>0, busy=['atk','hurt','down','up','spec','gone'].includes(P.st);
+    const air=P.z>0||P.vz>0, busy=['atk','hurt','down','up','spec','gone','lift','throw'].includes(P.st);
+    if(P.carry && (P.st==='down'||P.st==='gone'||P.out)) this._dropCarry(s,P);
     if(P.st==='gone'){ if(P.t>1.4){ if(P.lives>0){ Object.assign(P,{ st:'jump', z:520, vz:0, hp:100, inv:3, x:clamp(s.cam+300+P.p*120, s.cam+80, s.cam+AN.W-80), y:720, t:0 }); } else { P.out=true; } } return; }
     if(s.ph==='clear'){ P.vx=0; if(!air && P.st!=='down') { P.st='idle'; } }
     // controls
-    if(!busy && s.ph!=='clear'){
+    if(!busy && s.ph!=='clear' && P.carry){   // carrying a bin or crate over your head: walk, attack throws, jump sets it down
+      const sp=F.spd*.78; P.vx=I.x*sp; P.vy=I.y*sp*.62; if(Math.abs(I.x)>.15) P.face=I.x>0?1:-1;
+      if(I.a){ P.st='throw'; P.t=0; P._thrown=false; anEv(s,'swish',P.x,P.y); }
+      else if(I.j){ this._dropCarry(s,P,true); }
+      else P.st = Math.hypot(P.vx,P.vy)>20 ? 'walk' : 'idle';
+    }
+    else if(!busy && s.ph!=='clear'){
       const sp=F.spd*(air?.85:1);
+      const near = (I.a && !air && !I.j) ? this._propAt(s,P) : null;
+      if(near){ s.pp=s.pp.filter(o=>o!==near); P.carry={ k:near.k, id:near.id }; P.st='lift'; P.t=0; P.vx=0; P.vy=0; anEv(s,'lift',P.x,P.y); }
+      else {
       if(!air){ P.vx=I.x*sp; P.vy=I.y*sp*.62; }
       else { P.vx+=(I.x*sp-P.vx)*Math.min(1,dt*3); P.vy+=(I.y*sp*.5-P.vy)*Math.min(1,dt*3); }
       if(Math.abs(I.x)>.15) P.face=I.x>0?1:-1;
@@ -6107,9 +6119,12 @@ game({
       else if(I.a){ if(air){ if(P.st!=='jatk'){ P.st='jatk'; P.t=0; P._hits=[]; anEv(s,'swish',P.x,P.y); } }
         else { P.st='atk'; P.t=0; P._hits=[]; P.combo = P.cT>0 ? (P.combo+1)%3 : 0; P.cT=.55; anEv(s,'swish',P.x,P.y); } }
       else if(!air && P.st!=='jatk') P.st = Math.hypot(P.vx,P.vy)>20 ? 'walk' : 'idle';
+      }
     } else if(P.st==='atk' && I.j && P.t<.1) this._special(s,P);
     else if(P.st==='atk' && I.a) P._buf=1;
-    if(['atk','hurt','spec','up','down'].includes(P.st) && !air){ P.vx*=Math.pow(.02,dt); P.vy*=Math.pow(.02,dt); }
+    if(P.st==='lift'){ if(P.t>=.26){ P.st='idle'; P.t=0; } }
+    if(P.st==='throw'){ if(!P._thrown && P.t>=.09){ P._thrown=true; this._throw(s,P); } if(P.t>=.3){ P.st='idle'; P.t=0; } }
+    if(['atk','hurt','spec','up','down','lift','throw'].includes(P.st) && !air){ P.vx*=Math.pow(.02,dt); P.vy*=Math.pow(.02,dt); }
     // physics
     P.x+=P.vx*dt; P.y+=P.vy*dt; if(air || P.vz>0){ P.vz-=AN.G*dt; P.z+=P.vz*dt; if(P.z<=0){ P.z=0; P.vz=0; if(P.st==='jump'||P.st==='jatk'){ P.st='idle'; P.t=0; } if(P.st==='down' && P.hp<=0){} } }
     P.y=clamp(P.y,AN.FY0,AN.FY1); P.x=clamp(P.x, s.cam+50, s.cam+AN.W-50);
@@ -6124,6 +6139,16 @@ game({
     if(P.st==='down'){ if(P.z<=0 && P.t>1.0){ if(P.hp<=0){ P.lives--; P.st='gone'; P.t=0; anEv(s,'ko',P.x,P.y); } else { P.st='up'; P.t=0; P.inv=1.2; } } }
     if(P.st==='up' && P.t>.35){ P.st='idle'; P.t=0; }
   },
+  // a bin or crate right at your feet, in front of you
+  _propAt(s, P){ let best=null, bd=1e9; for(const o of s.pp){ if(o.hp<=0) continue; const dx=(o.x-P.x)*P.face, dy=Math.abs(o.y-P.y);
+      if(dx>-30 && dx<95 && dy<38){ const d=Math.abs(dx)+dy; if(d<bd){ bd=d; best=o; } } }
+    // if one of the gang is closer in front, swing at them instead
+    if(best) for(const e of s.en){ if(e.st==='die'||e.dead) continue; const dx=(e.x-P.x)*P.face; if(dx>-10 && dx<bd-10 && Math.abs(e.y-P.y)<30 && Math.abs(e.z-P.z)<80) return null; }
+    return best; },
+  _throw(s, P){ if(!P.carry) return; const k=P.carry.k; P.carry=null;
+    s.pr.push({ id:anId++, k:k==='crate'?'tcrate':'tbin', own:1, p:P.p, x:P.x+P.face*30, y:P.y, z:175*anSc(P.y)+P.z, vx:P.face*1080, vz:180, t:0, dmg:k==='crate'?34:28, hits:[] }); anEv(s,'toss',P.x,P.y); },
+  _dropCarry(s, P, gentle){ if(!P.carry) return; const k=P.carry.k; P.carry=null;
+    s.pp.push({ id:anId++, k, x:clamp(P.x+P.face*(gentle?60:20), s.cam+60, s.cam+AN.W-60), y:P.y, hp:k==='crate'?3:2, hit:0 }); if(gentle){ P.st='idle'; P.t=0; anEv(s,'thud',P.x,P.y); } },
   _special(s, P){ if(P.st==='spec') return; P.st='spec'; P.t=0; P._hits=[]; P.inv=Math.max(P.inv,.6); P.hp=Math.max(1,P.hp-6); anEv(s,'spec',P.x,P.y,P.ch); },
   _hit(s, P, reach, dmg, knock, around){
     P._hits=P._hits||[];
@@ -6202,9 +6227,17 @@ game({
   },
   _proj(s, q, dt){
     q.t+=dt; q.x+=q.vx*dt;
+    if(q.own){ q.vz-=AN.G*.45*dt; q.z+=q.vz*dt; const P=s.pl[q.p];
+      for(const e of s.en){ if(e.st==='die'||e.st==='drop'||e.dead||q.hits.includes(e.id)) continue; const E=AN_EN[e.k];
+        if(Math.abs(e.x-q.x)<E.r+38 && Math.abs(e.y-q.y)<42 && q.z>e.z-20 && q.z<e.z+220*anSc(e.y)){ q.hits.push(e.id); e.inv=0; this._dmgEnemy(s, e, q.dmg, true, Math.sign(q.vx), P); q.dead=true; break; } }
+      if(q.z<=0 && !q.dead){ q.dead=true; }
+      if(q.dead){ anEv(s,'smash',q.x,q.y); s.fx.push({ k:'pow', x:q.x, y:q.y, z:Math.max(30,q.z), t:0 });
+        const r=Math.random(); if(r<.75) s.it.push({ id:anId++, k:r<.12?'pie':r<.42?'donut':'apple', x:clamp(q.x,s.cam+60,s.cam+AN.W-60), y:q.y, t:0 }); }
+      return; }
     for(const P of s.pl){ if(P.out||P.inv>0||P.st==='down'||P.st==='gone') continue; if(Math.abs(P.x-q.x)<36 && Math.abs(P.y-q.y)<28 && P.z<q.z+30){ q.dead=true; this._hurtP(s,P,q.dmg,Math.sign(q.vx),false); anEv(s,q.k==='pie'?'splat':'hit',P.x,P.y); break; } }
   },
   _hurtP(s, P, dmg, dir, knock){
+    if(P.carry){ this._dropCarry(s,P); if(P.st==='lift'||P.st==='throw'){ P.st='idle'; } }
     dmg=Math.round(dmg*(s.solo?.8:1)); P.hp-=dmg; s.fx.push({ k:'pow', x:P.x, y:P.y, z:P.z+90*anSc(P.y), t:0, c:'#ff4a4a' }); anEv(s,'ouch',P.x,P.y,P.ch);
     if(P.hp<=0){ P.hp=0; knock=true; }
     if(knock){ P.st='down'; P.t=0; P.vx=dir*260; P.vz=440; P.inv=2; }
@@ -6304,6 +6337,13 @@ function anPose(e, t, dur, isP){
     if(mv==='charge'){ P.lean=.3; const w=(e.t||0)*14; P.la=Math.sin(w)*.8; P.lb=-Math.sin(w)*.8; P.ka=.2+Math.max(0,Math.cos(w)); P.kb=.2+Math.max(0,-Math.cos(w)); P.aa=1.3; P.ab=1.1; P.ea=.5; P.eb=.5; }
     else if(mv==='slam'){ const q=clamp((e.t||0)/.6,0,1); P.aa=q<1?lerp(.2,3,q):lerp(3,.6,clamp(((e.t||0)-.6)/.2,0,1)); P.ab=P.aa; P.ea=.2; P.eb=.2; P.ka=q<1?.2:.8; P.kb=P.ka; }
     else { P.aa=Math.sin((e.t||0)*14)>0?1.6:.4; P.ea=.2; } }
+  if(isP && (e.carry || st==='throw')){
+    const up = st==='lift' ? clamp((e.t||0)/.26,0,1) : st==='throw' ? 1-clamp((e.t||0)/.14,0,1) : 1;
+    const aA=lerp(1.4,2.9,up), aB=lerp(1.2,3.05,up); P.aa=aA; P.ab=aB; P.ea=lerp(.9,.28,up); P.eb=lerp(.9,.22,up); P.trail=null; P.ext=0;
+    if(st==='lift'){ P.ka=lerp(.9,.15,up); P.kb=lerp(.9,.15,up); P.bob=lerp(18,0,up); }
+    if(st==='throw'){ P.lean=.18; P.mouth='yell'; }
+    else if(st!=='walk'){ P.la=.05; P.lb=-.05; }
+    if(st!=='throw') P.mouth = isP ? 'grin' : P.mouth; }
   return P;
 }
 /* ---------------- drawing helpers ---------------- */
@@ -6437,7 +6477,7 @@ function anPerson(c, L, x, y, z, face, P, t, o={}){
     c.strokeStyle='rgba(255,255,255,.5)'; c.lineWidth=8; c.stroke(); c.restore(); }
   else if(P.trail && L.wpn==='fist'){ c.save(); c.globalCompositeOperation='lighter'; c.strokeStyle='rgba(255,200,255,.45)'; c.lineWidth=5; for(let k=0;k<3;k++){ c.beginPath(); c.moveTo(tw*.3-20-k*10,shY+8+k*10); c.lineTo(tw*.3+20,shY+8+k*10); c.stroke(); } c.restore(); }
   const r=arm(P.aa,P.ea,true);
-  if(L.wpn) anWeapon(c, L, r.ex, r.ey, r.a2, P, o.reach||120, t);
+  if(L.wpn && !o.carry) anWeapon(c, L, r.ex, r.ey, r.a2, P, o.reach||120, t);
   if(o.flash){ c.globalCompositeOperation='source-atop'; c.fillStyle='rgba(255,255,255,.6)'; c.fillRect(-220,-420,440,520); c.globalCompositeOperation='source-over'; }
   c.restore();
 }
@@ -6656,16 +6696,20 @@ function anFood(c, k, x, y, t){
 function anProp(c, o, t){
   c.save(); c.translate(o.x,o.y); const S=anSc(o.y); c.scale(S,S); anShadow(c,42,10);
   if(o.hp<=0){ c.globalAlpha=Math.max(0,1-o.hit*2); const r=prng(o.id); for(let k=0;k<9;k++){ const dx=(r()-.5)*100*(1+o.hit*2), dy=-20-r()*50+o.hit*80, rot=r()*6+o.hit*8; c.save(); c.translate(dx,dy); c.rotate(rot); c.beginPath(); c.rect(-11,-4,22,8); anBlob(c,o.k==='crate'?'#b8823e':'#9aa0a8',2); c.restore(); } c.restore(); return; }
-  if(o.k==='bin'){ const g=c.createLinearGradient(-30,0,30,0); g.addColorStop(0,'#6a7078'); g.addColorStop(.5,'#b8c0c8'); g.addColorStop(1,'#7a8088');
+  anPropBody(c, o.k);
+  c.restore();
+}
+function anPropBody(c, k){
+  if(k==='bin'){ const g=c.createLinearGradient(-30,0,30,0); g.addColorStop(0,'#6a7078'); g.addColorStop(.5,'#b8c0c8'); g.addColorStop(1,'#7a8088');
     c.beginPath(); c.moveTo(-26,0); c.lineTo(-31,-80); c.lineTo(31,-80); c.lineTo(26,0); c.closePath(); anBlob(c,g,3); c.strokeStyle='#5a6068'; c.lineWidth=2; for(const x of [-14,0,14]){ c.beginPath(); c.moveTo(x,-74); c.lineTo(x*.9,-6); c.stroke(); }
     c.beginPath(); c.ellipse(0,-84,35,10,0,0,TAU); anBlob(c,'#c8d0d8',3); c.beginPath(); c.ellipse(0,-92,11,5,0,Math.PI,TAU); anInk(c,3); }
   else { c.beginPath(); c.rect(-37,-74,74,74); anBlob(c,'#c08a44',3); c.strokeStyle='#7a5222'; c.lineWidth=3; for(const y of [-50,-25]){ c.beginPath(); c.moveTo(-37,y); c.lineTo(37,y); c.stroke(); }
     c.beginPath(); c.moveTo(-37,-74); c.lineTo(37,0); c.moveTo(37,-74); c.lineTo(-37,0); c.lineWidth=6; c.stroke(); c.strokeStyle=AN_INK; c.lineWidth=3; c.strokeRect(-37,-74,74,74); c.fillStyle='rgba(255,230,180,.25)'; c.fillRect(-35,-72,10,70); }
-  c.restore();
 }
 function anProj(c, q, t){
   c.save(); c.translate(q.x,q.y); anShadow(c,18,5); c.translate(0,-q.z);
-  if(q.k==='pie'){ c.rotate(t*10); c.beginPath(); c.ellipse(0,0,21,11,0,0,TAU); anBlob(c,'#f4ecd8',2.5); c.beginPath(); c.ellipse(0,-3,16,6,0,0,TAU); c.fillStyle='#e85a8a'; c.fill(); }
+  if(q.k==='tbin'||q.k==='tcrate'){ const S=anSc(q.y)*.85; c.scale(S,S); c.rotate(q.t*9*Math.sign(q.vx)); c.translate(0,40); anPropBody(c, q.k==='tcrate'?'crate':'bin'); }
+  else if(q.k==='pie'){ c.rotate(t*10); c.beginPath(); c.ellipse(0,0,21,11,0,0,TAU); anBlob(c,'#f4ecd8',2.5); c.beginPath(); c.ellipse(0,-3,16,6,0,0,TAU); c.fillStyle='#e85a8a'; c.fill(); }
   else if(q.k==='pin'){ c.rotate(t*16); c.beginPath(); c.ellipse(0,0,8,21,0,0,TAU); anBlob(c,'#f6f6f6',2.5); c.fillStyle='#d22a3a'; c.fillRect(-7,-6,14,4); }
   else { c.save(); c.globalCompositeOperation='lighter'; anGlow(c,0,0,46,'rgba(110,210,255,A)',.6); c.restore(); c.fillStyle='#e6faff'; c.beginPath(); c.ellipse(0,0,26,7,0,0,TAU); c.fill(); }
   c.restore();
@@ -6740,8 +6784,11 @@ function anDraw(g, s, t){
     else if(k===3){ const P=o; if(P.st==='gone' && P.t>.4) continue; const F=AN_FAM[P.ch], L=AN_LOOK[AN_FAMK[P.ch]];
       const blink = P.inv>0 && P.st!=='down' && Math.floor(t*14)%2;
       c.save(); c.translate(P.x,P.y); c.scale(1,.3); c.strokeStyle=PC[P.p]; c.globalAlpha=.55; c.lineWidth=5; c.beginPath(); c.arc(0,0,46*anSc(P.y),0,TAU); c.stroke(); c.restore();
-      anPerson(c, L, P.x, P.y, P.z, P.face, anPose(P,t,F.dur*(P.combo===2?1.25:1),true), t, { alpha: blink?.45:(P.st==='gone'?Math.max(0,1-P.t*2.5):1), hurt:P.st==='hurt'||P.st==='down', reach:F.reach });
-      const S=anSc(P.y), ty=P.y-P.z-(190*L.h+30)*S; c.save(); c.font=`900 22px ${HEAD}`; c.textAlign='center'; c.lineWidth=5; c.strokeStyle=AN_INK; c.strokeText(`${P.p+1}P`,P.x,ty); c.fillStyle=PC[P.p]; c.fillText(`${P.p+1}P`,P.x,ty);
+      anPerson(c, L, P.x, P.y, P.z, P.face, anPose(P,t,F.dur*(P.combo===2?1.25:1),true), t, { alpha: blink?.45:(P.st==='gone'?Math.max(0,1-P.t*2.5):1), hurt:P.st==='hurt'||P.st==='down', reach:F.reach, carry:!!P.carry||P.st==='throw' });
+      const S=anSc(P.y); let lift=0;
+      if(P.carry){ const k = P.st==='lift' ? clamp(P.t/.26,0,1) : 1, w=P.st==='walk'?Math.abs(Math.sin(P.wp||0))*4:0;
+        c.save(); c.translate(P.x+P.face*(lerp(40,4,k))*S, P.y-P.z-lerp(20, 168*L.h, k)*S - w*S); c.scale(S*.85*P.face,S*.85); c.rotate(lerp(.15,0,k)); anPropBody(c, P.carry.k); c.restore(); lift=90; }
+      const ty=P.y-P.z-(190*L.h+30+lift)*S; c.save(); c.font=`900 22px ${HEAD}`; c.textAlign='center'; c.lineWidth=5; c.strokeStyle=AN_INK; c.strokeText(`${P.p+1}P`,P.x,ty); c.fillStyle=PC[P.p]; c.fillText(`${P.p+1}P`,P.x,ty);
       c.beginPath(); c.moveTo(P.x-7,ty+8); c.lineTo(P.x+7,ty+8); c.lineTo(P.x,ty+16); c.closePath(); c.fill(); c.restore(); }
     else anProj(c,o,t); }
   anParticles(c, dt);
@@ -6839,6 +6886,7 @@ function anSounds(s){
       case 'whistle': tone(1600,.25,'sine',.06,1.3); break;
       case 'land': noise(.3,.22,350); break;
       case 'tick': tone(1320,.03,'square',.05); break;
+      case 'lift': tone(180,.16,'sine',.1,1.8); noise(.08,.08,600); break;
       case 'pick': tone(660,.08,'square',.08,1.5); tone(990,.12,'square',.06,1,.08); break;
     } }
 }
