@@ -728,7 +728,7 @@ function sndReplay(m){
 const SFX = {
   blip:()=>tone(880,.05,'square',.08), tick:()=>tone(1320,.03,'square',.05), sel:()=>tone(660,.06,'triangle',.12,1.5),
   hit:()=>tone(520,.05,'square',.12,.6), wall:()=>tone(300,.05,'square',.08,.7), shoot:()=>tone(900,.12,'sawtooth',.08,.3),
-  skid:()=>{ noise(.34,.16,5200); [[1850,1.1,0],[2120,.92,.075],[1960,1.06,.15],[2200,.85,.225]].forEach(([f,sl,d])=>{ tone(f,.1,'sawtooth',.045,sl,d); tone(f*1.5,.1,'square',.022,sl,d); }); },
+  skid:()=>{ [2900,3150,2800,3250,2950,3100,2850].forEach((f,k)=>{ const d=k*.062; tone(f,.038,'square',.05,1.12,d); tone(f*1.01,.038,'sine',.06,1.1,d); noise(.03,.05,6000,d); }); },   // squeaky staccato brakes: eek-eek-eek
   boom:()=>{ noise(.5,.35,900); tone(120,.4,'sawtooth',.12,.3); }, crash:()=>{ noise(.6,.35,1400); tone(200,.5,'square',.1,.2); },
   goal:()=>{ [523,659,784,1046].forEach((f,i)=>tone(f,.12,'square',.1,1,i*.08)); }, drop:()=>tone(240,.1,'triangle',.18,.5),
   miss:()=>{ noise(.2,.15,500); tone(200,.15,'sine',.1,.5); }, sunk:()=>{ noise(.7,.3,700); [300,240,180].forEach((f,i)=>tone(f,.18,'sawtooth',.1,1,i*.12)); },
