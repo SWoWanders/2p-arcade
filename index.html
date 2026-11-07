@@ -2423,8 +2423,7 @@ game({
     if(c.grounded && c.wasAir>.35) emit('thump');
     c.wasAir = c.grounded ? 0 : c.airT;
     if(c.impacts.length){ for(const im of c.impacts) c.damage+=Math.max(0,im-5.5)*4; c.impacts.length=0; }
-    if(c.mode==='drive' && c.teeter){ if(!c.wasTeeter){ emit('bump'); if(!ctlIn.ai) this._msg(c,'⚠ STEER BACK!',1.0); } if(Math.random()<h*5) emit('bump'); }
-    if(c.mode==='drive' && c.wasTeeter && !c.teeter && c.y>-1 && !ctlIn.ai && c.msg==='⚠ STEER BACK!') this._msg(c,'SAVED!',1.0);
+    if(c.mode==='drive' && c.teeter){ if(!c.wasTeeter) emit('bump'); if(Math.random()<h*5) emit('bump'); }
     c.wasTeeter = c.mode==='drive' && c.teeter;
     if(c.mode==='drive' && res==='fell'){ c.mode='fall'; c.modeT=0; c.falls++; c.damage+=8; this._msg(c,'OFF THE GIRDER!',1.8); }
     if(c.mode==='fall'){ c.modeT+=h;
