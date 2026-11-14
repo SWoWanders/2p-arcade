@@ -5845,7 +5845,7 @@ function anEv(s, k, x=0, y=0, a=0){ s.evn=(s.evn||0)+1; s.ev.push({ i:s.evn, k, 
 function anSc(y){ return (.82+.3*(y-AN.FY0)/(AN.FY1-AN.FY0))*1.3; }   // things nearer the front of the floor look bigger
 
 game({
-  id:'andersons', name:'The Samsons', color:'#ff7a2a', color2:'#3ad0c0', kind:'field', noRotate:true, coop:true, touch:'pad', padLabel:'HIT', pad2:'JUMP', solo:true, W:AN.W, H:AN.H, netDt:1/20, netRound:1,
+  id:'andersons', name:'The Samsons', color:'#ff7a2a', color2:'#3ad0c0', kind:'field', noRotate:true, coop:true, ownBanner:true, touch:'pad', padLabel:'HIT', pad2:'JUMP', solo:true, W:AN.W, H:AN.H, netDt:1/20, netRound:1,
   cpuText:'🤖 Play with the computer<small>A computer Samson fights beside you</small>', soloText:'🥧 Solo<small>One Samson against the whole gang</small>', endKick:'team game',
   blurb:"Baron Pinchley's gang swiped Gran's prize maple pie! Pick two of the four Samsons and brawl down Maple Street, through the county fair and up Pinchley Tower to get it back.",
   how:{ touch:'Drag on the left to walk (up and down moves you into and out of the scene). <b>HIT</b> to attack — three quick hits make a combo. <b>JUMP</b>, then HIT in the air for a flying kick. Press both together for a spin special (costs a little health).',
@@ -6313,7 +6313,6 @@ function anPerson(c, L, x, y, z, face, P, t, o={}){
   else if(P.trail && L.wpn==='fist'){ c.save(); c.globalCompositeOperation='lighter'; c.strokeStyle='rgba(255,200,255,.45)'; c.lineWidth=5; for(let k=0;k<3;k++){ c.beginPath(); c.moveTo(tw*.3-20-k*10,shY+8+k*10); c.lineTo(tw*.3+20,shY+8+k*10); c.stroke(); } c.restore(); }
   const r=arm(P.aa,P.ea,true);
   if(L.wpn && !o.carry) anWeapon(c, L, r.ex, r.ey, r.a2, P, o.reach||120, t);
-  if(o.flash){ c.globalCompositeOperation='source-atop'; c.fillStyle='rgba(255,255,255,.6)'; c.fillRect(-220,-420,440,520); c.globalCompositeOperation='source-over'; }
   c.restore();
 }
 function anCoon(c, e, t, o={}){
@@ -6332,7 +6331,6 @@ function anCoon(c, e, t, o={}){
   c.beginPath(); c.ellipse(hx+11,hy+5,11,8,0,0,TAU); anBlob(c,'#f2f2f6',2);
   c.fillStyle='#1a1a22'; c.beginPath(); c.ellipse(hx+4,hy-3,15,7,0,0,TAU); c.fill(); c.fillStyle='#fff'; c.beginPath(); c.arc(hx+8,hy-3,3.5,0,TAU); c.fill(); c.fillStyle='#d22'; c.beginPath(); c.arc(hx+8.5,hy-3,1.6,0,TAU); c.fill();
   c.fillStyle='#000'; c.beginPath(); c.arc(hx+21,hy+3,3.5,0,TAU); c.fill(); if(e.st==='atk'||e.st==='wind'){ c.fillStyle='#fff'; c.fillRect(hx+13,hy+9,3,4); c.fillRect(hx+17,hy+9,3,4); }
-  if(o.flash){ c.globalCompositeOperation='source-atop'; c.fillStyle='rgba(255,255,255,.6)'; c.fillRect(-100,-100,200,110); }
   c.restore();
 }
 function anMech(c, e, t, o={}){
@@ -6358,11 +6356,15 @@ function anMech(c, e, t, o={}){
   c.beginPath(); c.arc(0,-174-bob,50,Math.PI,TAU); c.fillStyle=dg; c.fill(); c.strokeStyle='#d8dce8'; c.lineWidth=5; c.stroke(); c.strokeStyle=AN_INK; c.lineWidth=2; c.stroke();
   c.strokeStyle='rgba(255,255,255,.7)'; c.lineWidth=4; c.beginPath(); c.arc(0,-174-bob,40,Math.PI*1.15,Math.PI*1.4); c.stroke();
   c.beginPath(); c.rect(-74,-196-bob,12,26); anBlob(c,'#2a2a30',2.5); if(Math.sin(t*9)>0){ c.fillStyle='rgba(140,140,150,.5)'; c.beginPath(); c.arc(-68,-206-bob-(t*40%22),9,0,TAU); c.fill(); }
-  if(o.flash){ c.globalCompositeOperation='source-atop'; c.fillStyle='rgba(255,255,255,.6)'; c.fillRect(-130,-270,260,270); }
   c.restore();
 }
 function anDrawEnemy(c, e, t){
   const o={ flash:e.flash>0, hurt:e.st==='hurt'||e.st==='down'||e.st==='die', alpha: e.st==='die' ? (Math.floor(e.t*14)%2?.25:.9) : 1 };
+  // a hit flash brightens just the figure (a canvas filter), rather than painting a white box over the scene
+  if(o.flash && 'filter' in c){ c.save(); c.filter='brightness(1.9) saturate(.75)'; o.flash=false; anDrawEnemy2(c,e,t,o); c.restore(); return; }
+  anDrawEnemy2(c,e,t,o);
+}
+function anDrawEnemy2(c, e, t, o){
   if(e.k==='coon') return anCoon(c,e,t,o);
   if(e.k==='baron') return anMech(c,e,t,o);
   const L=Object.assign({}, AN_LOOK[e.k]); if(e.k==='goon'||e.k==='brute'||e.k==='chef') L.skin=AN_GOON_SKIN[e.id%AN_GOON_SKIN.length];
@@ -13069,7 +13071,7 @@ function gameFrame(dt, t){
     c.setTransform(S.dpr,0,0,S.dpr,0,0);
     if(IS_TOUCH && def.touch==='pad' && (!def.booth || def.pads)) drawPads(c,V);
     if(def.overlay) def.overlay(c, st, V, viewer);
-    if(st.banner) glowText(c, st.banner, w/2, h*(V.portrait?.5:.46), clamp(Math.min(w,h)*.11,30,84), NEON.yellow, {font:HEAD, weight:900});
+    if(st.banner && !def.ownBanner) glowText(c, st.banner, w/2, h*(V.portrait?.5:.46), clamp(Math.min(w,h)*.11,30,84), NEON.yellow, {font:HEAD, weight:900, maxW:w*.92});   // maxW: long banners shrink to fit the screen instead of running off the edges
   } else { ui_reset(S.ui); const top=boardTop(); if(top){ c.translate(0,top); g.h=h-top; } def.draw(g, st, viewer, S.ui, t); c.setTransform(S.dpr,0,0,S.dpr,0,0); }
   mouseG.click=false;
   // ---- status bar ----
