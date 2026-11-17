@@ -370,7 +370,7 @@ body.gal-on .hud.bottom, body.gal-on .stick-hint, body.gal-on #side, body.gal-on
 <!-- intro -->
 <div class="overlay" id="intro" role="dialog" aria-modal="true" aria-labelledby="introTitle">
   <div class="panel">
-    <span class="kicker">Two players · 20 machines · 2 arcade rooms</span>
+    <span class="kicker">Two players · 21 machines · 2 arcade rooms</span>
     <h1 id="introTitle">Neon <span class="p">Arcade</span></h1>
     <p>Walk through the lobby into the arcade, step up to a machine and play. Through the door on the left is Arcade 2, with the Glow Roll alleys, the Shootin' Gallery, Pop Pals and Track Meet. Play on one device, against the computer, or online from two devices with a room code.</p>
     <div class="ctl">
@@ -723,7 +723,8 @@ function sndReplay(m){
   const n=(v,lo,hi,d)=>{ v=+v; return isFinite(v)?Math.min(hi,Math.max(lo,v)):d; };
   withSpatial('cab:'+cab.def.id, cab.x, cab.sy||1.3, cab.z, ()=>{ for(const e of m.q.slice(0,48)){
     if(e[0]==='t') tone(n(e[1],20,12000,440), n(e[2],.005,3,.08), ['sine','square','sawtooth','triangle'].includes(e[3])?e[3]:'square', n(e[4],0,.5,.1), n(e[5],0,40,0), n(e[6],0,3,0));
-    else if(e[0]==='n') noise(n(e[1],.005,3,.2), n(e[2],0,.6,.15), n(e[3],20,20000,1200), n(e[4],0,3,0)); } });
+    else if(e[0]==='n') noise(n(e[1],.005,3,.2), n(e[2],0,.6,.15), n(e[3],20,20000,1200), n(e[4],0,3,0));
+    else if(e[0]==='a' && typeof a2Play==='function') a2Play(String(e[1]).slice(0,12), n(e[2],0,3,0)); } });   // Token Trouble's 1-bit speaker sounds
 }
 const SFX = {
   blip:()=>tone(880,.05,'square',.08), tick:()=>tone(1320,.03,'square',.05), sel:()=>tone(660,.06,'triangle',.12,1.5),
@@ -8125,6 +8126,465 @@ function mindSignFrame(t){
   const k=1+.04*Math.sin(t*2.1)+.025*Math.sin(t*13.7)+(Math.sin(t*.37)>.995?-.25:0);   // a slow breathe and the faint neon buzz, with the odd flicker
   SMW_ST.halo.material.opacity=.85*k; SMW_ST.light.intensity=5*k;
 }
+/* =====================================================================
+   TOKEN TROUBLE — a two-player arcade-owner game in the style of the
+   early-80s home computer arcade games (an original game: its own name,
+   characters, layout, art and music).
+   You run a little arcade. Two Scamps have escaped from the Scamp Show
+   booth and are pinching tokens from your machines to stuff into their
+   piggy bank — five tokens and they retire rich and the game is over.
+     · Take a bill from the CASH register and feed it to a TOKENS machine
+       for two more tokens (each machine only holds 8; then it's OUT).
+       Out of bills? Carry a money bag from the SAFE to the register.
+     · Carry tokens to the BIN. Ten in the bin opens the SHOW booth —
+       walk in to clear the level (extra tokens are bonus).
+     · Walk into a Scamp carrying a token (with empty hands) to take it
+       back. A token in the JUKEBOX makes them dance; a token in a PHONE
+       sends them off to chat.
+   You move along the arcade's aisles from crossing to crossing and can't
+   stop in between.
+
+   HOW IT'S MADE — the same way the old Apple-style games did it:
+     · The picture is a 280×192 "hi-res" bitmap in memory: 40 bytes a row,
+       7 dots per byte, and the top bit of each byte picks one of two
+       colour sets. Nothing stores a colour per dot — colour comes from
+       the NTSC TV signal: a lone dot on an even column is violet (or blue
+       in the second set), on an odd column green (or orange), two dots
+       side by side are white. So colours fringe and clash at byte edges
+       exactly like the real thing. The bitmap is "displayed" each frame
+       by a small NTSC colour decoder (tt*Present below).
+     · The sound is a 1-bit speaker that can only be clicked in or out.
+       Every sound is a timed loop of clicks at the old ~1 MHz CPU clock:
+       a tone is "click, wait N cycles, click…", noises are random gaps,
+       and the jukebox music uses the two-voice trick (two countdown
+       timers flipping the same speaker) — all simulated click by click
+       and filtered like the little speaker cone.
+   ===================================================================== */
+const TKN = { W:1120, H:768, NX:[24,82,140,198,256], NY:[46,84,122,160], HL:58, VL:42 };
+// stations on the aisle grid: [col,row]
+const TKN_ST = { safe:[0,0], tok0:[1,0], phone0:[2,0], tok1:[3,0], cash:[4,0], bin:[1,1], show:[2,1], tok2:[0,2], tok3:[4,2], phone1:[0,3], juke:[2,3], piggy:[4,3] };
+const TKN_AT = (()=>{ const m={}; for(const [k,[c,r]] of Object.entries(TKN_ST)) m[c+','+r]=k; return m; })();
+let tkId=1;
+function tkEv(s, k, a=0){ s.evn=(s.evn||0)+1; s.ev.push({ i:s.evn, k, a }); if(s.ev.length>24) s.ev.shift(); }
+function tkPos(E){ const c2=E.mv?E.tc:E.c, r2=E.mv?E.tr:E.r, p=E.mv?(E.f||0):0; return { x:lerp(TKN.NX[E.c],TKN.NX[c2],p), y:lerp(TKN.NY[E.r],TKN.NY[r2],p) }; }
+function tkOkDir(E, w){ return tkOk(E.c+w[0], E.r+w[1]); }
+function tkOk(c, r){ return c>=0 && c<5 && r>=0 && r<4; }
+
+game({
+  id:'token', name:'Token Trouble', color:'#ff6a3c', color2:'#14f53c', kind:'field', noRotate:true, coop:true, ownBanner:true, touch:'pad', padLabel:'USE', solo:true,
+  W:TKN.W, H:TKN.H, netDt:1/20, netRound:1, stickHint:'Drag anywhere to walk',
+  cpuText:'🤖 Play with the computer<small>A computer owner runs the arcade with you</small>', soloText:'🪙 Solo<small>Run the arcade on your own</small>', endKick:'team game',
+  blurb:"Two Scamps have escaped from the Scamp Show and they're pinching tokens from your arcade! Keep the token machines fed, bank ten tokens to open the show booth, and grab back what they steal — five tokens in their piggy bank and they retire rich.",
+  how:{ touch:'Drag to walk the aisles (you go crossing to crossing). Walk into things to use them: <b>CASH</b> gives a bill, a bill in a <b>TOKENS</b> machine makes two tokens, carry tokens to the <b>BIN</b>. Ten in the bin opens the <b>SHOW</b> — walk in to clear the level. Walk into a Scamp with a token to take it back. A token in the <b>JUKEBOX</b> makes them dance; in a <b>PHONE</b> they go chat. <b>USE</b> uses what you\'re standing at again.',
+    keys:'Walk <b>W A S D</b> / arrows. Walk into machines to use them; <b>F</b> or <b>Space</b> uses the one you\'re standing at again.',
+    keys2:'Same keyboard: left player <b>W A S D</b> and <b>F</b>; right player arrows and <b>Enter</b> or <b>L</b>.',
+    pad:'Stick or d-pad to walk, Ⓐ to use the machine you\'re standing at.' },
+  init(o){
+    const solo=o.mode==='solo';
+    const s={ ph:'title', t:0, pt:0, lv:1, solo, n:solo?1:2, pl:[], sc:[], m:[], cash:10, safe:3, bin:0, piggy:0, juke:0, jukeN:0, phone:[0,0], ring:0, msg:'', msgT:0, ev:[], evn:0, over:false, winner:-1, _in:[{},{}] };
+    for(let p=0;p<s.n;p++) s.pl.push({ id:tkId++, p, c:p?3:1, r:2, tc:0, tr:0, p2:0, mv:false, dx:0, dy:0, hold:null, score:0, step:0, flash:0 });
+    this._level(s, 1); s.ph='title'; s.pt=0; tkEv(s,'title');
+    return s;
+  },
+  _level(s, lv){
+    s.lv=lv; s.m=[0,1,2,3].map(()=>({ ready:2, stock:6, out:false })); s.cash=10; s.safe=3; s.bin=0; s.piggy=0; s.juke=0; s.phone=[0,0]; s.ring=0; s.dry=0;
+    s.pl.forEach((P,p)=>Object.assign(P,{ c:p?3:1, r:2, mv:false, p2:0, hold:null }));
+    s.sc=[0,1].map(k=>({ id:tkId++, k, c:2, r:1, tc:2, tr:1, p2:0, mv:false, dx:0, dy:0, carry:false, st:'wait', t:0, wait:1.2+k*1.4, cool:0, pc:0 }));
+    s.ph='ready'; s.pt=0; s.msg=`LEVEL ${lv}`; s.msgT=2.2; tkEv(s,'start');
+  },
+  /* ------------------------------------------------------------ movement on the aisles */
+  _move(E, want, spd, dt){   // want: [dx,dy] or null → true on arriving at a crossing
+    if(!E.mv){ if(want && tkOk(E.c+want[0], E.r+want[1])){ E.tc=E.c+want[0]; E.tr=E.r+want[1]; E.p2=0; E.f=0; E.mv=true; E.dx=want[0]; E.dy=want[1]; } return false; }
+    if(want && want[0]===-E.dx && want[1]===-E.dy){ [E.c,E.tc]=[E.tc,E.c]; [E.r,E.tr]=[E.tr,E.r]; E.p2=1-E.p2; E.dx=-E.dx; E.dy=-E.dy; }
+    E.p2+=spd*dt/(E.dx?TKN.HL:TKN.VL); E.f=E.p2;
+    if(E.p2>=1){ E.c=E.tc; E.r=E.tr; E.mv=false; E.p2=0; E.f=0; return true; }
+    return false;
+  },
+  _want(I){ const x=+I.x||0, y=+I.y||0; if(Math.abs(x)>=Math.abs(y) && Math.abs(x)>.3) return [Math.sign(x),0]; if(Math.abs(y)>.3) return [0,Math.sign(y)]; return null; },
+  /* ------------------------------------------------------------ tick */
+  tick(s, dt, inp){
+    if(s.over) return;
+    s.t+=dt; s.pt+=dt; if(s.msgT>0) s.msgT-=dt;
+    const press=[0,1].map(p=>{ const I=inp[p]||{}, M=s._in[p]||(s._in[p]={}); const a=(I.ac|0)>(M.ac|0); M.ac=I.ac|0; return a; });
+    if(s.ph==='title'){ if(s.pt>3.2 || (s.pt>.6 && press.some(Boolean))){ s.ph='ready'; s.pt=0; s.msg='LEVEL 1'; s.msgT=2; tkEv(s,'start'); } return; }
+    if(s.ph==='ready'){ if(s.pt>1.6) { s.ph='play'; s.pt=0; } return; }
+    if(s.ph==='show'){ if(s.pt>5.2) this._level(s, s.lv+1); return; }
+    if(s.ph==='lost'){ if(s.pt>3){ s.over=true; s.winner = s.pl.length<2 ? 0 : (s.pl[0].score>=s.pl[1].score?0:1);
+        const best=+(store('tok-best')||0), team=s.pl.reduce((a,P)=>a+P.score,0); s.best=best; if(team>best){ store('tok-best',String(team)); s.newBest=true; } } return; }
+    // timers
+    if(s.juke>0){ s.juke-=dt; if(s.juke<=0) s.juke=0; }
+    for(let k=0;k<2;k++) if(s.phone[k]>0){ s.phone[k]-=dt; if(s.phone[k]<0) s.phone[k]=0; }
+    if(s.phone.some(v=>v>0) && !s.sc.some(e=>e.st==='phone')){ s.ring-=dt; if(s.ring<=0){ s.ring=1.25; tkEv(s,'ring'); } }
+    // the bank runs dry? a delivery comes to the safe
+    if(!s.safe && !s.cash && !s.m.some(m=>m.ready) && !s.pl.some(P=>P.hold)){ s.dry+=dt; if(s.dry>8){ s.dry=0; s.safe=1; s.msg='A DELIVERY!'; s.msgT=1.6; tkEv(s,'deliver'); } } else s.dry=0;
+    // owners
+    s.pl.forEach((P,p)=>{ if(P.flash>0) P.flash-=dt;
+      const I=inp[p]||{}, want=this._want(I);
+      if(this._move(P, want, 96, dt)){ P.step++; tkEv(s,'step');
+        // walking past the phones, jukebox or show booth doesn't use them — stop there (or press USE)
+        const k=TKN_AT[P.c+','+P.r], pass=want && tkOkDir(P,want) && (k==='juke'||k==='show'||(k&&k.startsWith('phone')));
+        if(!pass) this._use(s,P); }
+      else if(!P.mv && press[p]) this._use(s,P, true); });
+    // scamps
+    for(const e of s.sc) this._scamp(s, e, dt);
+    // scamps bump into each other → both dazed
+    const [a,b]=s.sc; if(a && b && a.cool<=0 && b.cool<=0 && a.st==='go' && b.st==='go'){ const A=tkPos(a), B=tkPos(b); if(Math.abs(A.x-B.x)<7 && Math.abs(A.y-B.y)<6 && (a.mv||b.mv)){
+      for(const e of [a,b]){ e.st='daze'; e.t=1.6; e.cool=4; } tkEv(s,'daze'); } }
+    // owners and scamps meeting
+    for(const P of s.pl){ const A=tkPos(P); for(const e of s.sc){ if(e.st==='wait') continue; const B=tkPos(e); if(Math.abs(A.x-B.x)>9 || Math.abs(A.y-B.y)>7) continue;
+      if(e.carry && !P.hold){ e.carry=false; P.hold='token'; P.score+=50*s.lv; P.flash=.5; e.st='tantrum'; e.t=1.8; tkEv(s,'grab'); }
+      else if(!e.carry && P.hold==='token' && s.lv>=2 && e.st==='go' && e.cool<=0){ P.hold=null; e.carry=true; e.cool=2; tkEv(s,'snatch'); } } }
+  },
+  _use(s, P, again){
+    const k=TKN_AT[P.c+','+P.r]; if(!k) return;
+    const h=P.hold;
+    if(k==='cash'){ if(h==='bag'){ s.cash+=10; P.hold=null; tkEv(s,'kaching'); } else if(!h && s.cash>0){ s.cash--; P.hold='bill'; tkEv(s,'bill'); } else if(!h) tkEv(s,'nope'); }
+    else if(k==='safe'){ if(!h && s.safe>0){ s.safe--; P.hold='bag'; tkEv(s,'bag'); } else if(!h) tkEv(s,'nope'); }
+    else if(k.startsWith('tok')){ const m=s.m[+k[3]];
+      if(h==='bill'){ P.hold=null; if(m.stock>=2){ m.stock-=2; m.ready+=2; tkEv(s,'clunk'); } else { m.out=true; tkEv(s,'out'); } }
+      else if(!h){ if(m.ready>0){ m.ready--; P.hold='token'; tkEv(s,'clink'); } else if(again) tkEv(s,'nope'); } }
+    else if(k==='bin'){ if(h==='token'){ s.bin++; P.hold=null; P.score+=25*s.lv; tkEv(s,'deposit'); if(s.bin===10){ s.msg='THE SHOW IS OPEN!'; s.msgT=2.2; tkEv(s,'open'); } } }
+    else if(k==='juke'){ if(h==='token'){ P.hold=null; s.jukeN=(s.jukeN+1)%3; const len=TKN_TUNE_LEN[s.jukeN]; s.juke = len*(s.lv>=4?.65:1); tkEv(s,'juke', s.jukeN); s.sc.forEach(e=>{ if(e.st==='phone') e.st='go'; }); } }
+    else if(k.startsWith('phone')){ if(h==='token'){ P.hold=null; s.phone[+k[5]]=6.5; s.ring=0; } }
+    else if(k==='show'){ if(s.bin>=10){ const extra=s.bin-9; P.score+=500*s.lv+extra*100*s.lv; s.ph='show'; s.pt=0; s.msg=''; tkEv(s,'show'); } else tkEv(s,'closed'); }
+  },
+  /* ------------------------------------------------------------ scamp brains */
+  _scamp(s, e, dt){
+    e.t-=dt; e.cool-=dt;
+    if(e.st==='wait'){ e.wait-=dt; if(e.wait<=0){ e.st='go'; tkEv(s,'escape'); } return; }
+    if(e.st==='daze'||e.st==='tantrum'){ if(e.t<=0) e.st='go'; return; }
+    if(s.juke>0){ e.st='dance'; return; } else if(e.st==='dance') e.st='go';
+    const ph=s.phone[0]>0?0:s.phone[1]>0?1:-1;
+    if(e.st==='phone'){ if(ph<0){ e.st='go'; } return; }
+    // where to?
+    let goal=null;
+    if(ph>=0){ goal=TKN_ST['phone'+ph]; }
+    else if(e.carry){ goal=TKN_ST.piggy; }
+    else {
+      const here=e.mv?[e.tc,e.tr]:[e.c,e.r], d=g=>Math.abs(g[0]-here[0])+Math.abs(g[1]-here[1]);
+      const opts=[0,1,2,3].filter(i=>s.m[i].ready>0).map(i=>TKN_ST['tok'+i]);
+      if(s.lv>=3 && s.bin>0) opts.push(TKN_ST.bin);
+      const other=s.sc.find(o=>o!==e);
+      opts.sort((A,B)=>d(A)-d(B)+(other&&other.goal&&other.goal+''===A+''?2:0)-(other&&other.goal&&other.goal+''===B+''?2:0));
+      goal=opts[0]||null;
+    }
+    e.goal=goal;
+    const spd=Math.min(92, 44+8*s.lv)*(e.carry?.92:1);
+    if(!e.mv){
+      // arrived somewhere?
+      const k=TKN_AT[e.c+','+e.r];
+      if(goal && e.c===goal[0] && e.r===goal[1]){
+        if(ph>=0 && k==='phone'+ph){ e.st='phone'; tkEv(s,'hello'); return; }
+        if(k==='piggy' && e.carry){ e.carry=false; s.piggy++; tkEv(s,'oink'); e.st='daze'; e.t=.5;
+          if(s.piggy>=5){ s.ph='lost'; s.pt=0; s.msg='SCAMPS RETIRE RICH!'; s.msgT=9; tkEv(s,'lost'); } return; }
+        if(k && k.startsWith('tok') && !e.carry && s.m[+k[3]].ready>0){ s.m[+k[3]].ready--; e.carry=true; tkEv(s,'snatch'); e.st='daze'; e.t=.35; return; }
+        if(k==='bin' && !e.carry && s.bin>0 && s.lv>=3){ s.bin--; e.carry=true; tkEv(s,'snatch'); e.st='daze'; e.t=.35; return; }
+      }
+      // pick the next aisle: mostly toward the goal, sometimes a mischievous detour; carriers dodge owners
+      const dirs=[[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dy])=>tkOk(e.c+dx,e.r+dy));
+      const back=d=>d[0]===-e.dx && d[1]===-e.dy;
+      const owner=d=>s.pl.some(P=>{ const c=P.mv?P.tc:P.c, r=P.mv?P.tr:P.r; return !P.hold && c===e.c+d[0] && r===e.r+d[1]; });
+      let pick;
+      if(goal){ const toward=dirs.filter(([dx,dy])=>Math.sign(goal[0]-e.c)===dx && dx || Math.sign(goal[1]-e.r)===dy && dy);
+        const safeT=e.carry && s.lv>=2 ? toward.filter(d=>!owner(d)) : toward;
+        const pool=(safeT.length?safeT:toward.length?toward:dirs).filter(d=>!back(d)); const pool2=pool.length?pool:(safeT.length?safeT:toward.length?toward:dirs);
+        pick = Math.random()<(e.carry?.12:.18) ? dirs.filter(d=>!back(d))[ri(Math.max(1,dirs.filter(d=>!back(d)).length))]||pool2[0] : pool2[ri(pool2.length)];
+        if(Math.abs(goal[0]-e.c)+Math.abs(goal[1]-e.r)===1) pick=pool2.find(d=>e.c+d[0]===goal[0]&&e.r+d[1]===goal[1])||pick; }
+      else { const pool=dirs.filter(d=>!back(d)); pick=pool[ri(pool.length)]; if(e.pc++%3===0 && Math.random()<.4){ e.st='daze'; e.t=.6; return; } }
+      if(pick) this._move(e, pick, spd, 0);
+    } else this._move(e, null, spd, dt);
+  },
+  /* ------------------------------------------------------------ input */
+  cont(vc, p){ this._tp=this._tp||[{},{}]; const T=this._tp[p];
+    const edge=(k,on)=>{ T[k]=T[k]||0; if(on && !T['_'+k]) T[k]++; T['_'+k]=on; return T[k]; };
+    const ac=edge('a', !!(vc.padA||vc.touchFire||vc.padB)) + vc.aN + vc.bN;
+    return { x:+(Math.abs(vc.x)<.25?0:clamp(vc.x,-1,1)).toFixed(2), y:+(Math.abs(vc.y)<.25?0:clamp(vc.y,-1,1)).toFixed(2), ac };
+  },
+  cpu(s, p, dt, m){
+    m.ac=m.ac||0; m.cool=(m.cool||0)-dt; const out=(x=0,y=0)=>({ x, y, ac:m.ac });
+    if(s.ph==='title') { if(s.pt>1.2 && m.cool<=0){ m.ac++; m.cool=9; } return out(); }
+    const P=s.pl[p]; if(!P || s.ph!=='play') return out();
+    const here=P.mv?[P.tc,P.tr]:[P.c,P.r], d=g=>Math.abs(g[0]-here[0])+Math.abs(g[1]-here[1]), near=a=>a.slice().sort((A,B)=>d(A)-d(B))[0];
+    const mate=s.pl.find(Q=>Q!==P), mateGoal=mate&&mate._g;
+    let goal=null;
+    const carrier=s.sc.filter(e=>e.carry && e.st!=='wait').sort((a,b)=>d([a.c,a.r])-d([b.c,b.r]))[0];
+    if(P.hold==='token'){ const danger=carrier && (Math.abs(carrier.c-4)+Math.abs(carrier.r-3))<=2 && !s.juke;
+      goal = danger ? TKN_ST.juke : s.bin>=10 ? TKN_ST.bin : TKN_ST.bin; }
+    else if(P.hold==='bill'){ const ms=[0,1,2,3].filter(i=>s.m[i].stock>=2).map(i=>TKN_ST['tok'+i]); goal = ms.length ? near(ms) : TKN_ST.tok0; }
+    else if(P.hold==='bag') goal=TKN_ST.cash;
+    else if(s.bin>=10) goal=TKN_ST.show;
+    else if(carrier && d([carrier.c,carrier.r])<=3) goal=[carrier.mv?carrier.tc:carrier.c, carrier.mv?carrier.tr:carrier.r];
+    else { const rd=[0,1,2,3].filter(i=>s.m[i].ready>0).map(i=>TKN_ST['tok'+i]).filter(g=>!mateGoal||g+''!==mateGoal+''||s.m.filter(m=>m.ready).length<2);
+      goal = rd.length ? near(rd) : s.cash>0 ? TKN_ST.cash : s.safe>0 ? TKN_ST.safe : (carrier?[carrier.c,carrier.r]:TKN_ST.bin); }
+    P._g=goal;
+    if(!goal) return out();
+    const dx=goal[0]-here[0], dy=goal[1]-here[1];
+    if(!dx && !dy){ if(!P.mv && m.cool<=0){ m.ac++; m.cool=.45; } return out(); }
+    return dx ? out(Math.sign(dx),0) : out(0,Math.sign(dy));
+  },
+  /* ------------------------------------------------------------ session glue */
+  status(s){ const team=s.pl.reduce((a,P)=>a+P.score,0); return { l:s.pl[0]?s.pl[0].score:0, r:s.pl[1]?s.pl[1].score:'', c:`Level ${s.lv} · piggy bank ${s.piggy}/5 · team ${team}` }; },
+  endHead(s, names){
+    const team=s.pl.reduce((a,P)=>a+P.score,0), how=`The Scamps retired on level ${s.lv}. `;
+    if(s.solo) return { kick:'solo', again:'Play again', big:String(team), col:NEON.yellow, sub:how+(s.newBest?'🏆 New high score!':s.best?`High score ${s.best}`:`Score ${team}`) };
+    const mvp=s.pl[0].score>=s.pl[1].score?0:1;
+    return { kick:'team game', again:'Play again', big:`Team ${team}`, col:NEON.yellow, sub:`${how}Top scorer: ${esc(names[mvp]||'')} (${s.pl[mvp].score})` };
+  },
+  lerp(a, b, k){
+    if(!a || !b || a===b) return b; const o=Object.assign({}, b);
+    const L=(arr,brr)=>{ const m=new Map((arr||[]).map(x=>[x.id,x])); return (brr||[]).map(B=>{ const A=m.get(B.id); if(!A || A.c!==B.c || A.r!==B.r || A.mv!==B.mv || !B.mv) return B; return Object.assign({}, B, { f:lerp(A.f||0,B.f||0,k) }); }); };
+    o.pl=L(a.pl,b.pl); o.sc=L(a.sc,b.sc); return o;
+  },
+  draw(g, s, viewer, ui, t){ tkDraw(g, s, t); },
+  attract(c, w, h, t){ tkAttract(c, w, h, t); },
+});
+
+/* =====================================================================
+   THE HI-RES SCREEN — a 280×192 bitmap, 40 bytes per row, 7 dots a byte,
+   bit 7 = colour set. Drawing happens in "colour pixels" (two dots wide):
+   W = both dots on (white), g/v = one dot with colour set 0 (green on the
+   odd dot, violet on the even), o/b = the same with colour set 1 (orange,
+   blue), k = both off. Setting a colour sets its byte's colour bit — so a
+   green and an orange pixel sharing a byte clash, as they did.
+   ===================================================================== */
+const HR = { fb:new Uint8Array(40*192), cv:null, img:null, u32:null };
+function hrClear(){ HR.fb.fill(0); }
+function hrBit(x, y, on, pal){ if(x<0||x>279||y<0||y>191) return; const i=y*40+((x/7)|0), b=1<<(x%7); if(on) HR.fb[i]|=b; else HR.fb[i]&=~b; if(pal!=null){ if(pal) HR.fb[i]|=0x80; else HR.fb[i]&=0x7f; } }
+function hrPx(lx, y, col){
+  const x=lx*2;
+  switch(col){
+    case 'W': hrBit(x,y,1); hrBit(x+1,y,1); break;
+    case 'k': hrBit(x,y,0); hrBit(x+1,y,0); break;
+    case 'v': hrBit(x,y,1,0); hrBit(x+1,y,0,0); break;
+    case 'g': hrBit(x,y,0,0); hrBit(x+1,y,1,0); break;
+    case 'b': hrBit(x,y,1,1); hrBit(x+1,y,0,1); break;
+    case 'o': hrBit(x,y,0,1); hrBit(x+1,y,1,1); break;
+  }
+}
+function hrRect(lx, y, w, h, col){ for(let j=0;j<h;j++) for(let i=0;i<w;i++) hrPx(lx+i, y+j, col); }
+function hrFrame(lx, y, w, h, col){ for(let i=0;i<w;i++){ hrPx(lx+i,y,col); hrPx(lx+i,y+h-1,col); } for(let j=0;j<h;j++){ hrPx(lx,y+j,col); hrPx(lx+w-1,y+j,col); } }
+function hrSpr(lx, y, rows, map){ for(let j=0;j<rows.length;j++){ const r=rows[j]; for(let i=0;i<r.length;i++){ let ch=r[i]; if(ch==='.') continue; if(map && map[ch]) ch=map[ch]; hrPx(lx+i, y+j, ch); } } }
+// a 3×5 and a 5×7 font, one colour pixel per font dot
+const HR_F3 = {A:[2,5,7,5,5],B:[6,5,6,5,6],C:[3,4,4,4,3],D:[6,5,5,5,6],E:[7,4,6,4,7],F:[7,4,6,4,4],G:[3,4,5,5,3],H:[5,5,7,5,5],I:[7,2,2,2,7],J:[1,1,1,5,2],K:[5,5,6,5,5],L:[4,4,4,4,7],M:[5,7,7,5,5],N:[6,5,5,5,5],O:[2,5,5,5,2],P:[6,5,6,4,4],Q:[2,5,5,6,3],R:[6,5,6,5,5],S:[3,4,2,1,6],T:[7,2,2,2,2],U:[5,5,5,5,7],V:[5,5,5,5,2],W:[5,5,7,7,5],X:[5,5,2,5,5],Y:[5,5,2,2,2],Z:[7,1,2,4,7],
+  0:[7,5,5,5,7],1:[2,6,2,2,7],2:[6,1,2,4,7],3:[6,1,2,1,6],4:[5,5,7,1,1],5:[7,4,6,1,6],6:[3,4,7,5,7],7:[7,1,1,2,2],8:[7,5,7,5,7],9:[7,5,7,1,6],' ':[0,0,0,0,0],'!':[2,2,2,0,2],'-':[0,0,7,0,0],'/':[1,1,2,4,4]};
+const HR_F5 = (()=>{ const t={ 0:'0E11131519110E',1:'040C040404040E',2:'0E11010204081F',3:'1F02040201110E',4:'02060A121F0202',5:'1F101E0101110E',6:'0608101E11110E',7:'1F010204080808',8:'0E11110E11110E',9:'0E11110F01020C',
+  A:'0E1111111F1111',B:'1E11111E11111E',C:'0E11101010110E',D:'1C12111111121C',E:'1F10101E10101F',F:'1F10101E101010',G:'0E11101711110F',H:'1111111F111111',I:'0E04040404040E',J:'0702020202120C',K:'11121418141211',L:'1010101010101F',M:'111B1515111111',N:'11111915131111',O:'0E11111111110E',P:'1E11111E101010',Q:'0E11111115120D',R:'1E11111E141211',S:'0F10100E01011E',T:'1F040404040404',U:'1111111111110E',V:'11111111110A04',W:'1111111515150A',X:'11110A040A1111',Y:'1111110A040404',Z:'1F01020408101F',
+  '!':'04040404040004','-':'0000001F000000','.':'00000000000C0C',':':'000C0C000C0C00','?':'0E110102040004',"'":'0C040800000000','/':'00010204081000',' ':'00000000000000' };
+  const o={}; for(const [k,v] of Object.entries(t)) o[k]=[0,1,2,3,4,5,6].map(i=>parseInt(v.substr(i*2,2),16)); return o; })();
+function hrText3(lx, y, str, col){ str=String(str).toUpperCase(); for(const ch of str){ const g=HR_F3[ch]; if(g) g.forEach((row,j)=>{ for(let i=0;i<3;i++) if(row&(4>>i)) hrPx(lx+i,y+j,col); }); lx+=4; } }
+function hrText5(lx, y, str, col, sc=1){ str=String(str).toUpperCase(); for(const ch of str){ const g=HR_F5[ch]; if(g) g.forEach((row,j)=>{ for(let i=0;i<5;i++) if(row&(16>>i)) for(let a=0;a<sc;a++) for(let b=0;b<sc;b++) hrPx(lx+i*sc+a, y+j*sc+b, col); }); lx+=6*sc; } }
+const hrW3=s=>String(s).length*4-1, hrW5=(s,sc=1)=>String(s).length*6*sc-sc;
+/* the NTSC colour decode: dots → colours, the way a colour TV saw the Apple-style signal */
+const HR_RGB = { k:0xff000000, W:0xffffffff, v:0xfffd44ff, g:0xff3cf514, b:0xfffdcf14, o:0xff3c6aff };   // little-endian ABGR
+function hrPresent(ctx, x, y, w, h){
+  if(!HR.cv){ HR.cv=document.createElement('canvas'); HR.cv.width=560; HR.cv.height=384; const c=HR.cv.getContext('2d'); HR.img=c.createImageData(560,384); HR.u32=new Uint32Array(HR.img.data.buffer); HR.ctx=c; }
+  const U=HR.u32, fb=HR.fb, bits=new Uint8Array(282), pal=new Uint8Array(282), dim=v=>{ const r=(v&255)*.62|0, g=((v>>8)&255)*.62|0, b=((v>>16)&255)*.62|0; return 0xff000000|(b<<16)|(g<<8)|r; };
+  for(let row=0;row<192;row++){
+    bits.fill(0); for(let B=0;B<40;B++){ const v=fb[row*40+B], p=v>>7; for(let k=0;k<7;k++){ const X=B*7+k+1; bits[X]=(v>>k)&1; pal[X]=p; } }
+    const o0=row*2*560, o1=o0+560; U.fill(HR_RGB.k, o0, o0+1120);
+    for(let x=0;x<280;x++){ const X=x+1; let col=0;
+      if(bits[X]) col = (bits[X-1]||bits[X+1]) ? HR_RGB.W : pal[X] ? (x&1?HR_RGB.o:HR_RGB.b) : (x&1?HR_RGB.g:HR_RGB.v);
+      else if(bits[X-1] && bits[X+1]) col = pal[X-1] ? ((x-1)&1?HR_RGB.o:HR_RGB.b) : ((x-1)&1?HR_RGB.g:HR_RGB.v);   // colour fills the gap between two same-colour dots
+      if(!col) continue; const sh=pal[X]?1:0, dc=dim(col);   // colour set 1 is delayed half a dot
+      for(let q=0;q<2;q++){ const px=x*2+q+sh; if(px<560){ U[o0+px]=col; U[o1+px]=dc; } } }
+  }
+  HR.ctx.putImageData(HR.img,0,0); ctx.save(); ctx.imageSmoothingEnabled=false; ctx.drawImage(HR.cv, x, y, w, h); ctx.restore();
+}
+
+/* =====================================================================
+   ART — characters and arcade fixtures in colour pixels
+   ===================================================================== */
+const TKNA = {
+  own:[ '.hhh.', 'hhhhh', '.WWW.', '.k.k.', '.WWW.', '..W..', 'WWWWW', 'W.W.W', 'W.W.W', '.WWW.', '.p.p.', '.p.p.', '.p.p.', 'pp.pp' ],
+  ownW:[ '.p.p.', 'p...p', 'p...p', 'p...p' ],
+  sc:[ 'a...a', '.aaa.', 'aWaWa', 'aaaaa', 'aWWWa', '.aaa.', 'a.a.a', '.aaa.', '.f.f.', 'ff.ff' ],
+  scW:[ '.aaa.', 'a.a.a', '.aaa.', 'f...f', '.f.f.' ],
+  scD:[ 'a.a.a', '.aaa.', 'aWaWa', 'aaaaa', 'aWWWa', '.aaa.', '..a..', '.aaa.', 'f...f', '.f.f.' ],   // arms up (dance / tantrum)
+  coin:[ '.o.', 'oWo', '.o.' ],
+  bill:[ 'gggg', 'gWWg', 'gggg' ],
+  bag:[ '.W.', 'WWW', 'WoW', 'WWW' ],
+  pig:[ '....W.......', '..vvvvvvvv..', '.vvvvvvvvvvv', 'vvWvvvvvvvvv', 'vvvvvvvvvvvv', '.vvvvvvvvvv.', '..v..v..v.v.', '..v..v..v.v.' ],
+};
+const TKN_LOOK=[ {h:'o', p:'b'}, {h:'g', p:'v'} ];   // owner 1: orange cap, blue trousers; owner 2: green cap, violet trousers
+const TKN_SCL=[ {a:'v', f:'g'}, {a:'o', f:'b'} ];    // the Scamps: one violet, one orange
+function tkLabel(X, y, str, col){ const w=hrW3(str); hrText3(clamp(X-(w>>1), 3, 137-w), y, str, col); }
+function tkStation(s, k, t){
+  const [c,r]=TKN_ST[k], X=TKN.NX[c]/2|0, Y=TKN.NY[r]-4;   // centre (colour px) and the base line just above the crossing
+  if(k.startsWith('tok')){ const i=+k[3], m=s.m[i], col=['g','v','o','b'][i];
+    tkLabel(X, Y-32, 'TOKENS', 'W');
+    hrRect(X-9, Y-25, 18, 22, col); hrFrame(X-9, Y-25, 18, 22, 'W');
+    hrRect(X-6, Y-22, 12, 7, 'k'); hrFrame(X-6, Y-22, 12, 7, 'W');
+    if(m.out || (m.stock<2 && !m.ready)) { if((t*3|0)%2) hrText3(X-5, Y-21, 'OUT', 'W'); } else hrText3(X-1, Y-21, String(m.stock+m.ready), 'W');
+    hrRect(X-6, Y-11, 12, 6, 'k'); for(let q=0;q<Math.min(4,m.ready);q++) hrSpr(X-6+q*3, Y-10, TKNA.coin);
+  }
+  else if(k==='safe'){ tkLabel(X, Y-32, 'SAFE', 'W'); hrRect(X-8, Y-25, 16, 20, 'b'); hrFrame(X-8, Y-25, 16, 20, 'W'); hrFrame(X-4, Y-21, 8, 8, 'W'); hrPx(X-1,Y-17,'W'); hrPx(X,Y-17,'W'); hrRect(X+5,Y-19,2,4,'W');
+    for(let q=0;q<s.safe;q++) hrSpr(X-7+q*4, Y-9, TKNA.bag); }
+  else if(k==='cash'){ tkLabel(X, Y-32, 'CASH', 'W'); hrRect(X-8, Y-20, 17, 15, 'v'); hrFrame(X-8, Y-20, 17, 15, 'W'); hrRect(X-5, Y-26, 11, 6, 'k'); hrFrame(X-5, Y-26, 11, 6, 'W');
+    hrText3(X-3, Y-25, String(Math.min(99,s.cash)).padStart(2,'0'), 'W'); hrRect(X-6, Y-11, 13, 4, 'W'); for(let q=0;q<Math.min(3,Math.ceil(s.cash/4));q++) hrSpr(X-6+q*5, Y-17, TKNA.bill); }
+  else if(k.startsWith('phone')){ const i=+k[5], on=s.phone[i]>0, ring=on && !s.sc.some(e=>e.st==='phone') && (t*8|0)%2;
+    tkLabel(X, Y-32, 'PHONE', ring?'o':'W'); hrRect(X-5, Y-25, 11, 21, 'W'); hrRect(X-3, Y-23, 7, 8, 'k'); for(let a=0;a<3;a++) for(let b=0;b<2;b++) hrPx(X-2+a*2, Y-22+b*3, 'o');
+    hrRect(X-3, Y-12, 7, 6, 'k'); hrPx(X, Y-10, 'W'); if(!on) hrRect(X+6, Y-23, 2, 12, 'W'); else if(ring) { hrPx(X+7,Y-27,'W'); hrPx(X+9,Y-29,'W'); hrPx(X+8,Y-25,'W'); } }
+  else if(k==='bin'){ tkLabel(X, Y-32, 'BIN', 'W'); hrFrame(X-10, Y-25, 21, 21, 'g'); hrFrame(X-9, Y-24, 19, 19, 'g');
+    for(let q=0;q<Math.min(18,s.bin);q++){ const a=q%6, b=q/6|0; hrSpr(X-8+a*3, Y-22+b*5, TKNA.coin); } }
+  else if(k==='show'){ const open=s.bin>=10;
+    hrText3(X-19, Y-33, 'SCAMP', 'W'); hrText3(X+4, Y-33, 'SHOW', open && (t*4|0)%2 ? 'o' : 'W');
+    hrRect(X-14, Y-26, 29, 3, 'v'); hrRect(X-14, Y-23, 4, 20, 'v'); hrRect(X+11, Y-23, 4, 20, 'v'); hrFrame(X-14, Y-26, 29, 23, 'W');
+    if(open){ hrRect(X-10, Y-23, 21, 20, 'k'); for(let q=0;q<10;q++){ const on=((q+(t*10|0))%4)<2; hrPx(X-10+q*2, Y-23, on?'o':'W'); hrPx(X-10+q*2, Y-4, on?'W':'o'); } hrText3(X-7, Y-16, 'OPEN', 'W'); }
+    else { hrRect(X-10, Y-23, 21, 20, 'o'); for(let q=0;q<5;q++) hrRect(X-9+q*4, Y-23, 1, 20, 'k'); }
+  }
+  else if(k==='juke'){ const on=s.juke>0;
+    tkLabel(X, Y-32, 'JUKEBOX', 'W'); hrRect(X-12, Y-25, 25, 3, 'v'); hrRect(X-13, Y-22, 27, 17, 'o'); hrFrame(X-13, Y-25, 27, 21, 'W');
+    for(let q=0;q<4;q++) hrRect(X-11, Y-20+q*4, 23, 2, on ? (((q+(t*8|0))%2)?'W':'v') : 'v');
+    if(on) for(let q=0;q<3;q++){ const a=t*3+q*2.1; hrSpr(X-8+q*8+Math.round(Math.sin(a)*2), Y-31-Math.round(Math.abs(Math.sin(a*1.3))*3), ['.W','.W','WW']); } }
+  else if(k==='piggy'){ tkLabel(X, Y-32, 'PIGGY', 'W'); hrSpr(X-6, Y-14, TKNA.pig); hrPx(X-2,Y-14,'k');
+    for(let q=0;q<5;q++) hrFrame(X-10+q*4, Y-25, 3, 3, q<s.piggy?'o':'W'); for(let q=0;q<s.piggy;q++) hrPx(X-9+q*4, Y-24, 'o'); }
+}
+function tkOwner(P, t){ const L=TKN_LOOK[P.p], {x,y}=tkPos(P), lx=Math.round(x/2)-2, ty=Math.round(y)-10;
+  if(P.flash>0 && (t*16|0)%2) return;
+  const rows=TKNA.own.slice(); if(P.mv && (P.step+(P.p2>.5?1:0))%2) rows.splice(10,4,...TKNA.ownW);
+  hrSpr(lx, ty, rows, { h:L.h, p:L.p });
+  if(P.hold==='token') hrSpr(lx+1, ty-4, TKNA.coin); else if(P.hold==='bill') hrSpr(lx+1, ty-4, TKNA.bill); else if(P.hold==='bag') hrSpr(lx+1, ty-5, TKNA.bag);
+}
+function tkScampDraw(e, t, lv){ const L=TKN_SCL[e.k], {x,y}=tkPos(e), lx=Math.round(x/2)-2; let ty=Math.round(y)-6, rows=TKNA.sc;
+  if(e.st==='wait') return;
+  if(e.st==='dance'){ const b=(t*6+e.k)|0; rows = b%2 ? TKNA.scD : TKNA.sc; ty -= b%2?2:0; }
+  else if(e.st==='tantrum'){ const b=(t*10)|0; rows=TKNA.scD; ty -= b%2?3:0; }
+  else if(e.mv){ rows=TKNA.sc.slice(); if((((e.f||0)*2)|0)%2) rows.splice(5,5,...TKNA.scW); }
+  hrSpr(lx, ty, rows, { a:L.a, f:L.f });
+  if(e.st==='daze'){ for(let q=0;q<3;q++){ const a=t*7+q*2.1; hrPx(lx+2+Math.round(Math.cos(a)*4), ty-2+Math.round(Math.sin(a)*1.5), 'W'); } }
+  if(e.st==='phone'){ hrRect(lx+5, ty+2, 1, 4, 'W'); hrPx(lx+6,ty+2,'W'); if((t*3|0)%2) hrText3(lx+5, ty-7, 'BLA', 'W'); }
+  if(e.carry) hrSpr(lx+1, ty-4, TKNA.coin);
+}
+function tkScene(s, t){
+  hrClear();
+  // the arcade's border, in the second colour set
+  hrRect(0,0,140,2,'o'); hrRect(0,166,140,2,'o'); hrRect(0,0,2,168,'o'); hrRect(138,0,2,168,'o');
+  for(const k of Object.keys(TKN_ST)) tkStation(s, k, t);
+  // faint aisle crossings
+  for(let c=0;c<5;c++) for(let r=0;r<4;r++) if(!TKN_AT[c+','+r]) hrPx(TKN.NX[c]/2|0, TKN.NY[r]+3, 'W');
+  for(const e of s.sc) tkScampDraw(e, t, s.lv);
+  for(const P of s.pl) tkOwner(P, t);
+  // bottom line: scores and level
+  const sc=n=>String(n%1000000).padStart(6,'0');
+  hrText5(2, 175, sc(s.pl[0]?s.pl[0].score:0), 'o');
+  const lv=`LEVEL ${s.lv}`; hrText5(70-(hrW5(lv)>>1), 175, lv, 'W');
+  if(s.pl[1]) hrText5(138-hrW5(sc(s.pl[1].score)), 175, sc(s.pl[1].score), 'g');
+  if(s.msgT>0 && s.msg){ const w=hrW5(s.msg)+6; hrRect(70-(w>>1), 96, w, 13, 'k'); hrFrame(70-(w>>1), 96, w, 13, 'W'); hrText5(70-(w>>1)+3, 99, s.msg, 'W'); }
+}
+function tkTitle(t){
+  hrClear(); hrRect(0,0,140,2,'v'); hrRect(0,190,140,2,'v');
+  hrText5(70-(hrW5('TOKEN',2)>>1), 22, 'TOKEN', 'o', 2); hrText5(70-(hrW5('TROUBLE',2)>>1), 42, 'TROUBLE', 'g', 2);
+  // stage with two dancing Scamps
+  hrRect(38, 70, 64, 4, 'v'); hrRect(38, 74, 6, 46, 'v'); hrRect(96, 74, 6, 46, 'v'); hrRect(38, 120, 64, 3, 'W');
+  [0,1].forEach(k=>{ const b=(t*5+k)|0; hrSpr(58+k*18, 106-(b%2?3:0), b%2?TKNA.scD:TKNA.sc, TKN_SCL[k]); });
+  hrSpr(64, 88, TKNA.coin); hrSpr(72, 84+Math.round(Math.sin(t*4)*2), TKNA.coin);
+  hrText5(70-(hrW5('THE SCAMPS ARE LOOSE!')>>1), 134, 'THE SCAMPS ARE LOOSE!', 'W');
+  hrText3(70-(hrW3('KEEP TOKENS OUT OF THE PIGGY BANK')>>1), 150, 'KEEP TOKENS OUT OF THE PIGGY BANK', 'W');
+}
+function tkShow(s, t){
+  hrClear(); hrRect(0,0,140,2,'o'); hrRect(0,190,140,2,'o');
+  hrText5(70-(hrW5('THE SCAMP SHOW!')>>1), 16, 'THE SCAMP SHOW!', 'W');
+  const op=Math.min(1, s.pt/1.2), cw=Math.round(30*(1-op));
+  hrRect(20, 34, 100, 5, 'v'); hrRect(20, 39, 100, 90, 'k'); hrRect(20, 129, 100, 4, 'W');
+  [0,1].forEach(k=>{ const b=(t*6+k*.5)|0, x=48+k*36+Math.round(Math.sin(t*2+k*3)*6); hrSpr(x, 112-(b%2?4:0), b%2?TKNA.scD:TKNA.sc, TKN_SCL[k]); });
+  for(let q=0;q<6;q++){ const a=t*2+q; hrPx(30+((q*17+(t*20|0))%80), 44+((q*23)%30), (q%2)?'o':'g'); }
+  hrRect(20, 39, 4+cw, 90, 'v'); hrRect(116-cw, 39, 4+cw, 90, 'v'); for(let q=0;q<4;q++){ hrRect(22+q*cw/4|0, 39, 1, 90, 'k'); hrRect(117-q*cw/4|0, 39, 1, 90, 'k'); }
+  hrText5(70-(hrW5(`LEVEL ${s.lv} CLEAR`)>>1), 144, `LEVEL ${s.lv} CLEAR`, 'W');
+  const team=s.pl.reduce((a,P)=>a+P.score,0); hrText5(70-(hrW5(`SCORE ${team}`)>>1), 160, `SCORE ${team}`, 'W');
+}
+function tkDraw(g, s, t){
+  const c=g.ctx; tkSounds(s); SPK.seen=performance.now(); a2Warm();
+  c.fillStyle='#000'; c.fillRect(0,0,TKN.W,TKN.H);
+  if(s.ph==='title') tkTitle(t); else if(s.ph==='show') tkShow(s, t); else tkScene(s, t);
+  hrPresent(c, 0, 0, TKN.W, TKN.H);
+}
+function tkAttract(c, w, h, t){ c.fillStyle='#000'; c.fillRect(0,0,w,h); tkTitle(t); hrPresent(c, 0, 0, w, h); }
+
+/* =====================================================================
+   THE 1-BIT SPEAKER — every sound is a list of speaker clicks timed in
+   CPU cycles (a ~1.02 MHz clock), then turned into audio and smoothed
+   like a small speaker cone. Nothing here is a sampled sound.
+   ===================================================================== */
+const SPK = { CLK:1020484, cache:{}, live:[], seen:0 };
+// a classic delay-loop tone: click, count X down (5 cycles a turn), click… ; returns click times
+function a2Tone(T, t0, x, n){ const hp=5*x+14; let t=t0; for(let i=0;i<n;i++){ T.push(t); t+=hp; } return t; }
+function a2Sweep(T, t0, x0, x1, n){ let t=t0; for(let i=0;i<n;i++){ const x=x0+(x1-x0)*i/n; t+=5*x+14; T.push(t); } return t; }
+function a2Noise(T, t0, cyc, lo, hi){ let t=t0, r=0xACE1; while(t<t0+cyc){ r^=r<<7; r^=r>>9; r^=r<<8; r&=0xffff; t+=lo+(r%(hi-lo)); T.push(t); } return t; }
+const a2X = f => Math.max(1, Math.round((SPK.CLK/(2*f)-14)/5));   // delay count for a pitch
+const a2F = n => 440*Math.pow(2,(n-69)/12);
+// two voices sharing one speaker: two countdown timers, each clicks the speaker when it runs out (a 28-cycle loop)
+function a2Duet(T, t0, notes, beat){
+  const L=28; let t=t0;
+  for(const [n1,n2,len] of notes){ const loops=Math.round(len*beat*SPK.CLK/L), p1=n1?Math.max(1,Math.round(SPK.CLK/(2*a2F(n1))/L)):0, p2=n2?Math.max(1,Math.round(SPK.CLK/(2*a2F(n2))/L)):0; let c1=p1, c2=p2;
+    for(let i=0;i<loops;i++){ t+=L; if(p1 && --c1<=0){ T.push(t); c1=p1; } if(p2 && --c2<=0){ T.push(t+9); c2=p2; } }
+    t+=600; }   // the tiny gap while the next note loads
+  return t;
+}
+// clicks → audio: the speaker cone sits at +1 or -1 and swings over at each click; low-pass for the cone, a slow drift back to centre
+function a2Render(T, sr){
+  const end=(T.length?T[T.length-1]:0)+SPK.CLK*.03, n=Math.ceil(end/SPK.CLK*sr), out=new Float32Array(n);
+  let lev=-1, j=0; const cps=SPK.CLK/sr;
+  for(let i=0;i<n;i++){ const c0=i*cps, c1=c0+cps; let acc=0, at=c0; while(j<T.length && T[j]<c1){ acc+=lev*(T[j]-at); at=T[j]; lev=-lev; j++; } acc+=lev*(c1-at); out[i]=acc/cps; }
+  let lp=0, hp=0, prev=0; const a=Math.exp(-2*Math.PI*4200/sr), r=Math.exp(-2*Math.PI*30/sr);
+  for(let i=0;i<n;i++){ lp=lp*a+out[i]*(1-a); hp=r*(hp+lp-prev); prev=lp; out[i]=hp*.2; }
+  return out;
+}
+const TKN_TUNES = [
+  // three original jukebox tunes: [melody note, bass note, beats]
+  [[72,48,1],[76,55,1],[79,52,1],[76,55,1],[77,53,1],[81,57,1],[79,55,2],[74,50,1],[77,57,1],[76,55,1],[72,52,1],[74,55,1],[71,43,1],[72,48,2],
+   [72,48,1],[76,55,1],[79,52,1],[84,55,1],[81,53,1],[79,57,1],[77,55,1],[76,52,1],[74,55,1],[77,50,1],[76,55,1],[74,43,1],[72,48,3]],
+  [[69,45,1],[72,52,1],[76,45,1],[81,52,1],[79,43,1],[76,50,1],[74,43,1],[72,50,1],[71,40,1],[74,47,1],[77,40,1],[76,47,1],[72,45,1],[69,52,1],[69,45,2],
+   [76,45,1],[74,52,1],[72,45,1],[74,52,1],[76,41,1],[77,48,1],[79,43,1],[81,50,1],[83,40,1],[81,47,1],[79,40,1],[76,47,1],[81,45,3]],
+  [[67,43,1],[67,50,1],[72,48,1],[72,55,1],[76,48,1],[76,55,1],[79,48,2],[77,41,1],[76,48,1],[74,43,1],[72,50,1],[74,43,1],[76,50,1],[72,48,2],
+   [79,48,1],[79,55,1],[81,53,1],[79,53,1],[77,50,1],[76,55,1],[74,43,1],[76,50,1],[77,43,1],[74,50,1],[71,43,1],[74,50,1],[72,48,3]],
+];
+const TKN_BEAT=[.17,.19,.165];
+const TKN_TUNE_LEN=TKN_TUNES.map((tn,i)=>tn.reduce((a,n)=>a+n[2],0)*TKN_BEAT[i]+tn.length*600/SPK.CLK);
+const A2_SFX = {
+  step:T=>{ T.push(0); T.push(40); },
+  clink:T=>{ let t=a2Tone(T,0,a2X(1600),40); a2Tone(T,t+3000,a2X(2400),70); },
+  bill:T=>{ a2Sweep(T,0,a2X(700),a2X(1400),90); },
+  bag:T=>{ let t=a2Tone(T,0,a2X(300),30); t=a2Tone(T,t+4000,a2X(400),40); a2Tone(T,t+4000,a2X(500),50); },
+  clunk:T=>{ let t=a2Tone(T,0,a2X(500),40); t=a2Tone(T,t+5000,a2X(380),40); t=a2Tone(T,t+5000,a2X(260),50); t=a2Noise(T,t+8000,15000,80,500); },
+  out:T=>{ let t=0; for(let i=0;i<5;i++){ t=a2Tone(T,t,a2X(110),18); t=a2Tone(T,t,a2X(90),18); } },
+  nope:T=>{ a2Tone(T,0,a2X(150),20); },
+  closed:T=>{ let t=a2Tone(T,0,a2X(180),24); a2Tone(T,t+20000,a2X(140),26); },
+  deposit:T=>{ let t=0; for(const f of [523,659,784,1047]) t=a2Tone(T,t+1500,a2X(f),Math.round(f*.07)); },
+  kaching:T=>{ let t=a2Duet(T,0,[[84,79,.6],[88,84,1.2]],.12); a2Noise(T,t,30000,40,260); },
+  snatch:T=>{ a2Sweep(T,0,a2X(1800),a2X(500),160); },
+  grab:T=>{ let t=a2Sweep(T,0,a2X(400),a2X(1600),120); a2Tone(T,t+2000,a2X(2000),120); },
+  daze:T=>{ let t=0; for(const f of [900,600,800,500,700,400]) t=a2Tone(T,t+800,a2X(f),Math.round(f*.04)); },
+  oink:T=>{ let t=0; for(let i=0;i<3;i++){ t=a2Sweep(T,t,a2X(160),a2X(110),26); t=a2Noise(T,t,5000,60,300); } },
+  ring:T=>{ let t=0; for(let i=0;i<10;i++){ t=a2Tone(T,t,a2X(1300),26); t=a2Tone(T,t,a2X(1000),20); } t+=60000; for(let i=0;i<10;i++){ t=a2Tone(T,t,a2X(1300),26); t=a2Tone(T,t,a2X(1000),20); } },
+  hello:T=>{ let t=a2Tone(T,0,a2X(700),40); a2Tone(T,t+2000,a2X(900),60); },
+  escape:T=>{ a2Sweep(T,0,a2X(200),a2X(1200),200); },
+  open:T=>{ a2Duet(T,0,[[72,60,1],[76,64,1],[79,67,1],[84,72,2]],.11); },
+  deliver:T=>{ a2Duet(T,0,[[79,67,1],[84,72,2]],.12); },
+  start:T=>{ a2Duet(T,0,[[67,48,1],[72,52,1],[76,55,1],[79,60,1],[76,55,1],[79,60,3]],.1); },
+  title:T=>{ a2Duet(T,0,[[72,48,1],[74,50,1],[76,52,1],[79,55,2],[76,52,1],[79,55,3]],.12); },
+  show:T=>{ a2Duet(T,0,[[72,48,1],[79,55,1],[76,52,1],[79,55,1],[84,48,1],[83,55,1],[81,53,1],[79,55,1],[77,50,1],[81,53,1],[79,55,1],[76,52,1],[74,55,1],[71,43,1],[72,48,3]],.16); },
+  lost:T=>{ let t=a2Duet(T,0,[[76,52,1],[75,51,1],[74,50,1],[73,49,1],[72,48,4]],.2); },
+  juke0:T=>a2Duet(T,0,TKN_TUNES[0],TKN_BEAT[0]), juke1:T=>a2Duet(T,0,TKN_TUNES[1],TKN_BEAT[1]), juke2:T=>a2Duet(T,0,TKN_TUNES[2],TKN_BEAT[2]),
+};
+function a2Play(name, delay=0){
+  if(!SND.on || !A2_SFX[name]) return; const c=audio(); if(!c) return;
+  let buf=SPK.cache[name]; if(!buf){ const T=[]; A2_SFX[name](T); const d=a2Render(T, c.sampleRate); buf=c.createBuffer(1, Math.max(1,d.length), c.sampleRate); buf.getChannelData(0).set(d); SPK.cache[name]=buf; }
+  const src=c.createBufferSource(); src.buffer=buf; const g=c.createGain(); g.gain.value=1; src.connect(g); g.connect(SND.out||SND.master); src.start(c.currentTime+delay);
+  const music=/^(juke|show|title|lost)/.test(name);
+  if(music){ for(const o of SPK.live) try{ o.stop(); }catch(e){} SPK.live=[src]; src.onended=()=>{ SPK.live=SPK.live.filter(x=>x!==src); }; }
+  if(SND.cap && !SND.out) SND.cap.push(['a', name, delay]);
+}
+// build the click-sounds ahead of time, one per frame, so the first jukebox tune doesn't hitch
+function a2Warm(){ const c=SND.ctx; if(!c) return; const k=Object.keys(A2_SFX).find(n=>!SPK.cache[n]); if(!k) return; const T=[]; A2_SFX[k](T); const d=a2Render(T, c.sampleRate); const b=c.createBuffer(1, Math.max(1,d.length), c.sampleRate); b.getChannelData(0).set(d); SPK.cache[k]=b; }
+// music stops when you leave the game
+setInterval(()=>{ if(SPK.live.length && performance.now()-SPK.seen>400){ for(const o of SPK.live) try{ o.stop(); }catch(e){} SPK.live=[]; } }, 250);
+const TKN_SND={ last:0 };
+function tkSounds(s){
+  if((s.evn||0)<TKN_SND.last) TKN_SND.last=0;
+  let n=0;
+  for(const e of s.ev){ if(e.i<=TKN_SND.last) continue; TKN_SND.last=e.i; if(n++>5) continue;
+    if(e.k==='juke') a2Play('juke'+(e.a|0)); else a2Play(e.k); }
+}
 
 /* =====================================================================
    3D WORLD — lobby + arcade room (same walking interface as the gallery)
@@ -8547,6 +9007,7 @@ function buildRoom2(){
   // Pop Pals cabinet against the wall by the door
   uprightCab(GAMES.find(g=>g.id==='pop'), R.x1-.45, -13.2, -1);
   uprightCab(GAMES.find(g=>g.id==='track'), R.x1-.45, -14.4, -1);
+  uprightCab(GAMES.find(g=>g.id==='token'), R.x1-.45, -15.6, -1);   // Token Trouble (29zd-token.js)
   buildFishBooth();
   buildPoolTable();
   buildMoleBooth();
