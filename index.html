@@ -8164,25 +8164,36 @@ const TKN = { W:1120, H:768, NX:[24,82,140,198,256], NY:[46,84,122,160], HL:58, 
 // stations on the aisle grid: [col,row]
 const TKN_ST = { safe:[0,0], tok0:[1,0], phone0:[2,0], tok1:[3,0], cash:[4,0], slot:[0,1], bin:[1,1], show:[2,1], pop:[4,1], tok2:[0,2], tok3:[4,2], phone1:[0,3], juke:[2,3], piggy:[4,3] };
 // the Scamp control panel: [label, key, min, max, default]
-const TKN_CFG = [ ['SPEED','spd',1,5,2], ['SMARTS','smart',1,5,2], ['DAYDREAMING','pat',1,5,3], ['PIGGY BANK','pig',3,9,6] ];
-function tkCfg(){ const c={}; let st={}; try{ st=JSON.parse(store('tok-cfg')||'{}')||{}; }catch(e){} for(const [,k,a,b,d] of TKN_CFG) c[k]=clamp(Math.round(+st[k]||d),a,b); return c; }
+const TKN_CFG = [ ['SPEED','spd',1,5,2], ['SMARTS','smart',1,5,2], ['DAYDREAMING','pat',1,5,3], ['PIGGY BANK','pig',3,9,6], ['START GAME','go',0,0,0] ];
+function tkCfg(){ const c={}; let st={}; try{ st=JSON.parse(store('tok-cfg')||'{}')||{}; }catch(e){} for(const [,k,a,b,d] of TKN_CFG) if(k!=='go') c[k]=clamp(Math.round(+st[k]||d),a,b); return c; }
 const tkPat = s => [.6,.8,1,1.25,1.5][(s.cfg.pat||3)-1];   // how long the jukebox, phones and popcorn hold their attention
 const TKN_AT = (()=>{ const m={}; for(const [k,[c,r]] of Object.entries(TKN_ST)) m[c+','+r]=k; return m; })();
 let tkId=1;
 function tkEv(s, k, a=0){ s.evn=(s.evn||0)+1; s.ev.push({ i:s.evn, k, a }); if(s.ev.length>24) s.ev.shift(); }
 function tkPos(E){ const c2=E.mv?E.tc:E.c, r2=E.mv?E.tr:E.r, p=E.mv?(E.f||0):0; return { x:lerp(TKN.NX[E.c],TKN.NX[c2],p), y:lerp(TKN.NY[E.r],TKN.NY[r2],p) }; }
 function tkOkDir(E, w){ return tkOk(E.c+w[0], E.r+w[1]); }
+// owners can't walk up through a machine (it stands above its crossing) — only the bin and piggy bank are walk-through
+function tkUpBlocked(c, r){ const k=TKN_AT[c+','+r]; return !!k && k!=='bin' && k!=='piggy'; }
+// first step of the shortest owner route between crossings (breadth-first over the aisles)
+function tkRoute(from, to){
+  const key=(c,r)=>c*4+r, prev=new Map([[key(from[0],from[1]),null]]), q=[from];
+  while(q.length){ const [c,r]=q.shift(); if(c===to[0] && r===to[1]) break;
+    for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const nc=c+dx, nr=r+dy; if(!tkOk(nc,nr) || (dy===-1 && tkUpBlocked(c,r)) || prev.has(key(nc,nr))) continue; prev.set(key(nc,nr),[c,r,dx,dy]); q.push([nc,nr]); } }
+  let k=key(to[0],to[1]), step=null; if(!prev.has(k)) return null;
+  while(prev.get(k)){ const [c,r,dx,dy]=prev.get(k); step=[dx,dy]; k=key(c,r); }
+  return step;
+}
 function tkOk(c, r){ return c>=0 && c<5 && r>=0 && r<4; }
 
 game({
-  id:'token', name:'Token Trouble', color:'#ff6a3c', color2:'#14f53c', kind:'field', noRotate:true, coop:true, ownBanner:true, touch:'pad', padLabel:'USE', solo:true,
-  W:TKN.W, H:TKN.H, netDt:1/20, netRound:1, stickHint:'Drag anywhere to walk',
+  id:'token', name:'Token Trouble', color:'#ff6a3c', color2:'#14f53c', kind:'field', noRotate:true, coop:true, ownBanner:true, touch:'pad', noFire:true, solo:true,
+  W:TKN.W, H:TKN.H, netDt:1/20, netRound:1, stickHint:'Drag to walk · push up under a machine to use it',
   cpuText:'🤖 Play with the computer<small>A computer owner runs the arcade with you</small>', soloText:'🪙 Solo<small>Run the arcade on your own</small>', endKick:'team game',
   blurb:"Two Scamps have escaped from the Scamp Show and they're pinching tokens from your arcade! Keep the token machines fed, bank ten tokens to open the show booth, and grab back what they steal — five tokens in their piggy bank and they retire rich.",
-  how:{ touch:'Drag to walk the aisles (you go crossing to crossing). Walk into things to use them: <b>CASH</b> gives a bill, a bill in a <b>TOKENS</b> machine makes two tokens, carry tokens to the <b>BIN</b>. Ten in the bin opens the <b>SHOW</b> — walk in to clear the level. Walk into a Scamp with a token to take it back. A token in the <b>JUKEBOX</b> makes them dance, in a <b>PHONE</b> they go chat, in the <b>POPCORN</b> machine they stand and stare. A bill in the <b>SLOTS</b> might drop a jackpot straight into the bin. <b>USE</b> uses what you\'re standing at again. Before each game the <b>Scamp control panel</b> sets how fast, sneaky, easily distracted and greedy they are.',
-    keys:'Walk <b>W A S D</b> / arrows. Walk into machines to use them; <b>F</b> or <b>Space</b> uses the one you\'re standing at again.',
-    keys2:'Same keyboard: left player <b>W A S D</b> and <b>F</b>; right player arrows and <b>Enter</b> or <b>L</b>.',
-    pad:'Stick or d-pad to walk, Ⓐ to use the machine you\'re standing at.' },
+  how:{ touch:'Drag to walk the aisles (you go crossing to crossing). To use a machine, stop right under it and <b>push up</b>: <b>CASH</b> gives a bill (or takes a money bag from the <b>SAFE</b>), a bill in a <b>TOKENS</b> machine makes two tokens and an empty-handed push takes one. Walking over the <b>BIN</b> drops your token in. Ten in the bin opens the <b>SHOW</b> — push up into it to clear the level. Walk into a Scamp with a token to take it back. A token in the <b>JUKEBOX</b> makes them dance, in a <b>PHONE</b> they go chat, in the <b>POPCORN</b> machine they stand and stare. A bill in the <b>SLOTS</b> might drop a jackpot straight into the bin. Before each game the <b>Scamp control panel</b> sets how fast, sneaky, easily distracted and greedy they are.',
+    keys:'Walk <b>W A S D</b> / arrows. Stop under a machine and press <b>up</b> to use it.',
+    keys2:'Same keyboard: left player <b>W A S D</b>, right player arrows. Stop under a machine and press up to use it.',
+    pad:'Stick or d-pad to walk; stop under a machine and push up to use it.' },
   init(o){
     const solo=o.mode==='solo';
     const s={ ph:'title', t:0, pt:0, lv:1, solo, n:solo?1:2, pl:[], sc:[], m:[], cash:10, safe:3, bin:0, piggy:0, juke:0, jukeN:0, phone:[0,0], pop:0, slot:null, ring:0, msg:'', msgT:0, ev:[], evn:0, over:false, winner:-1, cfg:tkCfg(), sel:0, _in:[{},{}] };
@@ -8214,9 +8225,10 @@ game({
     if(s.ph==='panel'){   // the Scamp control panel: up/down picks a setting, left/right changes it, USE plays
       for(let p=0;p<2;p++){ const I=inp[p]||{}, M=s._in[p], x=+I.x||0, y=+I.y||0, ex=Math.abs(x)>.5?Math.sign(x):0, ey=Math.abs(y)>.5?Math.sign(y):0;
         if(ey && ey!==M.ey){ s.sel=(s.sel+ey+TKN_CFG.length)%TKN_CFG.length; tkEv(s,'tick'); }
-        if(ex && ex!==M.ex){ const [,k,a,b]=TKN_CFG[s.sel], v=clamp(s.cfg[k]+ex,a,b); if(v!==s.cfg[k]){ s.cfg[k]=v; tkEv(s,'adjust', v); } else tkEv(s,'nope'); }
-        M.ex=ex; M.ey=ey; }
-      if(s.pt>.4 && press.some(Boolean)){ try{ store('tok-cfg', JSON.stringify(s.cfg)); }catch(e){} this._level(s, 1); s.msgT=2; }
+        let go=false;
+        if(ex && ex!==M.ex){ const [,k,a,b]=TKN_CFG[s.sel]; if(k==='go') go=true; else { const v=clamp(s.cfg[k]+ex,a,b); if(v!==s.cfg[k]){ s.cfg[k]=v; tkEv(s,'adjust', v); } else tkEv(s,'nope'); } }
+        M.ex=ex; M.ey=ey; if(go) s.go=1; }
+      if(s.pt>.4 && (s.go || press.some(Boolean))){ s.go=0; try{ store('tok-cfg', JSON.stringify(s.cfg)); }catch(e){} this._level(s, 1); s.msgT=2; }
       return; }
     if(s.ph==='ready'){ if(s.pt>1.6) { s.ph='play'; s.pt=0; } return; }
     if(s.ph==='show'){ if(s.pt>5.2) this._level(s, s.lv+1); return; }
@@ -8233,12 +8245,13 @@ game({
     if(!s.safe && !s.cash && !s.m.some(m=>m.ready) && !s.pl.some(P=>P.hold)){ s.dry+=dt; if(s.dry>8){ s.dry=0; s.safe=1; s.msg='A DELIVERY!'; s.msgT=1.6; tkEv(s,'deliver'); } } else s.dry=0;
     // owners
     s.pl.forEach((P,p)=>{ if(P.flash>0) P.flash-=dt;
-      const I=inp[p]||{}, want=this._want(I);
+      const I=inp[p]||{}, M=s._in[p]; let want=this._want(I);
+      const up=!!(want && want[1]===-1), upEdge=up && !M.up; M.up=up;
+      // stopped right under a machine (the machines stand above their crossings): pushing up uses it once per push, and you don't walk through it
+      const k=!P.mv && TKN_AT[P.c+','+P.r];
+      if(k && k!=='bin' && k!=='piggy' && up){ if(upEdge) this._use(s,P); want=null; }
       if(this._move(P, want, 96, dt)){ P.step++; tkEv(s,'step');
-        // walking past the phones, jukebox or show booth doesn't use them — stop there (or press USE)
-        const k=TKN_AT[P.c+','+P.r], pass=want && tkOkDir(P,want) && (k==='juke'||k==='show'||k==='pop'||k==='slot'||(k&&k.startsWith('phone')));
-        if(!pass) this._use(s,P); }
-      else if(!P.mv && press[p]) this._use(s,P, true); });
+        if(TKN_AT[P.c+','+P.r]==='bin') this._use(s,P); } });   // the bin is the only thing that works by itself
     // scamps
     for(const e of s.sc) this._scamp(s, e, dt);
     // scamps bump into each other → both dazed
@@ -8252,18 +8265,19 @@ game({
   _use(s, P, again){
     const k=TKN_AT[P.c+','+P.r]; if(!k) return;
     const h=P.hold;
+    if(k==='piggy') return;
     if(k==='cash'){ if(h==='bag'){ s.cash+=10; P.hold=null; tkEv(s,'kaching'); } else if(!h && s.cash>0){ s.cash--; P.hold='bill'; tkEv(s,'bill'); } else if(!h) tkEv(s,'nope'); }
     else if(k==='safe'){ if(!h && s.safe>0){ s.safe--; P.hold='bag'; tkEv(s,'bag'); } else if(!h) tkEv(s,'nope'); }
     else if(k.startsWith('tok')){ const m=s.m[+k[3]];
       if(h==='bill'){ P.hold=null; if(m.stock>=2){ m.stock-=2; m.ready+=2; tkEv(s,'clunk'); } else { m.out=true; tkEv(s,'out'); } }
-      else if(!h){ if(m.ready>0){ m.ready--; P.hold='token'; tkEv(s,'clink'); } else if(again) tkEv(s,'nope'); } }
-    else if(k==='bin'){ if(h==='token'){ s.bin++; P.hold=null; P.score+=25*s.lv; tkEv(s,'deposit'); if(s.bin===10){ s.msg='THE SHOW IS OPEN!'; s.msgT=2.2; tkEv(s,'open'); } } }
-    else if(k==='juke'){ if(h==='token'){ P.hold=null; s.jukeN=(s.jukeN+1)%3; const len=TKN_TUNE_LEN[s.jukeN]; s.juke = len*Math.min(1, tkPat(s)*(s.lv>=4?.7:1)); tkEv(s,'juke', s.jukeN); s.sc.forEach(e=>{ if(e.st==='phone') e.st='go'; }); } }
-    else if(k.startsWith('phone')){ if(h==='token'){ P.hold=null; s.phone[+k[5]]=6.5*tkPat(s); s.ring=0; } }
-    else if(k==='pop'){ if(h==='token'){ P.hold=null; s.pop=8*tkPat(s); s.popT=0; tkEv(s,'popstart'); s.sc.forEach(e=>{ if(e.st==='phone') e.st='go'; }); } }
+      else if(!h){ if(m.ready>0){ m.ready--; P.hold='token'; tkEv(s,'clink'); } else tkEv(s,'nope'); } else tkEv(s,'nope'); }
+    else if(k==='bin'){ if(h==='token' && !again){ s.bin++; P.hold=null; P.score+=25*s.lv; tkEv(s,'deposit'); if(s.bin===10){ s.msg='THE SHOW IS OPEN!'; s.msgT=2.2; tkEv(s,'open'); } } }
+    else if(k==='juke'){ if(h!=='token'){ tkEv(s,'nope'); return; } { P.hold=null; s.jukeN=(s.jukeN+1)%3; const len=TKN_TUNE_LEN[s.jukeN]; s.juke = len*Math.min(1, tkPat(s)*(s.lv>=4?.7:1)); tkEv(s,'juke', s.jukeN); s.sc.forEach(e=>{ if(e.st==='phone') e.st='go'; }); } }
+    else if(k.startsWith('phone')){ if(h!=='token'){ tkEv(s,'nope'); return; } { P.hold=null; s.phone[+k[5]]=6.5*tkPat(s); s.ring=0; } }
+    else if(k==='pop'){ if(h!=='token'){ tkEv(s,'nope'); return; } { P.hold=null; s.pop=8*tkPat(s); s.popT=0; tkEv(s,'popstart'); s.sc.forEach(e=>{ if(e.st==='phone') e.st='go'; }); } }
     else if(k==='slot'){ if(h==='bill' && !(s.slot && s.slot.t>0)){ P.hold=null;   // one pull: a third of the time the reels line up and the jackpot drops straight into the bin
         const win=Math.random()<.34, a=ri(4), r=win?[a,a,a]:(()=>{ let x; do{ x=[ri(4),ri(4),ri(4)]; }while(x[0]===x[1]&&x[1]===x[2]); return x; })();
-        s.slot={ t:1.8, r, win: win ? 3+Math.min(3, s.lv>>1)+(a===3?2:0) : 0 }; tkEv(s,'spin'); } else if(!h && again) tkEv(s,'nope'); }
+        s.slot={ t:1.8, r, win: win ? 3+Math.min(3, s.lv>>1)+(a===3?2:0) : 0 }; tkEv(s,'spin'); } else tkEv(s,'nope'); }
     else if(k==='show'){ if(s.bin>=10){ const extra=s.bin-9; P.score+=500*s.lv+extra*100*s.lv; s.ph='show'; s.pt=0; s.msg=''; tkEv(s,'show'); } else tkEv(s,'closed'); }
   },
   /* ------------------------------------------------------------ scamp brains */
@@ -8340,8 +8354,8 @@ game({
     P._g=goal;
     if(!goal) return out();
     const dx=goal[0]-here[0], dy=goal[1]-here[1];
-    if(!dx && !dy){ if(!P.mv && m.cool<=0){ m.ac++; m.cool=.45; } return out(); }
-    return dx ? out(Math.sign(dx),0) : out(0,Math.sign(dy));
+    if(!dx && !dy){ const k=TKN_AT[here[0]+','+here[1]]; if(P.mv || !k || k==='bin' || k==='piggy') return out(); m.tg=(m.tg||0)+dt; return (m.tg%.5)<.2 ? out(0,-1) : out(); }
+    const st=tkRoute(here, goal); return st ? out(st[0], st[1]) : out();
   },
   /* ------------------------------------------------------------ session glue */
   status(s){ const team=s.pl.reduce((a,P)=>a+P.score,0); return { l:s.pl[0]?s.pl[0].score:0, r:s.pl[1]?s.pl[1].score:'', c:`Level ${s.lv} · piggy bank ${s.piggy}/${s.cfg.pig} · team ${team}` }; },
@@ -8518,11 +8532,12 @@ function tkTitle(t){
 function tkPanel(s, t){
   hrClear(); hrRect(0,0,140,2,'g'); hrRect(0,190,140,2,'g'); hrRect(0,0,2,192,'g'); hrRect(138,0,2,192,'g');
   hrText5(70-(hrW5('SCAMP CONTROL')>>1), 10, 'SCAMP CONTROL', 'W'); hrText5(70-(hrW5('PANEL')>>1), 20, 'PANEL', 'W');
-  TKN_CFG.forEach(([lab,k,a,b],i)=>{ const y=40+i*28, on=i===s.sel, v=s.cfg[k];
-    if(on){ hrFrame(6, y-4, 128, 23, (t*3|0)%2?'o':'W'); hrSpr(9, y+1, ['W..','WW.','WWW','WW.','W..']); }
+  TKN_CFG.forEach(([lab,k,a,b],i)=>{ const y=36+i*24, on=i===s.sel, v=s.cfg[k];
+    if(k==='go'){ const w=hrW5(lab)+10; if(on) hrFrame(70-(w>>1), y-3, w, 13, (t*3|0)%2?'o':'W'); hrText5(70-(w>>1)+5, y, lab, on?'o':'W'); if(on) hrSpr(70-(w>>1)-6, y+1, ['W..','WW.','WWW','WW.','W..']); return; }
+    if(on){ hrFrame(6, y-4, 128, 21, (t*3|0)%2?'o':'W'); hrSpr(9, y+1, ['W..','WW.','WWW','WW.','W..']); }
     hrText5(15, y, lab, on?'W':'g');
     if(k==='pig'){ for(let q=0;q<b;q++) hrFrame(15+q*6, y+10, 5, 5, q<v?'o':'W'); for(let q=0;q<v;q++) hrRect(16+q*6, y+11, 3, 3, 'o'); hrText5(74, y+9, String(v)+' TOKENS', 'W'); }
-    else { for(let q=0;q<5;q++){ hrFrame(15+q*9, y+10, 8, 5, 'W'); if(q<v) hrRect(16+q*9, y+11, 6, 3, on?'o':'b'); } hrText3(66, y+11, ['SLOW','EASY','DREAMY'][['spd','smart','pat'].indexOf(k)]+' - '+['FAST','SNEAKY','FOCUSED'][['spd','smart','pat'].indexOf(k)], 'W'); }
+    else { for(let q=0;q<5;q++){ hrFrame(15+q*9, y+10, 8, 5, 'W'); if(q<v) hrRect(16+q*9, y+11, 6, 3, on?'o':'b'); } hrText3(66, y+11, ['SLOW','EASY','FOCUSED'][['spd','smart','pat'].indexOf(k)]+' - '+['FAST','SNEAKY','DREAMY'][['spd','smart','pat'].indexOf(k)], 'W'); }
     // a little Scamp acting out the setting on the selected row
     if(on){ let x=118, y2=y-1, rows=TKNA.sc;
       if(k==='spd'){ x=104+Math.round(Math.sin(t*(1+v*1.4))*12); rows=((t*(2+v*2))|0)%2?TKNA.sc:TKNA.scD; }
@@ -8530,8 +8545,8 @@ function tkPanel(s, t){
       else if(k==='pat'){ rows=((t*(7-v)*1.5)|0)%2?TKNA.sc:TKNA.scD; if(v>2 && (t*2|0)%2) hrSpr(x+1, y2-5, ['W.W','WWW','.W.']); }
       else { hrSpr(x+1, y2-4, TKNA.coin); }
       if(k!=='pig') hrSpr(x, y2, rows, TKN_SCL[(t|0)%2]); else hrSpr(x, y2, rows, TKN_SCL[0]); } });
-  hrText3(70-(hrW3('UP/DOWN PICK - LEFT/RIGHT CHANGE')>>1), 158, 'UP/DOWN PICK - LEFT/RIGHT CHANGE', 'W');
-  if((t*2|0)%2) hrText5(70-(hrW5('PRESS USE TO PLAY')>>1), 170, 'PRESS USE TO PLAY', 'o');
+  hrText3(70-(hrW3('UP/DOWN PICK - LEFT/RIGHT CHANGE')>>1), 166, 'UP/DOWN PICK - LEFT/RIGHT CHANGE', 'W');
+  hrText3(70-(hrW3('ON START GAME PUSH RIGHT')>>1), 175, 'ON START GAME PUSH RIGHT', (t*2|0)%2?'o':'W');
 }
 function tkShow(s, t){
   hrClear(); hrRect(0,0,140,2,'o'); hrRect(0,190,140,2,'o');
@@ -13428,7 +13443,7 @@ gc.addEventListener('pointerdown', e=>{
   if(S.local.length>1){ if(S.def.whoAt) p=S.def.whoAt(x,y,S.w,S.h); else { const L=V.toL(x,y); p = L.x < S.def.W/2 ? 0 : 1; } }
   if(S.def.touch==='drag'){ touches.set(e.pointerId,{kind:'drag',p,x,y}); return; }
   const f=fireSpot(p,V);
-  if(Math.hypot(x-f.x,y-f.y)<f.r+16){ touches.set(e.pointerId,{kind:'fire',p,x,y}); return; }
+  if(!S.def.noFire && Math.hypot(x-f.x,y-f.y)<f.r+16){ touches.set(e.pointerId,{kind:'fire',p,x,y}); return; }
   if(S.def.pad2){ const f2=fireSpot2(f); if(Math.hypot(x-f2.x,y-f2.y)<f2.r+12){ touches.set(e.pointerId,{kind:'fire2',p,x,y}); return; } }
   for(const t of touches.values()) if(t.kind==='stick' && t.p===p) return;
   touches.set(e.pointerId,{kind:'stick',p,ox:x,oy:y,x,y});
@@ -13589,7 +13604,7 @@ function gameFrame(dt, t){
   else if(def.kind==='field'){
     c.setTransform(new DOMMatrix().scale(S.dpr).multiply(V.m)); def.draw(g, st, viewer, S.ui, t, V);
     c.setTransform(S.dpr,0,0,S.dpr,0,0);
-    if(IS_TOUCH && def.touch==='pad' && (!def.booth || def.pads)) drawPads(c,V);
+    if(IS_TOUCH && def.touch==='pad' && !def.noFire && (!def.booth || def.pads)) drawPads(c,V);
     if(def.overlay) def.overlay(c, st, V, viewer);
     if(st.banner && !def.ownBanner) glowText(c, st.banner, w/2, h*(V.portrait?.5:.46), clamp(Math.min(w,h)*.11,30,84), NEON.yellow, {font:HEAD, weight:900, maxW:w*.92});   // maxW: long banners shrink to fit the screen instead of running off the edges
   } else { ui_reset(S.ui); const top=boardTop(); if(top){ c.translate(0,top); g.h=h-top; } def.draw(g, st, viewer, S.ui, t); c.setTransform(S.dpr,0,0,S.dpr,0,0); }
