@@ -8741,6 +8741,116 @@ function tkSounds(s){
   for(const e of s.ev){ if(e.i<=TKN_SND.last) continue; TKN_SND.last=e.i; if(n++>5) continue;
     if(e.k==='juke') a2Play('juke'+(e.a|0)); else a2Play(e.k); }
 }
+/* =====================================================================
+   GUMMY BEARS — an original candy bag, built here (no outside models):
+   a puffy pillow pack with crimped zig-zag seals and a hang hole, hot
+   pink fading to violet, chunky bouncing "GUMMY BEARS" lettering and a
+   clear bear-head-shaped window. The bears you see through the window
+   are the ones left: eat one and there's one fewer. Empty, it crumples
+   flat. A few 3D jelly bears sit loose on the snack counter.
+   ===================================================================== */
+const GM = { W:.09, H:.13, D:.016, tex:{}, back:null, bears:14 };
+const GM_COLS=['#ff3b3b','#ffb21f','#ffe41f','#3fe04a','#24a8ff','#a34dff','#ff40c8'];
+function gmBear(x, cx, cy, s, rot, col){   // a flat drawn gummy bear, with a jelly shine
+  x.save(); x.translate(cx,cy); x.rotate(rot); x.scale(s,s);
+  x.fillStyle=col; x.strokeStyle='rgba(0,0,0,.18)'; x.lineWidth=1.2;
+  const blob=(a,b,r)=>{ x.beginPath(); x.arc(a,b,r,0,7); x.fill(); x.stroke(); };
+  blob(-6,-15,4.2); blob(6,-15,4.2); blob(0,-9,8.5);           // ears, head
+  blob(-9,2,4); blob(9,2,4); blob(-6,13,5); blob(6,13,5);       // arms, feet
+  x.beginPath(); x.ellipse(0,5,8.5,10,0,0,7); x.fill(); x.stroke(); // tummy
+  x.fillStyle='rgba(255,255,255,.55)'; x.beginPath(); x.ellipse(-3,-12,2.4,1.5,-.5,0,7); x.fill(); x.beginPath(); x.ellipse(-3.5,1,1.6,4,.2,0,7); x.fill();
+  x.fillStyle='rgba(0,0,0,.28)'; x.beginPath(); x.arc(-2.8,-9,1,0,7); x.arc(2.8,-9,1,0,7); x.fill(); x.beginPath(); x.ellipse(0,-6,1.8,1.1,0,0,7); x.fill();
+  x.restore();
+}
+// bag outline shared by front and back: crimped zig-zag seals (cut out with transparency) and a hang hole
+function gmCut(x, w, h){
+  x.globalCompositeOperation='destination-out'; x.fillStyle='#000';
+  for(const top of [true,false]){ const y0=top?0:h; x.beginPath(); x.moveTo(0,y0); for(let i=0;i<=16;i++){ x.lineTo(i*w/16, y0+(top?1:-1)*(i%2?14:0)); } x.lineTo(w,y0); x.closePath(); x.fill(); }
+  x.beginPath(); x.roundRect(w/2-26,18,52,11,6); x.fill();
+  x.globalCompositeOperation='source-over';
+}
+function gmSeal(x, w, h){
+  const g=x.createLinearGradient(0,0,0,48); g.addColorStop(0,'#c21a7a'); g.addColorStop(1,'#e8288f'); x.fillStyle=g; x.fillRect(0,0,w,46);
+  const g2=x.createLinearGradient(0,h-48,0,h); g2.addColorStop(0,'#5a1fc8'); g2.addColorStop(1,'#3e138f'); x.fillStyle=g2; x.fillRect(0,h-46,w,46);
+  x.strokeStyle='rgba(255,255,255,.18)'; x.lineWidth=1.5; for(let i=0;i<5;i++){ x.beginPath(); x.moveTo(0,16+i*6); x.lineTo(w,16+i*6); x.stroke(); x.beginPath(); x.moveTo(0,h-16-i*6); x.lineTo(w,h-16-i*6); x.stroke(); }
+}
+function gmBody(x, w, h){
+  const g=x.createLinearGradient(0,46,0,h-46); g.addColorStop(0,'#ff3fa4'); g.addColorStop(.55,'#c43bff'); g.addColorStop(1,'#6a2cff'); x.fillStyle=g; x.fillRect(0,46,w,h-92);
+  x.fillStyle='rgba(255,255,255,.08)'; for(let i=0;i<9;i++){ x.beginPath(); x.arc((i*71)%w, 60+(i*97)%(h-120), 10+(i%3)*6, 0, 7); x.fill(); }   // soft bubbles
+}
+function gmShine(x, w, h){ x.save(); x.globalAlpha=.22; x.fillStyle='#fff'; x.beginPath(); x.moveTo(30,46); x.lineTo(62,46); x.lineTo(18,h-46); x.lineTo(4,h-46); x.closePath(); x.fill(); x.globalAlpha=.12; x.beginPath(); x.moveTo(w-46,46); x.lineTo(w-34,46); x.lineTo(w-70,h-46); x.lineTo(w-80,h-46); x.closePath(); x.fill(); x.restore(); }
+function gmFront(left){   // left = bears still in the bag (0…14)
+  if(GM.tex[left]) return GM.tex[left];
+  const c=document.createElement('canvas'); c.width=256; c.height=384; const x=c.getContext('2d'), w=256, h=384;
+  gmSeal(x,w,h); gmBody(x,w,h);
+  // the wordmark: GUMMY bounces letter by letter, BEARS sits under it
+  x.textAlign='center'; x.textBaseline='middle'; x.lineJoin='round';
+  'GUMMY'.split('').forEach((ch,i)=>{ x.save(); x.translate(44+i*42, 92+(i%2?-6:4)); x.rotate((i-2)*.06+(i%2?.05:-.05)); x.font='900 58px "Arial Black", Arial, sans-serif';
+    x.lineWidth=12; x.strokeStyle='#4a0f7a'; x.strokeText(ch,0,0); x.fillStyle='#ffd51f'; x.fillText(ch,0,0); x.fillStyle='rgba(255,255,255,.55)'; x.fillText(ch,-2,-3); x.fillStyle='#ffd51f'; x.fillText(ch,0,1); x.restore(); });
+  x.font='900 40px "Arial Black", Arial, sans-serif'; x.lineWidth=9; x.strokeStyle='#4a0f7a'; x.strokeText('BEARS',128,140); x.fillStyle='#fff'; x.fillText('BEARS',128,140);
+  // the clear window, shaped like a bear's head, with the bears that are left
+  const win=()=>{ x.beginPath(); x.arc(128,262,72,0,7); x.moveTo(84+30,196); x.arc(84,196,30,0,7); x.moveTo(172+30,196); x.arc(172,196,30,0,7); };
+  x.save(); win(); x.clip(); x.fillStyle='#f3e9ff'; x.fillRect(0,150,w,200);
+  const r=PC_RNG(5); const spots=[]; for(let i=0;i<GM.bears;i++) spots.push([70+r()*116, 330-(i/GM.bears)*120-r()*24+((i%3)*6), (r()-.5)*1.6, GM_COLS[i%GM_COLS.length], 1.55+r()*.35]);
+  spots.slice(0,left).forEach(([a,b,ro,col,s])=>gmBear(x,a,b,s,ro,col));
+  if(!left){ x.fillStyle='rgba(120,80,160,.35)'; for(let i=0;i<14;i++) x.fillRect(80+r()*96, 300+r()*30, 3, 3); }   // just crumbs
+  x.fillStyle='rgba(255,255,255,.35)'; x.beginPath(); x.ellipse(96,226,30,10,-.6,0,7); x.fill(); x.restore();
+  x.lineWidth=5; x.strokeStyle='#fff'; win(); x.stroke();
+  // ribbon
+  x.fillStyle='#ffd51f'; x.beginPath(); x.moveTo(24,330); x.lineTo(232,322); x.lineTo(228,346); x.lineTo(28,352); x.closePath(); x.fill();
+  x.font='900 17px "Arial Black", Arial, sans-serif'; x.fillStyle='#4a0f7a'; x.fillText('FRUITY · CHEWY',128,337);
+  gmShine(x,w,h); gmCut(x,w,h);
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4; return GM.tex[left]=t;
+}
+function gmBack(){
+  if(GM.back) return GM.back;
+  const c=document.createElement('canvas'); c.width=256; c.height=384; const x=c.getContext('2d'), w=256, h=384;
+  gmSeal(x,w,h); gmBody(x,w,h);
+  x.textAlign='center'; x.textBaseline='middle'; x.font='900 30px "Arial Black", Arial, sans-serif'; x.lineWidth=7; x.strokeStyle='#4a0f7a'; x.strokeText('GUMMY BEARS',128,80); x.fillStyle='#ffd51f'; x.fillText('GUMMY BEARS',128,80);
+  x.fillStyle='#fff'; x.fillRect(36,110,184,150); x.fillStyle='#4a0f7a'; x.font='bold 15px Arial, sans-serif'; x.fillText('7 FRUITY FLAVOURS',128,126);
+  for(let i=0;i<7;i++) gmBear(x, 54+i*25, 164, 1.05, (i%2?.2:-.2), GM_COLS[i]);
+  x.fillStyle='#cdbfe0'; for(let i=0;i<5;i++) x.fillRect(50, 196+i*12, 156-(i%2)*40, 6);
+  x.fillStyle='#fff'; x.font='bold 14px Arial, sans-serif'; x.fillText('SHARE WITH A FRIEND!',128,292);
+  gmShine(x,w,h); gmCut(x,w,h);
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4; return GM.back=t;
+}
+// the puffy pillow shape: flat crimped seals top and bottom, a rounded middle that pinches in toward the seals
+function gmPillowGeo(depth){
+  const g=new THREE.PlaneGeometry(GM.W, GM.H, 20, 30), p=g.attributes.position, hb=GM.H/2-GM.H*(46/384);
+  for(let i=0;i<p.count;i++){ const x=p.getX(i), y=p.getY(i), f=Math.abs(y)<hb ? Math.pow(1-Math.pow(Math.abs(y)/hb,5),.5) : 0, sx=1-.07*(1-f);
+    p.setXYZ(i, x*sx, y, depth*f*Math.sqrt(Math.max(0,1-Math.pow(x/(GM.W/2),2)))); }
+  g.computeVertexNormals(); return g;
+}
+const GM_GEO={};
+function gmBag(left, empty){
+  const d=empty?.0025:GM.D, key=String(d); if(!GM_GEO[key]) GM_GEO[key]=gmPillowGeo(d);
+  const mk=(tex,back)=>{ const m=new THREE.Mesh(GM_GEO[key], new THREE.MeshStandardMaterial({ map:tex, alphaTest:.5, roughness:.28, metalness:.15, emissive:'#ffffff', emissiveMap:tex, emissiveIntensity:.38 })); if(back){ m.rotation.y=Math.PI; } return m; };
+  const g=new THREE.Group(); g.add(mk(gmFront(left))); g.add(mk(gmBack(), true));
+  return g;
+}
+// hand / world model: the bag stands with its bottom seal on the ground
+function gmItem(kind, stage){
+  const it=ITEMS.gummies, left = kind==='gummies' ? Math.round(GM.bears*(1-(stage||0)/it.bites)) : 0, r=RADIUS[kind]||.05;
+  const bag=gmBag(left, kind==='bag'), w=new THREE.Group();
+  if(kind==='gummies'){ bag.position.y=GM.H/2-r; w.add(bag); }
+  else { bag.rotation.set(-Math.PI/2+.06, 0, .5); bag.scale.set(1,.9,1); bag.position.y=.003-r; w.add(bag); }   // empty: lying flat, a bit crumpled
+  w.userData.kind=kind; return w;
+}
+// a little 3D jelly bear (about 3 cm), for the counter
+const GM_BEARGEO=(()=>{ const parts=[], S=(r,x,y,z,sx=1,sy=1,sz=1)=>{ const s=new THREE.SphereGeometry(r,12,9); s.scale(sx,sy,sz); s.translate(x,y,z); parts.push(s); };
+  S(.0085,0,.026,0,1,.9,.8); S(.0035,-.0065,.033,0,1,1,.7); S(.0035,.0065,.033,0,1,1,.7); S(.0105,0,.011,0,.9,1.05,.75); S(.0038,-.0095,.015,0,1,1,.8); S(.0038,.0095,.015,0,1,1,.8); S(.0045,-.006,.002,0,1,.8,.8); S(.0045,.006,.002,0,1,.8,.8);
+  const merged=parts.length && THREE.BufferGeometryUtils ? THREE.BufferGeometryUtils.mergeGeometries(parts) : null; return merged || parts; })();
+function gmJellyBear(col){
+  const mat=new THREE.MeshStandardMaterial({ color:col, roughness:.18, metalness:0, transparent:true, opacity:.82, emissive:col, emissiveIntensity:.55 });
+  const g=new THREE.Group(); (Array.isArray(GM_BEARGEO)?GM_BEARGEO:[GM_BEARGEO]).forEach(geo=>g.add(new THREE.Mesh(geo, mat))); return g;
+}
+// on the snack counter (cs = the stand's group, customers on -x): a bag standing, one lying, and a few bears loose beside them
+function gmStand(cs){
+  const a=gmBag(GM.bears,false); a.scale.setScalar(1.6); a.position.set(-.17,1.11+GM.H*1.6/2,1.08); a.rotation.set(0,-Math.PI/2+.12,0); cs.add(a);
+  const b=gmBag(10,false); b.scale.setScalar(1.35); b.position.set(.02,1.11+.022,1.12); b.rotation.set(-Math.PI/2, 0, -Math.PI/2+.35); cs.add(b);
+  [[-.3,1.0,0],[-.31,1.17,2],[-.27,1.22,4],[-.36,1.09,3],[-.33,1.14,5]].forEach(([x,z,i],k)=>{ const j=gmJellyBear(GM_COLS[i]); j.position.set(x,1.11,z); j.rotation.set(-Math.PI/2, 0, k*1.3); j.position.y+=.006; cs.add(j); });
+  return true;
+}
 
 /* =====================================================================
    3D WORLD — lobby + arcade room (same walking interface as the gallery)
@@ -8992,11 +9102,11 @@ function buildLobby(){
   // soda fountain (model by Glowbox 3D, CC BY 4.0 — see 29v-soda.js); the old drinks box if it can't load
   if(!sdStand(cs)){ box(.7,1.9,.8,.35,.95,1.55,darkMat,cs);
   box(.02,1.2,.55,-.01,1.25,1.55,new THREE.MeshBasicMaterial({color:new THREE.Color(NEON.cyan).multiplyScalar(.9)}),cs); }
-  chStand(cs);   // bags of chips (model by Fhay.Alonso, CC BY 4.0 — see 29x-chips.js)
+  chStand(cs); gmStand(cs);   // gummy bears (29zf-gummy.js)   // bags of chips (model by Fhay.Alonso, CC BY 4.0 — see 29x-chips.js)
   signPlane(signTex([{t:'SNACKS', c:NEON.orange, size:150}],1024,256), 2.4,.6,-.84,3.0,0,-Math.PI/2,1.8,cs);
   signPlane(signTex([{t:'HOT DOGS · COLA · SLUSHIES', c:NEON.yellow, size:56, font:HEAD, weight:900},{t:'POPCORN · CHIPS · CANDY', c:NEON.pink, size:56, font:HEAD, weight:900}],1024,200), 1.9,.37,-.84,2.45,.3,-Math.PI/2,1.5,cs);
   const cbOK=cbStand(cs);   // chocolate bars (model by Jazz Vincent, CC BY 4.0 — see 29z-choc.js)
-  [['hotdog',-.2,.6],['cola',.0,.15],['slushie',.0,-.15],['gummies',-.2,1.0],...(cbOK?[]:[['bar',-.1,1.3]])].forEach(([k,x,z])=>{ const m=itemMesh(k); m.position.set(x,1.17,z); m.scale.setScalar(1.6); m.rotation.y=-Math.PI/2; cs.add(m); });
+  [['hotdog',-.2,.6],['cola',.0,.15],['slushie',.0,-.15],...(cbOK?[]:[['bar',-.1,1.3]])].forEach(([k,x,z])=>{ const m=itemMesh(k); m.position.set(x,1.17,z); m.scale.setScalar(1.6); m.rotation.y=-Math.PI/2; cs.add(m); });
   { const hit=box(.6,1.6,4.3,-1.0,.8,0,new THREE.MeshBasicMaterial({visible:false}),cs); hit.userData.shop='snacks'; hitList.push(hit); }
   collide(6.15,8,3.95,8.45);
   // velvet ropes leading to the arcade
@@ -10052,7 +10162,7 @@ const ITEMS={
   slushie: { name:'Blue slushie', cost:8, icon:'🧊', use:'Sip', bites:6, empty:'cup', shop:'snacks' },
   popcorn: { name:'Popcorn', cost:9, icon:'🍿', use:'Munch', bites:7, empty:'bucket', shop:'snacks' },
   chips:   { name:'Bag of chips', cost:7, icon:'🥔', use:'Munch', bites:6, empty:'chipbag', shop:'snacks' },
-  gummies: { name:'Gummy candy', cost:6, icon:'🍬', use:'Eat one', bites:6, empty:'bag', shop:'snacks' },
+  gummies: { name:'Gummy bears', cost:6, icon:'🍬', use:'Eat one', bites:6, empty:'bag', shop:'snacks' },
   bar:     { name:'Chocolate bar', cost:6, icon:'🍫', use:'Bite', bites:4, empty:'wrapper', shop:'snacks' },
   tray:    { name:'Hot dog tray', trash:true }, cup:{ name:'Empty cup', trash:true }, bucket:{ name:'Empty popcorn bucket', trash:true }, spill:{ name:'Spilled popcorn', trash:true },
   bag:     { name:'Empty candy bag', trash:true }, wrapper:{ name:'Candy wrapper', trash:true }, chipbag:{ name:'Empty chip bag', trash:true },
@@ -10137,6 +10247,7 @@ function itemMesh(kind, stage=0){
   if(kind==='popper') return popperMesh();
   if(kind==='popcorn'||kind==='bucket'||kind==='spill'){ const m=pcItem(kind,stage); if(m) return m; }
   if(kind==='bar'||kind==='wrapper'){ const m=cbItem(kind,stage); if(m) return m; }
+  if(kind==='gummies'||kind==='bag'){ const m=gmItem(kind,stage); if(m) return m; }
   if(kind==='chips'||kind==='chipbag'){ const m=chItem(kind,stage); if(m) return m; }
   const it=ITEMS[kind]||{}; const left = it.bites ? 1-stage/it.bites : 1;
   switch(kind){
