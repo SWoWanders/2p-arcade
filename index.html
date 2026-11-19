@@ -8059,12 +8059,30 @@ function pcFrame(dt){
   for(const o of PC_PILES){ o.t+=dt; if(o.t>90){ const k=Math.min(1,(o.t-90)/3); o.m.scale.setScalar(Math.max(.001,1-k)); if(k>=1){ scene.remove(o.m); o.dead=1; } } } for(let i=PC_PILES.length-1;i>=0;i--) if(PC_PILES[i].dead) PC_PILES.splice(i,1);
   // the machine keeps popping: kernels hop out of the kettle and tumble onto the heap
   const A=PC_ANIM; if(!A.root) return; A.t+=dt;
-  if(A.kettle) A.kettle.rotation.z=Math.sin(A.t*1.7)*.025;
+  // it pops in batches: about 20 s of popping, then a quiet spell while the kettle "reloads"
+  const cyc=A.t%45, popping=cyc<20, ramp=Math.min(1,cyc/3)*Math.min(1,(20-cyc)/3);
+  if(A.kettle) A.kettle.rotation.z=popping ? Math.sin(A.t*1.7)*.025 : A.kettle.rotation.z*.95;
+  if(popping) pcPopSound(dt, ramp);
   for(const p of A.pops){ p.t+=dt; if(p.t<0) continue;
+    if(!p.m.visible && !popping){ p.t=-.5; continue; }
     if(!p.m.visible){ p.m.visible=true; p.m.position.set(-.05+(Math.random()-.5)*.12, .5, -.02+(Math.random()-.5)*.12); p.vx=(Math.random()-.5)*.5; p.vz=(Math.random()-.2)*.4; p.vy=.5+Math.random()*.6; }
     p.vy-=2.4*dt; p.m.position.x+=p.vx*dt; p.m.position.y+=p.vy*dt; p.m.position.z+=p.vz*dt; p.m.rotation.x+=dt*6;
     const P=p.m.position; if(Math.abs(P.x)>.21){ P.x=Math.sign(P.x)*.21; p.vx*=-.4; } if(Math.abs(P.z)>.21){ P.z=Math.sign(P.z)*.21; p.vz*=-.4; }
     if(P.y<.15 || p.t>2.4){ p.m.visible=false; p.t=-Math.random()*1.2; } }
+}
+// the popping you hear from the machine: little crackly bursts placed at the machine, so they come from its direction
+const PC_POP={ t:0, at:null };
+function pcPopSound(dt, ramp){
+  if(!SND.on || S.open || !PC_ANIM.root) return;
+  if(!PC_POP.at){ PC_POP.at=PC_ANIM.root.getWorldPosition(new THREE.Vector3()); PC_POP.at.y+=.4; }
+  const P=PC_POP.at, d=Math.hypot(player.x-P.x, player.z-P.z); if(d>14) return;
+  PC_POP.t-=dt; if(PC_POP.t>0) return;
+  PC_POP.t = (.05+Math.random()*.32)/(.35+.65*ramp);   // sparse at first, a busy crackle in the middle, tapering off
+  withSpatial('popcorn', P.x, P.y, P.z, ()=>{
+    const v=.05+Math.random()*.06, f=1300+Math.random()*2600;
+    noise(.018+Math.random()*.02, v, f); tone(240+Math.random()*260, .02, 'triangle', v*.5, .55);
+    if(Math.random()<.3) noise(.012, v*.7, f*1.3, .03+Math.random()*.04);   // a double pop now and then
+  });
 }
 // a full (or part-eaten) tub hitting the floor spills
 function pcSpill(o){
