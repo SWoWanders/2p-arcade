@@ -16,3 +16,5 @@ and posts it under **Releases → Latest**.
 
 Signing: repo secrets `ANDROID_KEYSTORE_B64` and `ANDROID_KEYSTORE_PASSWORD`
 (same key as the other apps). Without them each build uses a throwaway key.
+
+Signing secrets added Nov 2026: builds now use the permanent key and install over each other.
